@@ -10,7 +10,7 @@
 |---|---|
 | Tier B（10.9 ~ 10.13+）终端 + GUI | ✅ 上游已实现 |
 | 双提供商（Claude / Gemini） | ✅ 上游已实现 |
-| **7 提供商（+ OpenAI / DeepSeek / 通义千问 / Kimi / GLM）** | ✅ 本 fork 已实现（M4 核心）|
+| **7 提供商（+ OpenAI / DeepSeek / 通义千问 / Kimi / GLM）** | ✅ 本 fork 已实现（M4）|
 | 加密历史 + 口令/合言葉双恢复 | ✅ 已实现 |
 | 日英双语（自动跟随系统语言） | ✅ 已实现 |
 | 内嵌 GUI key 注册 | ✅ 已实现 |
@@ -257,8 +257,8 @@ provider 分开存（例如 `CLAUDE_API_KEY_OPENAI` / `_DEEPSEEK`），
 - [x] 多 key 存储（按 provider）：`switch_provider` 读注册表的 `key_env`，各厂商独立环境变量
 - [x] 工具能力降级（`notools` 标记 → 请求不带 tools）
 - [x] `reasoning_content` 剥离（解析阶段丢弃，历史里不存在）
-- [ ] 两级模型菜单（终端 + GUI + bash 补全三处同步）—— **未做**：目前 12 个模型仍是一级平铺列表
-- [ ] GUI onboarding 支持新 provider —— **未做**：GUI 首启页面仍只有 Gemini/Anthropic。当前可绕开：对话中直接 `/deepseek` 等命令会提示粘贴密钥
+- [x] 两级模型菜单（终端 + GUI）——终端 `/model` 先厂商后模型；GUI 用 cascade 子菜单，点击发 `/model <id>` 而不是编号。bash 补全只补命令行参数与模型 ID，与菜单无关，无需同步
+- [x] GUI onboarding 支持新 provider：首启改成 7 家下拉，密钥页链接/校验方式/默认模型全部从 `providers.txt` + `models.txt` 推导；`validate_api_key` 增加 OpenAI 兼容分支；保存 key 时不清掉别家的 key
 - [x] `unknown_provider` 报错文案改为按注册表生成（M3 遗留已清）
 - [x] **CI 卡口**：`scripts/check-models.py` —— provider 必须在注册表里、base_url 型必须有 base_url、ID 不重复、flags 词合法（已接入 CI 第 4b 步）
 - [ ] 真实连通性手测（需各厂商 key，本地做，不进 CI）—— **未做**：已在本地用 mock 的 OpenAI 兼容服务验证完整链路，真 key 需你提供
@@ -366,7 +366,7 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 | **M1** ✅ | 骨架落位（CI / Gitee 镜像 / 文档） | — | 已完成 |
 | **M2** ✅ | 方向一 · 中文化（三语 + CI key 卡口） | 无 | 已完成 |
 | **M3** ✅ | 方向二 · 提供商注册表重构（只做抽象，不加新厂商） | 无 | 已完成 |
-| **M4** 🔶 | 方向二 · OpenAI 适配器 + 首批四家（核心已完成，菜单/GUI onboarding 未做） | M3 | 核心已完成 |
+| **M4** ✅ | 方向二 · OpenAI 适配器 + 首批四家 + 两级菜单 + GUI onboarding | M3 | 已完成 |
 | **M5** | 方向三 · `--rpc` 模式 + 只读安全模型 + 档① 出站通知 | M2, M4 | 3~4 人日 |
 | **M6** | 方向三 · 档② 轮询中继（双向派活可用） | M5 | 3~5 人日 |
 | **M7** | 发布链路（tag → Release → macOS runner 打 standalone zip） | M2 | 1~2 人日 |

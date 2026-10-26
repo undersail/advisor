@@ -62,7 +62,8 @@ APP = ["advisor_gui.py"]
 # ("", [...]) は Contents/Resources/ 直下に置く指定。advisor_gui.py の
 # _bundled_resource_dir() がここを見に行く。
 DATA_FILES = [
-    ("", ["$SCRIPT_DIR/agent/claude-agent.pl", "$SCRIPT_DIR/models.txt"]),
+    ("", ["$SCRIPT_DIR/agent/claude-agent.pl", "$SCRIPT_DIR/models.txt",
+          "$SCRIPT_DIR/providers.txt"]),
 ]
 OPTIONS = {
     "argv_emulation": False,

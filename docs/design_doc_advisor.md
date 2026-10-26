@@ -180,6 +180,29 @@ OpenAI 兼容格式与内部格式（Anthropic content blocks）的对应关系�
 - `notools` 旗标（`models.txt` 第 7 列）会让请求不带 `tools`，用于不支持函数调用的模型。
 - API 端点默认是 `<base_url>/chat/completions`，末尾斜杠会被吃掉。
 
+**四个数据面的分工（M4 起）**：
+
+| 文件 | 管什么 | 谁读 |
+|---|---|---|
+| `agent/claude-agent.pl` `%PROVIDERS` | 协议实现：鉴权方式、URL 形态、build/parse 函数 | Perl |
+| `providers.txt` | 厂商数据：`key_env`、`default_model`、`key_url`、三种语言的显示名 | Perl（菜单）+ Python（GUI 首启/菜单）+ CI |
+| `models.txt` | 模型清单：id、三种语言的说明、所属 provider、base_url、flags | Perl + Python + CI |
+| `scripts/check-models.py` | 三者一致性卡口 | CI |
+
+`key_env` / `default_model` **只写在 `providers.txt`**。把它们同时留在注册表里
+就等于两处各写一份，改一处忘一处时程序不会报错、只会去读一个空环境变量然后
+说「请设置 undefined_API_KEY」。CI 现在会拦下这种重复。
+
+**两级模型菜单（终端与 GUI 各自实现，语义一致）**：
+
+- 终端：`/model` → 按 `providers.txt` 的**文件顺序**列厂商 → 输数字 → 列该厂商
+  的模型 → 输数字切换。只按回车取消；输非法编号给出提示并停在同一层。
+  段位状态只活一轮 —— 任何其它输入都会把它清掉，避免「上一个菜单留下的号码
+  把后面的普通发言当成选择」。
+- GUI：菜单栏里按厂商分 `cascade` 子菜单，**点击时发 `/model <id>` 而不是编号**
+  （编号依赖列表顺序，插一条模型就会错位）。
+- 两级菜单只是显示层的变化：`/model 3`、`/model <id>` 这两种老写法照旧可用。
+
 需要注意的 Gemini 特例：
 - **`thoughtSignature`**：Gemini 3 系在回传 `functionCall` 时必须原样带上，
   否则 400。转换层要保住这个字段。

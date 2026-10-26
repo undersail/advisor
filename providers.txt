@@ -1,0 +1,16 @@
+# Advisor のプロバイダ表 / Advisor providers / Advisor 厂商表
+#
+# provider|key_env|default_model|key_url|日本語|English|中文
+#
+# ・GUI の初回画面とモデルメニューがこれを読む(コードにURLやキー名を書かない)
+# ・key_env / default_model は agent/claude-agent.pl の %PROVIDERS と一致必須
+#   (scripts/check-models.py がCIで突き合わせる)
+# ・key_url は「キーを取得するページ」。各社のコンソールは予告なく変わるので、
+#   変わったらこの1行だけ直せば GUI も追従する。
+anthropic|ANTHROPIC_API_KEY|claude-sonnet-5|https://console.anthropic.com/|Anthropic (Claude)|Anthropic (Claude)|Anthropic (Claude)
+gemini|GEMINI_API_KEY|gemini-3.5-flash-lite|https://aistudio.google.com/apikey|Google (Gemini)|Google (Gemini)|Google (Gemini)
+openai|OPENAI_API_KEY|gpt-4o|https://platform.openai.com/api-keys|OpenAI|OpenAI|OpenAI
+deepseek|DEEPSEEK_API_KEY|deepseek-chat|https://platform.deepseek.com/api_keys|DeepSeek|DeepSeek|DeepSeek
+dashscope|DASHSCOPE_API_KEY|qwen-plus|https://bailian.console.aliyun.com/|通義千問 (阿里雲)|Qwen (Alibaba Cloud)|通义千问（阿里云）
+moonshot|MOONSHOT_API_KEY|kimi-k2-0905-preview|https://platform.moonshot.cn/console/api-keys|Kimi (月之暗面)|Kimi (Moonshot)|Kimi（月之暗面）
+zhipu|ZHIPU_API_KEY|glm-4.6|https://open.bigmodel.cn/usercenter/apikeys|GLM (智譜AI)|GLM (Zhipu AI)|GLM（智谱 AI）

@@ -59,6 +59,9 @@ faces depending on your mood.
   `/kimi` `/glm` `/openai`. Gemini has a free tier, so you can try the
   whole thing at zero cost. Any other OpenAI-compatible API works too —
   just add one line to `models.txt`.
+- **Pick a vendor right on the GUI first screen** — a dropdown of seven;
+  the "get a key" button follows your choice. The model menu is grouped
+  by vendor instead of one long flat list.
 - **Three GUI themes: Note, Coding, and Hacker** — a ruled-notebook-style
   chat screen, a green-on-black hacker terminal look, whatever matches
   your mood.

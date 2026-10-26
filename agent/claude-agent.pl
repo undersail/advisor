@@ -17,6 +17,8 @@ use strict;
 use warnings;
 use utf8;  # このファイル自身に書かれた日本語リテラルをUTF-8として解釈する
 use Encode qw(decode FB_DEFAULT);
+use File::Basename qw(dirname);
+use Cwd ();
 
 # 画面出力は明示的にUTF-8として扱う。
 binmode STDOUT, ':encoding(UTF-8)';
@@ -297,10 +299,35 @@ my %S = (
         en => " ← current",
         zh => " ← 使用中",
     },
-    model_menu_hint      => {
-        ja => "番号を入力すると切り替わります。そのまま質問してもOK。\n",
-        en => "Type a number to switch. Or just type your question as usual.\n",
-        zh => "输入编号即可切换。也可以直接提问。\n",
+    model_menu_pick_vendor => {
+        ja => "メーカーを番号で選んでください（Enter だけなら取消）。\n",
+        en => "Pick a vendor by number (press Enter alone to cancel).\n",
+        zh => "用编号选择厂商（只按回车则取消）。\n",
+    },
+    model_menu_pick_model => {
+        ja => "モデルを番号で選んでください（Enter だけなら取消）。\n",
+        en => "Pick a model by number (press Enter alone to cancel).\n",
+        zh => "用编号选择模型（只按回车则取消）。\n",
+    },
+    model_none_for_vendor => {
+        ja => "%s のモデルが models.txt にありません。\n",
+        en => "No models for %s in models.txt.\n",
+        zh => "models.txt 里没有 %s 的模型。\n",
+    },
+    menu_bad_number => {
+        ja => "その番号はありません。\n",
+        en => "No such number.\n",
+        zh => "没有这个编号。\n",
+    },
+    menu_cancelled => {
+        ja => "取消しました。\n",
+        en => "Cancelled.\n",
+        zh => "已取消。\n",
+    },
+    key_where => {
+        ja => "キー取得ページ: %s\n",
+        en => "Get a key here: %s\n",
+        zh => "密钥获取页面：%s\n",
     },
     thinking_status      => {
         ja => "問い合わせ中",
@@ -748,10 +775,10 @@ my %MODEL_META;             # モデルID => { provider, base_url, notools }
 # (直し忘れがそのまま不具合になる)。ここに1エントリ足せば済む形にする。
 #
 # 各項目:
-#   key_env        APIキーを読む環境変数名
+#   （key_env と default_model は providers.txt 側。コードに二重管理しない）
 #   auth           ヘッダの流儀: 'goog' 以外は x-api-key 系(既定)
 #   model_prefix   CLAUDE_MODEL を採用してよいモデルIDの接頭辞
-#   default_model  既定モデル
+
 #   url            固定エンドポイント(url_template が無いとき使う)
 #   url_template   %s にモデルIDを埋めるエンドポイント
 #   api_version    anthropic-version ヘッダの値(必要なときだけ)
@@ -767,10 +794,10 @@ my %MODEL_META;             # モデルID => { provider, base_url, notools }
 # そのまま不具合になる)。ここに1エントリ足せば済む形にしておく。
 #
 # 各エントリの項目:
-#   key_env        APIキーを読む環境変数名
+#   （key_env と default_model は providers.txt 側。コードに二重管理しない）
 #   auth           ヘッダの流儀: 'x-api-key'(既定) / 'goog' / 'bearer'
 #   model_prefix   CLAUDE_MODEL を採用してよいモデルIDの接頭辞
-#   default_model  既定モデル
+
 #   url            固定エンドポイント(anthropic)
 #   url_template   %s にモデルIDを埋めるエンドポイント(gemini)
 #   base_url       OpenAI互換エンドポイントの基底(末尾に /chat/completions を足す)
@@ -780,67 +807,114 @@ my %MODEL_META;             # モデルID => { provider, base_url, notools }
 # OpenAI系(openai / deepseek / dashscope / moonshot / zhipu)は build/parse を
 # 共有する。ベンダーごとに違うのはキーの環境変数名・既定モデル・base_url だけ。
 # ------------------------------------------------------------------
+
+# ------------------------------------------------------------------
+# providers.txt — キー環境変数名・既定モデル・キー取得URL・表示名の唯一の出所。
+# ここに書いておけば GUI の初回画面とメニューが自動で追従する。コード側に
+# URL やキー名を二重管理しない。
+# ------------------------------------------------------------------
+my %PROVIDER_INFO;   # provider => { key_env, default_model, key_url, ja, en, zh }
+my @PROVIDER_ORDER;  # providers.txt の並び順（メニューの順序に使う）
+{
+    my @cand;
+    push @cand, $ENV{CLAUDE_PROVIDERS_FILE} if $ENV{CLAUDE_PROVIDERS_FILE};
+    my $here = dirname(Cwd::abs_path($0) // $0);
+    push @cand, "$here/providers.txt", "$here/../providers.txt";
+    my $path;
+    for my $c (@cand) { if (defined $c && -f $c) { $path = $c; last } }
+    if (!$path) {
+        die "providers.txt が見つかりません。リポジトリ同梱のファイルが必要です。\n";
+    }
+    if (open(my $pf, '<:encoding(UTF-8)', $path)) {
+        while (my $l = <$pf>) {
+            chomp $l;
+            next unless $l =~ /\S/;
+            next if $l =~ /^\s*#/;
+            my ($name, $kenv, $dmodel, $kurl, $ja, $en, $zh) = split /\|/, $l, 7;
+            next unless defined $name && $name =~ /\S/;
+            for ($name, $kenv, $dmodel, $kurl) { $_ = '' unless defined $_; s/^\s+//; s/\s+$// }
+            $ja = $name unless defined $ja && $ja =~ /\S/;
+            $en = $name unless defined $en && $en =~ /\S/;
+            $zh = $name unless defined $zh && $zh =~ /\S/;
+            for ($ja, $en, $zh) { s/^\s+//; s/\s+$// }
+            $PROVIDER_INFO{$name} = {
+                key_env       => $kenv,
+                default_model => $dmodel,
+                key_url       => $kurl,
+                ja            => $ja,
+                en            => $en,
+                zh            => $zh,
+            };
+            push @PROVIDER_ORDER, $name;
+        }
+        close $pf;
+    }
+}
+
+# providers.txt の1項目を取り出す。無ければ即死（半端な既定値で動かさない）。
+sub provider_info {
+    my ($name, $field) = @_;
+    my $info = $PROVIDER_INFO{$name};
+    die "providers.txt に '$name' の行がありません。\n" unless $info;
+    return $info->{$field};
+}
+
+# 言語コードに応じた表示名
+sub provider_label {
+    my ($name) = @_;
+    my $info = $PROVIDER_INFO{$name} or return $name;
+    my $k = ($LANGCODE eq 'ja' || $LANGCODE eq 'zh' || $LANGCODE eq 'en') ? $LANGCODE : 'ja';
+    my $v = $info->{$k};
+    return (defined $v && $v ne '') ? $v : $name;
+}
+
 my %PROVIDERS = (
     anthropic => {
-        key_env       => 'ANTHROPIC_API_KEY',
         auth          => 'x-api-key',
         model_prefix  => 'claude',
-        default_model => 'claude-sonnet-5',
         url           => 'https://api.anthropic.com/v1/messages',
         api_version   => '2023-06-01',
         build         => \&build_request_anthropic,
         parse         => \&parse_response_anthropic,
     },
     gemini => {
-        key_env       => 'GEMINI_API_KEY',
         auth          => 'goog',
         model_prefix  => 'gemini',
-        default_model => 'gemini-3.5-flash-lite',
         url_template  => 'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent',
         build         => \&build_request_gemini,
         parse         => \&parse_response_gemini,
     },
     openai => {
-        key_env       => 'OPENAI_API_KEY',
         auth          => 'bearer',
         model_prefix  => 'gpt',
-        default_model => 'gpt-4o',
         base_url      => 'https://api.openai.com/v1',
         build         => \&build_request_openai,
         parse         => \&parse_response_openai,
     },
     deepseek => {
-        key_env       => 'DEEPSEEK_API_KEY',
         auth          => 'bearer',
         model_prefix  => 'deepseek',
-        default_model => 'deepseek-chat',
         base_url      => 'https://api.deepseek.com/v1',
         build         => \&build_request_openai,
         parse         => \&parse_response_openai,
     },
     dashscope => {
-        key_env       => 'DASHSCOPE_API_KEY',
         auth          => 'bearer',
         model_prefix  => 'qwen',
-        default_model => 'qwen-plus',
         base_url      => 'https://dashscope.aliyuncs.com/compatible-mode/v1',
         build         => \&build_request_openai,
         parse         => \&parse_response_openai,
     },
     moonshot => {
-        key_env       => 'MOONSHOT_API_KEY',
         auth          => 'bearer',
         model_prefix  => 'kimi',
-        default_model => 'kimi-k2-0905-preview',
         base_url      => 'https://api.moonshot.cn/v1',
         build         => \&build_request_openai,
         parse         => \&parse_response_openai,
     },
     zhipu => {
-        key_env       => 'ZHIPU_API_KEY',
         auth          => 'bearer',
         model_prefix  => 'glm',
-        default_model => 'glm-4.6',
         base_url      => 'https://open.bigmodel.cn/api/paas/v4',
         build         => \&build_request_openai,
         parse         => \&parse_response_openai,
@@ -893,7 +967,7 @@ sub configure_provider {
     my ($provider) = @_;
     my $spec = provider_spec($provider);
 
-    my $env_key = $spec->{key_env};
+    my $env_key = provider_info($provider, 'key_env');
     $ENV{$env_key} or die L('need_key', $env_key);
     $API_KEY = $ENV{$env_key};
 
@@ -903,7 +977,7 @@ sub configure_provider {
     my $pfx       = $spec->{model_prefix} || '';
     $MODEL = ($pfx ne '' && $env_model =~ /^\Q$pfx\E/)
         ? $env_model
-        : $spec->{default_model};
+        : provider_info($provider, 'default_model');
 
     # 投げ先URLの決め方は3通り:
     #   url           固定(anthropic)
@@ -977,7 +1051,7 @@ if ($ENV{CLAUDE_MODELS_FILE} && open(my $mf, '<:encoding(UTF-8)', $ENV{CLAUDE_MO
             base_url => $base,
             notools  => ($flags =~ /\bnotools\b/) ? 1 : 0,
         );
-        push @MODEL_CHOICES, [ $id, $desc ];
+        push @MODEL_CHOICES, [ $id, $desc, $prov ];
     }
     close $mf;
 }
@@ -1012,7 +1086,7 @@ sub switch_provider {
     # キー名も登録表から引く(以前はここでプロバイダ名を直書きしていた)
     my $spec = eval { provider_spec($target) };
     return 0 unless $spec;
-    my $key_name = $spec->{key_env};
+    my $key_name = provider_info($target, 'key_env');
 
     # GUIモードでは、GUI側にキー取得ページの案内・入力・疎通確認まで
     # 任せ、検証済みのキーを {"t":"key","value":...} で受け取る
@@ -1032,6 +1106,8 @@ sub switch_provider {
         return 1;
     }
 
+    my $kurl = provider_info($target, 'key_url');
+    print L('key_where', $kurl) if $kurl ne '';
     my $key = read_secret(L('key_missing_prompt', $key_name));
     if (!defined $key || $key eq '') {
         print L('switch_cancelled', $PROVIDER, $MODEL);
@@ -1049,19 +1125,60 @@ sub switch_provider {
     return 1;
 }
 
-# 選べるAIの一覧を番号付きで表示する
+# モデル選択は二段階。1段目でメーカー、2段目でそのメーカーのモデル。
+# 12件が一次元に並ぶと目的のものを探せないので、providers.txt の並び順で束ねる。
+my $MENU_STAGE = '';      # '' | 'vendor' | 'model:<provider>'
+my %MENU_VENDORS;         # 番号 => provider
+my %MENU_MODELS;          # 番号 => model_id
+
+sub _models_of {
+    my ($p) = @_;
+    return grep { defined $_->[2] && $_->[2] eq $p } @MODEL_CHOICES;
+}
+
+# 1段目: メーカー一覧
 sub show_model_menu {
     unless (@MODEL_CHOICES) {
         print L('model_list_unavail');
+        $MENU_STAGE = '';
         return;
     }
     print "\n";
     my $i = 1;
-    for my $c (@MODEL_CHOICES) {
-        my $mark = ($c->[0] eq $MODEL) ? L('currently_using_cli') : '';
-        printf "  %d) %s%s\n", $i++, $c->[1], $mark;
+    %MENU_VENDORS = ();
+    for my $p (@PROVIDER_ORDER) {
+        my @ms = _models_of($p);
+        next unless @ms;
+        my $mark = ($p eq $PROVIDER) ? L('currently_using_cli') : '';
+        printf "  %d) %s%s\n", $i, provider_label($p), $mark;
+        $MENU_VENDORS{$i} = $p;
+        $i++;
     }
-    print L('model_menu_hint');
+    print L('model_menu_pick_vendor');
+    $MENU_STAGE = 'vendor';
+}
+
+# 2段目: そのメーカーのモデル一覧
+sub show_vendor_models {
+    my ($p) = @_;
+    my @ms = _models_of($p);
+    unless (@ms) {
+        print L('model_none_for_vendor', provider_label($p));
+        show_model_menu();
+        return;
+    }
+    print "\n";
+    printf "  [%s]\n", provider_label($p);
+    my $i = 1;
+    %MENU_MODELS = ();
+    for my $m (@ms) {
+        my $mark = ($m->[0] eq $MODEL) ? L('currently_using_cli') : '';
+        printf "  %d) %s%s\n", $i, $m->[1], $mark;
+        $MENU_MODELS{$i} = $m->[0];
+        $i++;
+    }
+    print L('model_menu_pick_model');
+    $MENU_STAGE = "model:$p";
 }
 
 # 指定したモデルIDに切り替える。必要ならプロバイダも一緒に切り替え、
@@ -2704,7 +2821,16 @@ if ($GUI) {
         provider  => $PROVIDER,
         model     => $MODEL,
         history   => $HISTORY_ENABLED ? 1 : 0,
-        models    => [ map { { id => $_->[0], label => $_->[1] } } @MODEL_CHOICES ],
+        models    => [ map { { id => $_->[0], label => $_->[1],
+                                provider => $_->[2] } } @MODEL_CHOICES ],
+        providers => [ map { my $pv = $_; { name  => $pv,
+                               label => provider_label($pv),
+                               key_env       => provider_info($pv, 'key_env'),
+                               key_url       => provider_info($pv, 'key_url'),
+                               default_model => provider_info($pv, 'default_model'),
+                               models => [ map { $_->[0] }
+                                           grep { defined $_->[2] && $_->[2] eq $pv } @MODEL_CHOICES ] } }
+                       @PROVIDER_ORDER ],
         messages  => scalar(@messages),
     });
     while (1) {
@@ -2788,6 +2914,37 @@ sub handle_turn {
     if ($input eq '/model' || $input eq '/models' || $input eq '/m' || $input eq '?') {
         show_model_menu() unless $GUI;
         return;
+    }
+
+    # 二段階メニューの途中なら、番号はその段階への回答として扱う。
+    # 段階は「今この瞬間だけ」有効 —— 別の入力が来たら捨てる(古い段階が
+    # 残って、次の数字が勝手にモデル切り替えになる事故を防ぐ)。
+    my $menu_stage = $MENU_STAGE;
+    $MENU_STAGE = '';
+    if ($menu_stage ne '') {
+        if ($input eq '') {
+            print L('menu_cancelled');
+            return;
+        }
+        if ($input =~ /^\s*(\d+)\s*$/) {
+            my $n = $1;
+            if ($menu_stage eq 'vendor') {
+                my $p = $MENU_VENDORS{$n};
+                if (!$p) { print L('menu_bad_number'); show_model_menu(); return; }
+                show_vendor_models($p);
+                return;
+            }
+            if ($menu_stage =~ /^model:(.+)$/) {
+                my $stage_p = $1;
+                my $id = $MENU_MODELS{$n};
+                if (!$id) { print L('menu_bad_number'); show_vendor_models($stage_p); return; }
+                ($id eq $MODEL)
+                    ? emit_note(L('already_on', $PROVIDER, $MODEL))
+                    : switch_to_model($id);
+                return;
+            }
+        }
+        # 数字以外が来た = メニューを離れて普通の操作
     }
 
     # 番号だけ打ったら、その番号のAIに切り替える(人間に一番やさしい操作)
@@ -2911,7 +3068,9 @@ while (1) {
 
     $input = eval { decode('UTF-8', $input, FB_DEFAULT) };
     $input = '' unless defined $input;
-    next if $input eq '';
+    # 空行は基本「入力ミス」なので捨てる。ただしモデル選択メニューの途中だけは
+    # 「Enter で取消」として届けたいので、段階が残っているときは通す。
+    next if $input eq '' && $MENU_STAGE eq '';
 
     my $r = eval { handle_turn($input) };
     if ($@) {

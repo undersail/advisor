@@ -329,16 +329,6 @@ _S = {
         "a password). Gemini below lets you get one free, right now.",
         "zh": "你好。Advisor 是一个与 AI 对话的应用。使用时需要一个「API 密钥」——你专属的使用许可代码（类似密码）。下面的 Gemini 可以免费、马上申请。",
     },
-    "onboard_gemini": {
-        "ja": "Gemini(無料)",
-        "en": "Gemini (free)",
-        "zh": "Gemini（免费）",
-    },
-    "onboard_anthropic": {
-        "ja": "Anthropic(有料)",
-        "en": "Anthropic (paid)",
-        "zh": "Anthropic（付费）",
-    },
     "onboard_key_get_here": {
         "ja": "① まずAPIキー(利用許可コード)を取得してください:",
         "en": "① First, get your API key (permission code):",
@@ -510,6 +500,107 @@ def pick_font(family, size):
 ENV_FILE_PATH = os.path.expanduser("~/.claude-agent-env")
 
 
+def _pointing_cursor():
+    """macOS は pointinghand、それ以外(X11)は hand2。
+
+    ここを直書きすると Linux で Tk が bad cursor spec で落ちる。
+    macOS の見た目・挙動はそのまま（darwin では従来どおり pointinghand）。
+    """
+    return _pointing_cursor() if sys.platform == "darwin" else "hand2"
+
+
+def _providers_path():
+    """providers.txt の場所。同梱(Resources) → リポジトリ直下 → ~/claude-build の順。"""
+    cands = []
+    here = _bundled_resource_dir()
+    if here:
+        cands.append(os.path.join(here, "providers.txt"))
+    cands.append(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              os.pardir, "providers.txt"))
+    cands.append(os.path.expanduser("~/claude-build/providers.txt"))
+    for c in cands:
+        if os.path.isfile(c):
+            return os.path.abspath(c)
+    return None
+
+
+def read_providers():
+    """providers.txt を読む。
+
+    返り値: [(name, {key_env, default_model, key_url, ja, en, zh}), ...]（ファイル順）
+    ここが唯一の出所。GUI 側にキー名やURLを書き足さない。
+    """
+    out = []
+    path = _providers_path()
+    if not path:
+        return out
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) < 4 or not parts[0]:
+                    continue
+                name, kenv, dmodel, kurl = parts[0], parts[1], parts[2], parts[3]
+                labels = parts[4:] + ["", "", ""]
+                out.append((name, {
+                    "key_env": kenv,
+                    "default_model": dmodel,
+                    "key_url": kurl,
+                    "ja": labels[0] or name,
+                    "en": labels[1] or name,
+                    "zh": labels[2] or name,
+                }))
+    except Exception:
+        return []
+    return out
+
+
+def provider_label(info):
+    if not info:
+        return ""
+    for k in (LANG, "zh", "en", "ja"):
+        v = info.get(k)
+        if v:
+            return v
+    return ""
+
+
+def read_models():
+    """models.txt を読む: [{id, ja, en, zh, provider, base_url}, ...]"""
+    path = None
+    for c in (os.path.expanduser("~/claude-build/models.txt"),
+              os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           os.pardir, "models.txt")):
+        if os.path.isfile(c):
+            path = c
+            break
+    if not path:
+        here = _bundled_resource_dir()
+        if here and os.path.isfile(os.path.join(here, "models.txt")):
+            path = os.path.join(here, "models.txt")
+    if not path:
+        return []
+    out = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                p = [x.strip() for x in line.split("|")]
+                if not p or not p[0]:
+                    continue
+                p += [""] * (7 - len(p))
+                out.append({"id": p[0], "ja": p[1] or p[0], "en": p[2] or p[0],
+                            "zh": p[3] or p[0], "provider": p[4], "base_url": p[5]})
+    except Exception:
+        return []
+    return out
+
+
 def read_env_file():
     # ~/.claude-agent-env の "export VAR=値" 形式を辞書にして返す。
     result = {}
@@ -528,12 +619,15 @@ def read_env_file():
 
 
 def has_valid_api_key():
+    # どのベンダーでも「そのベンダーのキーがあるか」で判定する。
+    # キー名は providers.txt から引く(ここに GEMINI/ANTHROPIC を書き足さない)。
     env = read_env_file()
     provider = env.get("CLAUDE_PROVIDER", "")
-    if provider == "gemini":
-        return bool(env.get("GEMINI_API_KEY"))
-    if provider == "anthropic":
-        return bool(env.get("ANTHROPIC_API_KEY"))
+    if not provider:
+        return False
+    for name, info in read_providers():
+        if name == provider:
+            return bool(env.get(info["key_env"]))
     return False
 
 
@@ -561,7 +655,9 @@ def ensure_backend_files():
     build_dir = os.path.expanduser("~/claude-build")
     target_agent = os.path.join(build_dir, "claude-agent.pl")
     target_models = os.path.join(build_dir, "models.txt")
-    if os.path.isfile(target_agent) and os.path.isfile(target_models):
+    target_providers = os.path.join(build_dir, "providers.txt")
+    if (os.path.isfile(target_agent) and os.path.isfile(target_models)
+            and os.path.isfile(target_providers)):
         return True
     src = _bundled_resource_dir()
     if src is None:
@@ -572,6 +668,10 @@ def ensure_backend_files():
             shutil.copy(os.path.join(src, "claude-agent.pl"), target_agent)
         if not os.path.isfile(target_models):
             shutil.copy(os.path.join(src, "models.txt"), target_models)
+        if not os.path.isfile(target_providers):
+            src_providers = os.path.join(src, "providers.txt")
+            if os.path.isfile(src_providers):
+                shutil.copy(src_providers, target_providers)
         return True
     except Exception:
         return False
@@ -593,20 +693,35 @@ def build_backend_command_and_env():
     return ["perl", agent, "--gui"], env
 
 
-def validate_api_key(provider, api_key):
-    # setup.shの「疎通確認」と同じチェックをその場で行う。
+def validate_api_key(provider, api_key, base_url="", model=""):
+    """キーが本当に通るかをその場で確かめる（種別ごとに叩き方が違う）。
+
+    gemini     : x-goog-api-key ヘッダ + generateContent
+    anthropic  : x-api-key + anthropic-version ヘッダ + /v1/messages
+    OpenAI互換 : Authorization: Bearer + <base_url>/chat/completions
+    """
     if provider == "gemini":
         url = ("https://generativelanguage.googleapis.com/v1beta/models/"
-               "gemini-3.5-flash-lite:generateContent")
+               "%s:generateContent" % (model or "gemini-3.5-flash-lite"))
         headers = ["-H", "x-goog-api-key: %s" % api_key,
                    "-H", "content-type: application/json"]
         data = '{"contents":[{"parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":8}}'
-    else:
+    elif provider == "anthropic":
         url = "https://api.anthropic.com/v1/messages"
         headers = ["-H", "x-api-key: %s" % api_key,
                    "-H", "anthropic-version: 2023-06-01",
                    "-H", "content-type: application/json"]
-        data = '{"model":"claude-sonnet-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+        data = ('{"model":"%s","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+                % (model or "claude-sonnet-5"))
+    else:
+        base = (base_url or "").rstrip("/")
+        if not base:
+            return False, ""
+        url = base + "/chat/completions"
+        headers = ["-H", "Authorization: Bearer %s" % api_key,
+                   "-H", "content-type: application/json"]
+        data = ('{"model":"%s","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+                % (model or "gpt-4o"))
     try:
         out = subprocess.run(
             ["curl", "-s", url] + headers + ["-d", data, "-w", "\n%{http_code}"],
@@ -620,21 +735,38 @@ def validate_api_key(provider, api_key):
 
 
 def save_onboard_env(provider, api_key):
-    lines = []
+    """選んだベンダーのキーだけを書き換える。
+
+    他ベンダーのキーは消さない —— 一度登録したキーを、別のベンダーを試した
+    だけで失うのは事故なので。既存行の並びも保つ。
+    """
+    info = {}
+    for name, i in read_providers():
+        if name == provider:
+            info = i
+            break
+    keyvar = info.get("key_env", "")
+    if not keyvar:
+        raise RuntimeError("providers.txt に %s の定義がありません" % provider)
+    default_model = info.get("default_model", "")
     try:
         with open(ENV_FILE_PATH, encoding="utf-8") as f:
-            skip_prefixes = ("export CLAUDE_PROVIDER=", "export GEMINI_API_KEY=",
-                              "export ANTHROPIC_API_KEY=", "export CLAUDE_MODEL=")
-            lines = [l for l in f if not l.startswith(skip_prefixes)]
+            lines = f.readlines()
     except Exception:
-        pass
-    keyvar = "GEMINI_API_KEY" if provider == "gemini" else "ANTHROPIC_API_KEY"
-    default_model = "gemini-3.5-flash-lite" if provider == "gemini" else "claude-sonnet-5"
-    lines.append("export CLAUDE_PROVIDER=%s\n" % provider)
-    lines.append("export %s=%s\n" % (keyvar, api_key))
-    lines.append("export CLAUDE_MODEL=%s\n" % default_model)
+        lines = []
+    drop = {"CLAUDE_PROVIDER", "CLAUDE_MODEL", keyvar}
+    keep = []
+    for l in lines:
+        m = re.match(r"export ([A-Za-z0-9_]+)=", l)
+        if m and m.group(1) in drop:
+            continue
+        keep.append(l)
+    keep.append("export CLAUDE_PROVIDER=%s\n" % provider)
+    keep.append("export %s=%s\n" % (keyvar, api_key))
+    if default_model:
+        keep.append("export CLAUDE_MODEL=%s\n" % default_model)
     with open(ENV_FILE_PATH, "w", encoding="utf-8") as f:
-        f.writelines(lines)
+        f.writelines(keep)
     os.chmod(ENV_FILE_PATH, 0o600)
 
 
@@ -676,6 +808,7 @@ class AdvisorGUI:
         self.pane = "chat"                      # "chat" / "cmd"
         self.cwd = os.path.expanduser("~")      # コマンドパネルの現在地
         self.cmd_proc = None
+        self._providers = read_providers()
         self.model_label_var = tk.StringVar(value="…")
         self.status_var = tk.StringVar(value=L("starting_status"))
         self.cmd_prompt_var = tk.StringVar(value="")
@@ -702,7 +835,8 @@ class AdvisorGUI:
     # ---------- 初回起動時、APIキー未登録なら出す案内画面 ----------
     def _build_onboarding(self):
         bg = "#fdf6e3"
-        self._onboard_provider = tk.StringVar(value="gemini")
+        self._providers = read_providers()
+        _first = self._providers[0][0] if self._providers else ""
         frame = tk.Frame(self.root, bg=bg)
         frame.pack(fill=tk.BOTH, expand=True)
         self._onboard_frame = frame
@@ -713,16 +847,21 @@ class AdvisorGUI:
                  bg=bg, fg="#2b2b2b", wraplength=440, justify=tk.LEFT).pack(
             pady=(0, 20), padx=40)
 
+        # 7ベンダーをラジオで並べると横に溢れるので、プルダウン1つにする。
+        # 表示名は providers.txt から引く(ここにベンダー名を直書きしない)。
         provider_row = tk.Frame(frame, bg=bg)
         provider_row.pack(pady=(0, 10))
-        tk.Radiobutton(provider_row, text=L("onboard_gemini"),
-                        variable=self._onboard_provider, value="gemini", bg=bg,
-                        command=self._onboard_update_link,
-                        font=("Helvetica", 12)).pack(side=tk.LEFT, padx=8)
-        tk.Radiobutton(provider_row, text=L("onboard_anthropic"),
-                        variable=self._onboard_provider, value="anthropic", bg=bg,
-                        command=self._onboard_update_link,
-                        font=("Helvetica", 12)).pack(side=tk.LEFT, padx=8)
+        self._provider_labels = {}
+        names = []
+        for name, info in self._providers:
+            lbl = provider_label(info)
+            self._provider_labels[lbl] = name
+            names.append(lbl)
+        self._onboard_label = tk.StringVar(value=names[0] if names else "")
+        self._onboard_menu = tk.OptionMenu(provider_row, self._onboard_label, *names)
+        self._onboard_menu.config(font=("Helvetica", 12), width=26)
+        self._onboard_menu.pack(side=tk.LEFT, padx=8)
+        self._onboard_label.trace_add("write", lambda *a: self._onboard_update_link())
 
         tk.Label(frame, text=L("onboard_key_get_here"), font=("Helvetica", 13, "bold"),
                  bg=bg, fg="#2b2b2b").pack(pady=(4, 8))
@@ -731,7 +870,7 @@ class AdvisorGUI:
         # 色付き・大きめのボタン風ラベルにする(小さい下線リンクだと
         # 見落とされやすいとのフィードバックを受けて)。
         self._onboard_link = tk.Label(frame, text="", fg="#ffffff", bg="#1a5fb4",
-                                       cursor="pointinghand",
+                                       cursor=_pointing_cursor(),
                                        font=("Helvetica", 16, "bold"),
                                        padx=18, pady=10)
         self._onboard_link.pack(pady=(0, 22))
@@ -749,7 +888,7 @@ class AdvisorGUI:
         self._onboard_key_entry.focus_set()
 
         self._onboard_btn = tk.Label(frame, text=L("onboard_start"),
-                                      cursor="pointinghand",
+                                      cursor=_pointing_cursor(),
                                       font=("Helvetica", 13, "bold"), bg=bg,
                                       fg="#2b2b2b", padx=14, pady=4,
                                       highlightthickness=1,
@@ -761,11 +900,18 @@ class AdvisorGUI:
                                          font=("Helvetica", 11), wraplength=440)
         self._onboard_status.pack(pady=(4, 20))
 
+    def _onboard_selected(self):
+        """下拉で選ばれているベンダー名と、その定義を返す。"""
+        lbl = getattr(self, "_onboard_label", None)
+        name = self._provider_labels.get(lbl.get(), "") if lbl else ""
+        for n, info in getattr(self, "_providers", []):
+            if n == name:
+                return n, info
+        return name, {}
+
     def _onboard_update_link(self):
-        if self._onboard_provider.get() == "gemini":
-            self._onboard_url = "https://aistudio.google.com/apikey"
-        else:
-            self._onboard_url = "https://console.anthropic.com/"
+        _name, info = self._onboard_selected()
+        self._onboard_url = info.get("key_url", "")
         self._onboard_link.config(text=L("onboard_open_key_page"))
 
     def _onboard_start(self):
@@ -773,14 +919,21 @@ class AdvisorGUI:
         if not key:
             self._onboard_status.config(fg="#a33", text=L("onboard_err_empty"))
             return
-        provider = self._onboard_provider.get()
+        provider, info = self._onboard_selected()
         self._onboard_btn.config(state=tk.DISABLED)
         self._onboard_status.config(fg="#2b2b2b", text=L("onboard_checking"))
         threading.Thread(target=self._onboard_validate_thread,
-                          args=(provider, key), daemon=True).start()
+                          args=(provider, key, info), daemon=True).start()
 
-    def _onboard_validate_thread(self, provider, key):
-        ok, code = validate_api_key(provider, key)
+    def _onboard_validate_thread(self, provider, key, info=None):
+        info = info or {}
+        model = info.get("default_model", "")
+        base = ""
+        for m in read_models():
+            if m["id"] == model:
+                base = m.get("base_url", "")
+                break
+        ok, code = validate_api_key(provider, key, base, model)
         self.root.after(0, lambda: self._onboard_validate_done(ok, code, provider, key))
 
     def _onboard_validate_done(self, ok, code, provider, key):
@@ -900,12 +1053,12 @@ class AdvisorGUI:
         # 見た目(枠付きの部品)を勝手に描いてしまい、relief や色を変えても
         # 反映されない。tk.Label + クリックの組み合わせにすると、Tk自身が
         # 描画するので好きな見た目(会話タブと同じ手書き風)にできる。
-        self.tab_chat = tk.Label(self.bar, text=L("tab_chat"), cursor="pointinghand", padx=3)
+        self.tab_chat = tk.Label(self.bar, text=L("tab_chat"), cursor=_pointing_cursor(), padx=3)
         self.tab_chat.bind("<Button-1>", lambda e: self._show_pane("chat"))
         # 左端の余白を赤線の始まり(padx=56)に合わせる(右端のボタン群を
         # 揃えたのと同じ考え方)。
         self.tab_chat.pack(side=tk.LEFT, padx=(56, 1), pady=2)
-        self.tab_cmd = tk.Label(self.bar, text=L("tab_cmd"), cursor="pointinghand", padx=3)
+        self.tab_cmd = tk.Label(self.bar, text=L("tab_cmd"), cursor=_pointing_cursor(), padx=3)
         self.tab_cmd.bind("<Button-1>", lambda e: self._show_pane("cmd"))
         self.tab_cmd.pack(side=tk.LEFT, padx=1, pady=2)
 
@@ -913,7 +1066,7 @@ class AdvisorGUI:
         self.model_lbl.pack(side=tk.LEFT, padx=10, pady=6)
 
         # 見た目・AI切替・続きから、の3つも同じ理由で tk.Label + クリックに
-        self.theme_btn = tk.Label(self.bar, cursor="pointinghand", padx=8, pady=2)
+        self.theme_btn = tk.Label(self.bar, cursor=_pointing_cursor(), padx=8, pady=2)
         self.theme_menu = tk.Menu(self.theme_btn, tearoff=0)
         self.theme_btn.bind("<Button-1>", lambda e: self._popup_menu(self.theme_menu, self.theme_btn))
         self._theme_choice = tk.StringVar(value=self.theme_name)
@@ -926,13 +1079,13 @@ class AdvisorGUI:
         self.theme_btn.pack(side=tk.RIGHT, padx=(6, 56), pady=3)
 
         # 幅は固定せず文字なりに(固定幅にすると文字が欠けて矢印と重なるため)
-        self.switch_btn = tk.Label(self.bar, text=L("switch_btn"), cursor="pointinghand",
+        self.switch_btn = tk.Label(self.bar, text=L("switch_btn"), cursor=_pointing_cursor(),
                                    padx=8, pady=2)
         self.switch_menu = tk.Menu(self.switch_btn, tearoff=0)
         self.switch_btn.bind("<Button-1>", lambda e: self._popup_menu(self.switch_menu, self.switch_btn))
         self.switch_btn.pack(side=tk.RIGHT, padx=6, pady=3)
 
-        self.hist_btn = tk.Label(self.bar, text=L("hist_btn"), cursor="pointinghand",
+        self.hist_btn = tk.Label(self.bar, text=L("hist_btn"), cursor=_pointing_cursor(),
                                  padx=8, pady=2)
         self.hist_btn.bind("<Button-1>", lambda e: self._write({"t": "list_history"}))
         self.hist_btn.pack(side=tk.RIGHT, padx=6, pady=3)
@@ -1744,13 +1897,30 @@ class AdvisorGUI:
         self.switch_menu.delete(0, tk.END)
         self._model_labels = {m.get("id"): m.get("label", "") for m in models}
         current = getattr(self, "_current_model_id", None)
-        for i, m in enumerate(models, start=1):
-            label = f"{i}. {m.get('label', m.get('id', '?'))}"
+        # 12件を一次元に並べると探せないので、ベンダーごとの子メニューに束ねる。
+        # 選択時は番号ではなくモデルIDを送る（番号は並び順に依存して脆い）。
+        self._provider_menus = {}
+        order = []
+        for m in models:
+            p = m.get("provider", "") or "その他"
+            if p not in self._provider_menus:
+                lbl = p
+                for name, info in getattr(self, "_providers", []):
+                    if name == p:
+                        lbl = provider_label(info) or p
+                        break
+                sub = tk.Menu(self.switch_menu, tearoff=0)
+                self.switch_menu.add_cascade(label=lbl, menu=sub)
+                self._provider_menus[p] = sub
+                order.append(p)
+            sub = self._provider_menus[p]
+            label = m.get("label", m.get("id", "?"))
             if m.get("id") == current:
                 label += L("currently_using")
-            self.switch_menu.add_command(
+            sub.add_command(
                 label=label,
-                command=lambda n=i: self._write({"t": "user", "text": str(n)}),
+                command=lambda mid=m.get("id"): self._write(
+                    {"t": "user", "text": "/model " + mid}),
             )
 
     def _ask_passphrase(self, prompt, recover=False):
@@ -1837,7 +2007,7 @@ class AdvisorGUI:
                  wraplength=380, justify=tk.LEFT).pack(padx=18, pady=(16, 12))
 
         link = tk.Label(dlg, text=L("onboard_open_key_page"), fg="#ffffff",
-                         bg="#1a5fb4", cursor="pointinghand",
+                         bg="#1a5fb4", cursor=_pointing_cursor(),
                          font=("Helvetica", 14, "bold"), padx=14, pady=8)
         link.pack(pady=(0, 16))
         link.bind("<Button-1>", lambda e: webbrowser.open(url))

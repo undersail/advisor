@@ -45,6 +45,8 @@ Gemini（Google）。
   对话中用 `/claude` `/gemini` `/deepseek` `/qwen` `/kimi` `/glm` `/openai`
   切换。Gemini 有免费额度，整件事可以零成本先试一遍。
   其他 OpenAI 兼容的 API 也能用 —— 在 `models.txt` 里加一行即可。
+- **GUI 首启直接选厂商** —— 七家的下拉，选中后「获取密钥」按钮自动跳到
+  那一家的密钥页；模型菜单按厂商分级，不用在十几个名字里找。
 - **GUI 三主题：笔记、编程、黑客** —— 横线笔记本式的聊天界面、黑底绿字的黑客终端
   风格，跟着心情走。
 - **也能当普通终端命令用** —— 敲 `advisor` 就行，不需要 GUI。
@@ -255,6 +257,16 @@ Advisor 会检查 Mac 的系统语言（`defaults read -g AppleLocale`），并�
 - 第 4 列之后都可以省略，省略时按前几列工作
 - `flags` 目前只有 `notools`（该模型不支持函数调用时加上，程序就不会发送工具定义）
 - 想整体换掉端点（比如走自建代理），设 `CLAUDE_BASE_URL` 即可，优先级高于表格
+
+厂商层面的信息（读哪个环境变量、默认模型、密钥页地址、显示名）集中在
+`providers.txt`，一行一家：
+
+```
+provider|key_env|default_model|key_url|日文名|英文名|中文名
+```
+
+GUI 的首启下拉和模型菜单都读这个文件，所以改这里就够了，不用动代码。
+CI 会核对 `providers.txt`、`models.txt`、代码里的注册表三者是否一致。
 
 > 模型 ID 请以各厂商文档为准 —— 内置值只是方便起步的默认。
 
