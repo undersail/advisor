@@ -89,9 +89,21 @@ def scan_text(where, text, hits):
 
 
 def tracked_files():
-    out = subprocess.run(['git', 'ls-files', '-z'], capture_output=True, text=True,
-                         cwd=ROOT).stdout
-    return [f for f in out.split('\0') if f]
+    """已跟踪 + 未跟踪（但不含 .gitignore 里的）文件。
+
+    只用 `git ls-files` 会漏掉「刚新建、还没 git add」的文件——本地检查绿了、
+    一推送 CI 就红，实际已经进了历史。加上 --others --exclude-standard 堵住这个洞。
+    """
+    out = subprocess.run(['git', 'ls-files', '-z', '--cached', '--others',
+                          '--exclude-standard'],
+                         capture_output=True, text=True, cwd=ROOT).stdout
+    seen, files = set(), []
+    for f in out.split('\0'):
+        if not f or f in seen:
+            continue
+        seen.add(f)
+        files.append(f)
+    return files
 
 
 def main():
