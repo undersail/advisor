@@ -76,16 +76,27 @@ jobs:
           fi
 
       - name: 检查发布说明是否存在
+        # 这一步只做提示，不承担发布成败：文件缺失时 Release 正文会回退为
+        # 自动生成的变更日志，没必要为此把整个打包流程拦下来。
+        # 因此不用 set -e：任何一处判断异常都不该让 job 变红。
         run: |
-          set -euo pipefail
-          NOTES="docs/releases/${{ steps.ver.outputs.tag }}.md"
+          set -o pipefail
+          TAG="${{ steps.ver.outputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_REF_NAME}"; fi
+          NOTES="docs/releases/${TAG}.md"
+          echo "tag       = ${TAG}"
+          echo "查找       = ${NOTES}"
+          echo "---- docs/releases/ 实际内容 ----"
+          ls -1 docs/releases/ 2>/dev/null || echo "(目录不存在)"
+          echo "--------------------------------"
           if [ -f "$NOTES" ]; then
-            echo "找到发布说明: $NOTES（$(wc -l < "$NOTES" | tr -d ' ') 行）"
+            LINES=$(wc -l < "$NOTES" 2>/dev/null || echo 0)
+            echo "找到发布说明: ${NOTES}（${LINES} 行）"
           else
-            echo "::warning::缺少 $NOTES —— Release 正文将回退为自动生成的变更日志。"
+            echo "::warning::缺少 ${NOTES} —— Release 正文将回退为自动生成的变更日志。"
             echo "约定：文件名必须等于 tag 名（见 docs/releases/README.md）。"
           fi
-
+          exit 0
       - name: 环境信息（失败时便于定位）
         run: |
           set -o pipefail

@@ -169,6 +169,41 @@ def main():
               r.returncode != 0 and 'ReadMe_ZH.txt' in out, out.strip()[-160:])
         shutil.rmtree(work, ignore_errors=True)
 
+    # ---------------- 发布说明检查步骤：四种组合真跑 ----------------
+    # 这一步在 v0.2.1 的首次真实发布里把 job 弄红了；它本身只该提示、不该拦。
+    # 所以在本地把 workflow 里的原文抽出来，四种组合逐一真跑。
+    notes_step = find_step(steps, '检查发布说明是否存在')
+    check('找到「检查发布说明是否存在」步骤', notes_step is not None)
+    if notes_step:
+        work = tempfile.mkdtemp(prefix='relnotes-')
+        os.makedirs(os.path.join(work, 'docs', 'releases'), exist_ok=True)
+        open(os.path.join(work, 'docs', 'releases', 'v0.2.1.md'), 'w').write('# notes\n')
+        body = notes_step['run']
+
+        def run_notes(tag_out, ref_name):
+            b = body.replace('${{ steps.ver.outputs.tag }}', tag_out)
+            return run_script(b, work, {'GITHUB_REF_NAME': ref_name})
+
+        r = run_notes('v0.2.1', 'v0.2.1')
+        check('说明文件存在 → 退出码 0 且报出文件名',
+              r.returncode == 0 and '找到发布说明' in r.stdout, (r.stdout or '')[-160:])
+        check('说明文件存在 → 打印实际行数', '1 行' in r.stdout, r.stdout[-80:])
+
+        r = run_notes('v9.9.9', 'v9.9.9')
+        check('说明文件缺失 → 仍然退出码 0（只提示，不拦发布）',
+              r.returncode == 0 and '缺少' in r.stdout, (r.stdout + r.stderr)[-160:])
+        check('说明文件缺失 → 给出 warning 注解', '::warning::' in r.stdout)
+
+        r = run_notes('', 'v0.2.1')
+        check('步骤输出为空 → 回退用 GITHUB_REF_NAME，仍能找到',
+              r.returncode == 0 and '找到发布说明' in r.stdout, r.stdout[-160:])
+
+        shutil.rmtree(os.path.join(work, 'docs'), ignore_errors=True)
+        r = run_notes('v0.2.1', 'v0.2.1')
+        check('连 docs/releases 目录都没有 → 仍然退出码 0',
+              r.returncode == 0 and '缺少' in r.stdout, (r.stdout + r.stderr)[-160:])
+        shutil.rmtree(work, ignore_errors=True)
+
     # ---------------- 触发与权限的静态约束 ----------------
     wf = open(WF, encoding='utf-8').read()
     check('tag 触发模式包含 v*', "tags:" in wf and "'v*'" in wf)
