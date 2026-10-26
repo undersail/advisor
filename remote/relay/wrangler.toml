@@ -1,0 +1,23 @@
+# Cloudflare Worker 配置（档② 轮询中继）
+#
+# 部署前：
+#   npx wrangler login
+#   npx wrangler kv namespace create RELAY     ← 把返回的 id 填到下面
+#   npx wrangler secret put RELAY_TOKEN        ← 长随机串，别写在这个文件里
+#   npx wrangler deploy
+#
+# 本地联调（不需要账号）：
+#   npx wrangler dev --local --port 8787 --var RELAY_TOKEN:devtoken
+
+name = "advisor-relay"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# KV：消息队列
+# 本地 dev 用这个占位 id 就行；真部署时换成 `wrangler kv namespace create RELAY` 的返回值
+kv_namespaces = [
+  { binding = "RELAY", id = "00000000000000000000000000000000" }
+]
+
+[observability]
+enabled = true

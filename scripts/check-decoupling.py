@@ -78,8 +78,11 @@ if not re.search(r"'-K'\s*,\s*'-'", notify):
 if re.search(r"exec\([^)]*\$url\s*,", notify):
     errs.append('remote/notify.pl 把 webhook URL 当命令行参数传了')
 
-# 8) 审计日志必须只追加
-if re.search(r"'>'\s*,?\s*\$AUDIT_PATH|open\([^)]*'>[^>]", gw):
+# 8) 审计日志必须只追加（只看 AUDIT_PATH 那一次 open，别把临时文件的写当审计）
+audit_opens = re.findall(r"open\([^;]*\$AUDIT_PATH[^;]*\)", gw)
+if not audit_opens:
+    errs.append('remote/gateway.pl 里找不到对 $AUDIT_PATH 的 open')
+elif not all("'>>" in a for a in audit_opens):
     errs.append('remote/gateway.pl 的审计日志不是追加打开（只追加才有意义）')
 
 if errs:
