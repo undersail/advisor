@@ -42,21 +42,37 @@ EDGE = 10
 # レイアウト(padx等)自体は変えていないので、英語の方が長い/短い場合は
 # 別途ヘッダーの余白調整が要るかもしれない。
 def _detect_lang():
-    # CLAUDE_LANG=en/ja があれば最優先(システム言語を変えずに英語表示を
-    # 確認したいとき用)。
+    # CLAUDE_LANG=en/ja/zh があれば最優先(システム言語を変えずに表示言語を
+    # 確認したいとき用)。zh-Hans / zh_CN のような書き方も zh として扱う。
     override = os.environ.get("CLAUDE_LANG", "").strip().lower()
-    if override in ("en", "ja"):
-        return override
+    if override[:2] in ("en", "ja", "zh"):
+        return override[:2]
     try:
         out = subprocess.check_output(
             ["defaults", "read", "-g", "AppleLocale"],
             stderr=subprocess.DEVNULL, timeout=2,
-        ).decode("utf-8", "replace").strip()
-        if out and not out.lower().startswith("ja"):
+        ).decode("utf-8", "replace").strip().lower()
+        if out.startswith("ja"):
+            return "ja"
+        if out.startswith("zh"):
+            # zh-Hans / zh-Hant / zh_CN / zh_TW をまとめて中国語にする。
+            # 繁体字を簡体字で出す問題はあるが、まず「中国語で読める」を優先。
+            return "zh"
+        if out:
             return "en"
     except Exception:
         pass
+    # 判定できない環境(非macOS など)は従来通り日本語のまま。
     return "ja"
+
+
+# 表示言語の優先順。未訳の言語はこの順で落とす(zh 未訳 -> en -> ja)。
+# 空文字を返さないための保険。
+_LANG_FALLBACK = {
+    "ja": ("ja", "en"),
+    "en": ("en", "ja"),
+    "zh": ("zh", "en", "ja"),
+}
 
 
 LANG = _detect_lang()
@@ -158,8 +174,26 @@ _S = {
 
 
 def L(key, **kw):
-    ja, en = _S[key]
-    s = en if LANG == "en" else ja
+    """文言を引く。
+
+    条目は 2 通り書ける:
+        ("日本語", "English")                      … 従来形式(中国語は英語に落ちる)
+        {"ja": ..., "en": ..., "zh": ...}          … 中国語を足した形式
+    未訳の言語は _LANG_FALLBACK の順で回退し、空文字は返さない。
+    """
+    entry = _S[key]
+    s = None
+    if isinstance(entry, dict):
+        for lang in _LANG_FALLBACK.get(LANG, ("ja",)):
+            v = entry.get(lang)
+            if v:
+                s = v
+                break
+    else:
+        ja, en = entry
+        s = ja if LANG == "ja" else en
+    if not s:
+        s = entry["ja"] if isinstance(entry, dict) else entry[0]
     return s.format(**kw) if kw else s
 
 

@@ -59,7 +59,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **91** | `key => ["日本語", "English"]`，`L()` 用 `$pair->[1]`/`[0]` 取 |
+| `agent/claude-agent.pl` → `my %S` | **96** | `key => ["日本語", "English"]`，`L()` 用 `$pair->[1]`/`[0]` 取 |
 | `gui/advisor_gui.py` → `_S` | **59** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|日本語ラベル|English label` |
@@ -82,7 +82,7 @@ need_key => { ja => '%s を設定してください', en => 'Please set %s', zh 
 ```
 
 理由：加语言不用改索引、不会错位。改动面其实很小 —— **读取点各自只有 1 处**
-（`L()` 函数），剩下 91 + 59 条是纯数据替换。
+（`L()` 函数），剩下 96 + 59 条是纯数据替换。
 
 **B. 语言解析改成三分支 + 回退链**
 
@@ -111,9 +111,11 @@ id|日本語                     ← 2 列（更旧，原样兼容）
 
 ### 3.3 任务清单
 
-- [ ] `agent/claude-agent.pl`：`%S` 91 条补中文 + `L()` 改 hashref + `$LANGCODE` 三分支
+- [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
+- [ ] `agent/claude-agent.pl`：`%S` 96 条补中文（文案还没动）
 - [ ] `agent/claude-agent.pl`：`print_help`（帮助全文，非 `%S` 条目）补中文
-- [ ] `gui/advisor_gui.py`：`_S` 59 条补中文 + `L()` + `_detect_lang()` 三分支
+- [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
+- [ ] `gui/advisor_gui.py`：`_S` 59 条补中文（文案还没动）
 - [ ] `gui/advisor_gui.py`：GUI 里零散硬编码文案（菜单、对话框标题）扫一遍
 - [ ] `setup.sh`：`IS_EN` 改 `LANGCODE`，87 处 `msg()` 补第三语
 - [ ] `models.txt`：4 列格式 + 5 个模型补中文标签
@@ -128,10 +130,10 @@ id|日本語                     ← 2 列（更旧，原样兼容）
 - `setup.sh` 的 heredoc 里嵌了给 `~/bin/advisor` 生成的代码，**那段是生成给
   bash 3.2 用的**，中文字面量在里面要留意引号嵌套
 - 别翻译 `run_shell` 类工具名、`--flag` 名、环境变量名 —— 只翻人类可读文案
-- 上游日后同步会在这 91+59 条上冲突，**同步时要整段手动合并**，不要盲信
+- 上游日后同步会在这 96+59 条上冲突，**同步时要整段手动合并**，不要盲信
   `git merge` 的自动结果
 
-**规模**：约 237 条文案 + 6 处逻辑分派。**风险低**（纯数据 + 一处读取逻辑），
+**规模**：约 242 条文案 + 6 处逻辑分派。**风险低**（纯数据 + 一处读取逻辑），
 但机械量大。
 
 ---

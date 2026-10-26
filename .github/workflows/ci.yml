@@ -98,7 +98,11 @@ jobs:
           [ "$N" -ge 1 ] || { echo "::error::models.txt 里没有可用模型"; exit 1; }
           [ "$FAIL" -eq 0 ] || exit 1
 
-      # ---------- 5. 编码/换行卡口 ----------
+      # ---------- 5. 三语文案占位符一致性 ----------
+      - name: 三语文案占位符卡口
+        run: python3 scripts/check-i18n.py
+
+      # ---------- 6. 编码/换行卡口 ----------
       - name: 编码与换行检查
         run: |
           set -o pipefail

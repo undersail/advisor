@@ -72,18 +72,44 @@ sub dbg  {
 # 判定できなければ、この項目の既存ユーザーに合わせて日本語を既定にする。
 # ------------------------------------------------------------------
 my $LANGCODE = 'ja';
-if (defined $ENV{CLAUDE_LANG} && $ENV{CLAUDE_LANG} =~ /^(en|ja)$/i) {
-    # CLAUDE_LANG=en/ja があれば最優先(システム言語を変えずに英語表示を
-    # 確認したいとき用)。
-    $LANGCODE = lc($1);
+if (defined $ENV{CLAUDE_LANG} && $ENV{CLAUDE_LANG} =~ /^(en|ja|zh)/i) {
+    # CLAUDE_LANG=en/ja/zh があれば最優先(システム言語を変えずに表示言語を
+    # 確認したいとき用)。zh-Hans / zh_CN のような書き方も zh として扱う。
+    $LANGCODE = lc(substr($1, 0, 2));
 }
 else {
     my $out = `defaults read -g AppleLocale 2>/dev/null`;
-    if (defined $out && $out ne '' && $out !~ /^ja/i) {
+    $out = '' unless defined $out;
+    if ($out =~ /^ja/i) {
+        $LANGCODE = 'ja';
+    }
+    elsif ($out =~ /^zh/i) {
+        # zh-Hans / zh-Hant / zh_CN / zh_TW などをまとめて中国語にする。
+        # 繁体字を簡体字で出す問題はあるが、まず「中国語で読める」ことを優先。
+        $LANGCODE = 'zh';
+    }
+    elsif ($out ne '') {
         $LANGCODE = 'en';
     }
+    # 判定できない環境(非macOS など)は従来通り日本語のまま。
 }
-# key => [ja, en]。%sプレースホルダはsprintfで埋める(L(key, arg1, arg2...))。
+
+# 表示言語の一覧(優先順)。%S 側に無い言語はこの順で落とす。
+#   例: zh が未訳 → en → ja。空文字を返すことは無い。
+my @LANG_FALLBACK = (
+    $LANGCODE,
+    ($LANGCODE eq 'zh' ? ('en', 'ja') : ()),
+    ($LANGCODE eq 'en' ? ('ja') : ()),
+);
+if ($LANGCODE ne 'ja' && $LANGCODE ne 'en' && $LANGCODE ne 'zh') {
+    @LANG_FALLBACK = ('ja', 'en');
+}
+
+# key => 文言。2 通り書ける:
+#   [ja, en]                     … 従来形式(中国語は en にフォールバック)
+#   { ja => .., en => .., zh => .. } … 中国語を足した形式
+# %s プレースホルダは sprintf で埋める(L(key, arg1, arg2...))。
+# 引数の順序と個数は全言語で揃えること(ずれると表示が壊れる)。
 my %S = (
     need_key            => ["%s を設定してください\n", "Please set %s\n"],
     unknown_provider    => ["不明なプロバイダ: '%s' (anthropic か gemini)\n",
@@ -226,7 +252,21 @@ sub L {
     my ($key, @args) = @_;
     my $pair = $S{$key};
     return "[$key]" unless $pair;
-    my $s = $LANGCODE eq 'en' ? $pair->[1] : $pair->[0];
+
+    my $s;
+    if (ref $pair eq 'HASH') {
+        for my $lang (@LANG_FALLBACK) {
+            my $v = $pair->{$lang};
+            next unless defined $v && $v ne '';
+            $s = $v;
+            last;
+        }
+    }
+    else {
+        # 従来の [ja, en]。中国語は未訳なので英語に落とす(日英の挙動は不変)。
+        $s = ($LANGCODE eq 'ja') ? $pair->[0] : $pair->[1];
+    }
+    $s = $pair->[0] unless defined $s && $s ne '';
     return @args ? sprintf($s, @args) : $s;
 }
 
