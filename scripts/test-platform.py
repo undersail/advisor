@@ -213,20 +213,27 @@ def start_platform(home, api_base, gateway_cmd):
         'AUDIT_PATH': os.path.join(home, 'audit.log'),
         'PLATFORM_VERBOSE': '1' if VERBOSE else '',
     })
+    # 输出写文件而不是 PIPE：请求一多，没人读的管道写满 64KB 就会把服务端卡死
+    # （这件事真的发生过：后面几条断言全变成连接失败，看起来像代码 bug）。
+    logf = os.path.join(home, 'platform-serve.log')
     p = subprocess.Popen(['/usr/bin/perl', PLATFORM, '--serve'], cwd=ROOT, env=env,
-                         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                         text=True, encoding='utf-8')
+                         stdout=open(logf, 'w', encoding='utf-8'),
+                         stderr=subprocess.STDOUT)
+    p._logf = logf
     return p
 
 
 def stop(p):
     p.terminate()
     try:
-        out = p.communicate(timeout=8)[0]
+        p.wait(timeout=8)
     except subprocess.TimeoutExpired:
         p.kill()
-        out = p.communicate()[0]
-    return out or ''
+        p.wait(timeout=5)
+    logf = getattr(p, '_logf', '')
+    if logf and os.path.exists(logf):
+        return open(logf, encoding='utf-8').read()
+    return ''
 
 
 # ----------------------------------------------------------------- 主流程
@@ -255,7 +262,7 @@ def main():
 
     # --- 回调 URL 验证 ---
     echo = wecom_encrypt(aes, 'echo-12345')
-    ts, nonce = '1700000000', 'abc123'
+    ts, nonce = str(int(time.time())), 'abc123'
     sig = wecom_sig(token, ts, nonce, echo)
     st, body = http_get(base + '?msg_signature=%s&timestamp=%s&nonce=%s&echostr=%s'
                         % (sig, ts, nonce, urllib.parse.quote(echo)))
@@ -272,7 +279,7 @@ def main():
            '<CreateTime>1700000001</CreateTime>'
            '<MsgType><![CDATA[text]]></MsgType>'
            '<Content><![CDATA[帮我看下磁盘占用]]></Content>'
-           '<MsgId>123456</MsgId></xml>')
+           '<MsgId>%s</MsgId></xml>' % str(random.randint(10**9, 10**10)))
     enc = wecom_encrypt(aes, xml)
     outer = '<xml><ToUserName><![CDATA[corp]]></ToUserName><Encrypt><![CDATA[%s]]></Encrypt></xml>' % enc
     sig = wecom_sig(token, ts, nonce, enc)
@@ -303,6 +310,35 @@ def main():
     time.sleep(1.5)
     check('企微消息：签名错 → 403 且不推任何东西', st == 403 and not PUSHES,
           'status=%s pushes=%s' % (st, PUSHES[:1]))
+
+    # --- 安全：重放同一份请求 ---
+    pushes_before = len(PUSHES)
+    calls_file = os.path.join(home, 'gw_in.txt')
+    gw_calls = 0
+    if os.path.exists(calls_file):
+        gw_calls = len(open(calls_file, encoding='utf-8').read().strip().split('\n'))
+    st1, _ = http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base, sig, ts, nonce), outer)
+    time.sleep(1.5)
+    gw_after = 0
+    if os.path.exists(calls_file):
+        gw_after = len(open(calls_file, encoding='utf-8').read().strip().split('\n'))
+    check('安全：同一条消息重投不会让 agent 再跑一遍（按 MsgId 去重）',
+          gw_after == gw_calls, '调用次数 %d → %d' % (gw_calls, gw_after))
+    audit_now = open(os.path.join(home, 'audit.log'), encoding='utf-8').read()
+    check('安全：去重时留下 duplicate_drop 审计', 'duplicate_drop' in audit_now)
+
+    # --- 安全：过期时间戳（重放旧请求）---
+    old_ts = str(int(time.time()) - 3600)
+    old_sig = wecom_sig(token, old_ts, nonce, enc)
+    st, _ = http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base, old_sig, old_ts, nonce), outer)
+    check('安全：时间戳超出容忍窗口 → 403（挡住旧请求重放）', st == 403, 'status=%s' % st)
+
+    # --- 安全：超大请求体 ---
+    big = '<xml><Encrypt>' + 'A' * (2 * 1024 * 1024) + '</Encrypt></xml>'
+    t0 = time.time()
+    st, _ = http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base, sig, ts, nonce), big)
+    check('安全：2MB 请求体被直接拒绝（400，且不读进内存）',
+          st == 400 and time.time() - t0 < 3, 'status=%s 耗时 %.1fs' % (st, time.time() - t0))
 
     # --- 密文被改：不崩、不回复 ---
     bad_enc = enc[:-6] + ('AAAA' + enc[-2:])
@@ -361,7 +397,7 @@ def main():
     # --- URL 验证（challenge）---
     ch_plain = json.dumps({'challenge': 'chal-777', 'token': 'vt', 'type': 'url_verification'})
     enc_body = json.dumps({'encrypt': feishu_encrypt(ek, ch_plain)})
-    fd_ts, fd_nc = '1700000000', 'n0nce'
+    fd_ts, fd_nc = str(int(time.time())), 'n0nce'
     fd_sig = hashlib.sha256((fd_ts + fd_nc + ek + enc_body).encode()).hexdigest()
     st, body = http_post(base3, enc_body, {
         'X-Lark-Request-Timestamp': fd_ts,
@@ -430,6 +466,21 @@ def main():
 
     mode = stat.S_IMODE(os.stat(os.path.join(home, '.claude-agent', 'platform.conf')).st_mode)
     check('凭据文件权限是 0600', mode == 0o600, oct(mode))
+
+    # 在 umask 022 下新建也要是 0600（open 后再 chmod 有一瞬间是 0644 的窗口）
+    home4 = tempfile.mkdtemp(prefix='plat-umask-')
+    old_umask = os.umask(0o022)
+    try:
+        p4 = write_conf(home4, 'PLATFORM = wecom\nWECOM_CORP_ID = x\nWECOM_AGENT_ID = 1\n'
+                               'WECOM_CORP_SECRET = s\nWECOM_AES_KEY = ' + 'A' * 43 + '\nPORT = 1\n')
+        m4 = stat.S_IMODE(os.stat(p4).st_mode)
+    finally:
+        os.umask(old_umask)
+    check('umask 022 下写出的凭据仍是 0600（无 0644 窗口）', m4 == 0o600, oct(m4))
+
+    check('默认只监听 127.0.0.1（回调正文是明文消息，不该撒到局域网）',
+          ('监听 127.0.0.1:%d' % port3) in out3, out3[:200])
+    shutil.rmtree(home4, ignore_errors=True)
 
     mock.shutdown()
     for d in (home, home2, home3):

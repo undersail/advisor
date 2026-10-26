@@ -32,6 +32,7 @@ use MIME::Base64 qw(decode_base64);
 use Encode qw(decode encode);
 use Digest::SHA qw(sha1_hex sha256 sha256_hex);
 use File::Path qw(make_path);
+use Fcntl qw(O_WRONLY O_CREAT O_APPEND);
 use File::Basename qw(dirname);
 
 binmode STDOUT, ':encoding(UTF-8)';
@@ -47,6 +48,17 @@ my $CURL       = $ENV{CURL_BIN}    || 'curl';
 my $OPENSSL    = $ENV{OPENSSL_BIN} || 'openssl';
 # 仅测试用：把平台 API 指到本地假服务
 my $API_BASE   = $ENV{PLATFORM_API_BASE} || '';
+# 安全默认值（都可用环境变量/配置覆盖，但默认必须是安全的那一侧）
+my $MAX_SKEW    = 300;            # 秒：时间戳超出即拒，防重放
+my $MAX_BODY    = 262144;         # 字节：请求体上限，防内存打爆
+my $MAX_CHILD   = 8;              # 同时处理的消息数上限，防 fork 拖垮机器
+my $DEFAULT_BIND = '127.0.0.1';   # 默认只听本机：对外要靠穿透/反代，别把明文撒到局域网
+my $CHILD_N = 0;
+# 平台会在超时后重投同一条消息（企微/飞书都会）。没有去重就会出现
+# 「一条指令被跑两遍」——对能改文件、能跑命令的 agent 来说这是真事故。
+# 按平台侧 MessageId 去重；没有 MessageId 时退回用签名摘要。
+my $DEDUP_TTL = 600;              # 秒
+my %SEEN;                         # key => 过期时间
 
 # ------------------------------------------------------------------ 日志 / 审计
 sub audit {
@@ -55,10 +67,10 @@ sub audit {
     print STDERR $line if $ENV{PLATFORM_VERBOSE};
     make_path(dirname($AUDIT_PATH)) unless -d dirname($AUDIT_PATH);
     my $fresh = !-e $AUDIT_PATH;
-    if (open(my $af, '>>:encoding(UTF-8)', $AUDIT_PATH)) {
+    if (my $af = open_private($AUDIT_PATH, O_WRONLY | O_CREAT | O_APPEND)) {
+        binmode($af, ':encoding(UTF-8)');
         print $af $line;
         close $af;
-        chmod 0600, $AUDIT_PATH if $fresh;
     }
 }
 
@@ -80,10 +92,22 @@ sub load_conf {
     return \%c;
 }
 
+# 以 0600 创建：open 之后再 chmod 有一瞬间是 0644（umask 022 时），
+# 那一瞬间别的进程能读到密钥。sysopen 带 mode 没有这个窗口。
+sub open_private {
+    my ($path, $mode) = @_;
+    $mode ||= O_WRONLY | O_CREAT;
+    my $old = umask(077);
+    sysopen(my $fh, $path, $mode, 0600) or do { umask($old); return undef };
+    umask($old);
+    return $fh;
+}
+
 sub save_conf {
     my ($c) = @_;
     make_path($AGENT_DIR) unless -d $AGENT_DIR;
-    open(my $fh, '>:encoding(UTF-8)', $CONF_PATH) or die "无法写入 $CONF_PATH: $!";
+    my $fh = open_private($CONF_PATH) or die "无法写入 $CONF_PATH: $!";
+    binmode($fh, ':encoding(UTF-8)');
     print $fh "# 平台回调凭据（remote/platform.pl --init 生成）\n";
     print $fh "# 这是凭据文件：权限 0600，不要提交到任何仓库。\n";
     print $fh "$_ = $c->{$_}\n" for sort keys %$c;
@@ -136,10 +160,10 @@ sub aes_decrypt {
     my $id = "$$." . int(rand(1e6));
     my $in  = "$AGENT_DIR/tmp/ct.$id";
     my $out = "$AGENT_DIR/tmp/pt.$id";
-    open(my $fh, '>:raw', $in) or return undef;
+    my $fh = open_private($in) or return undef;
+    binmode($fh);
     print $fh $ct;
     close $fh;
-    chmod 0600, $in;
     my $errh = gensym;
     my ($in_h, $out_h);
     my $pid = eval {
@@ -179,7 +203,7 @@ sub pkcs7_strip {
 
 sub wecom_cek {
     my ($aes_key) = @_;
-    my $raw = decode_base64(($aes_key // '') . '=');
+    my $raw = decode_base64(encode('UTF-8', ($aes_key // '')) . '=');
     return undef unless defined $raw && length($raw) == 32;
     return $raw;
 }
@@ -196,7 +220,9 @@ sub receiveid_ok {
 
 sub wecom_sig {
     my ($token, $ts, $nonce, $enc) = @_;
-    return sha1_hex(join('', sort { $a cmp $b } ($token // '', $ts // '', $nonce // '', $enc // '')));
+    # 摘要只接受字节：配置里的值是字符，先编码再哈希（否则 wide character 会抛异常）
+    return sha1_hex(encode('UTF-8', join('', sort { $a cmp $b }
+        ($token // '', $ts // '', $nonce // '', $enc // ''))));
 }
 
 # 企微明文结构：16 字节随机 + 4 字节大端长度 + 消息 + ReceiveId + 32 字节块填充
@@ -225,7 +251,7 @@ sub feishu_decrypt {
     return undef unless defined $encrypt_key && $encrypt_key =~ /\S/;
     my $raw = decode_base64($b64 // '');
     return undef unless defined $raw && length($raw) > 16;
-    my $plain = aes_decrypt(sha256($encrypt_key), substr($raw, 0, 16), substr($raw, 16));
+    my $plain = aes_decrypt(sha256(encode('UTF-8', $encrypt_key)), substr($raw, 0, 16), substr($raw, 16));
     return undef unless defined $plain;
     return pkcs7_strip($plain, 16);
 }
@@ -286,10 +312,10 @@ sub http_post {
 
     make_path("$AGENT_DIR/tmp") unless -d "$AGENT_DIR/tmp";
     my $tmp = "$AGENT_DIR/tmp/body.$$." . int(rand(1e6));
-    open(my $bf, '>:encoding(UTF-8)', $tmp) or return (0, '', "临时文件写入失败: $!");
+    my $bf = open_private($tmp) or return (0, '', "临时文件写入失败: $!");
+    binmode($bf, ':encoding(UTF-8)');
     print $bf $body;
     close $bf;
-    chmod 0600, $tmp;
 
     my $cfg = qq{url = "$url"\n};
     $cfg .= qq{header = "content-type: application/json"\n};
@@ -447,10 +473,32 @@ sub run_gateway {
     return $reply;
 }
 
+sub seen_before {
+    my ($key) = @_;
+    my $now = time;
+    if (%SEEN && $now % 60 == 0) {          # 顺手清理过期项
+        for my $k (keys %SEEN) { delete $SEEN{$k} if $SEEN{$k} < $now }
+    }
+    return 1 if $SEEN{$key} && $SEEN{$key} >= $now;
+    $SEEN{$key} = $now + $DEDUP_TTL;
+    return 0;
+}
+
 sub dispatch {
-    my ($c, $sender, $text) = @_;
+    my ($c, $sender, $text, $msg_key) = @_;
     return 0 if !defined $text || $text !~ /\S/;
+    my $key = (defined $msg_key && $msg_key =~ /\S/)
+        ? "id:$msg_key"
+        : 'sig:' . sha1_hex(encode('UTF-8', ($sender // '') . "\x00" . ($text // '')));
+    if (seen_before($key)) {
+        audit('duplicate_drop', "from=$sender key=$key");
+        return 0;
+    }
     audit('inbound', "from=$sender len=" . length($text));
+    if ($CHILD_N >= $MAX_CHILD) {          # 忙不过来就丢弃，别把机器拖垮
+        audit('busy_drop', "inflight=$CHILD_N");
+        return 0;
+    }
     # 后台处理：平台要求 5 秒内应答，长任务必须先返回
     my $pid = fork();
     if (!defined $pid) {
@@ -458,9 +506,9 @@ sub dispatch {
         send_text($c, $sender, $r) if defined $r && $r =~ /\S/;
         return 0;
     }
+    $CHILD_N++ if $pid;
     return 0 if $pid;
     # 子进程
-    $SIG{CHLD} = 'DEFAULT';
     my $reply = run_gateway($sender, $text);
     send_text($c, $sender, $reply) if defined $reply && $reply =~ /\S/;
     exit 0;
@@ -487,6 +535,18 @@ sub read_request {
         $h{lc $1} = $2;
     }
     my $len = $h{'content-length'} // 0;
+    if ($len > $MAX_BODY) {
+        # 不把 2MB 读进内存，但也别一句话不说就断 —— 读掉一个小上限再回 400，
+        # 否则客户端看到的只有「连接被重置」。
+        my $budget = 1024 * 1024;
+        while ($budget > 0 && length($rest) < $budget && $len > 0) {
+            my $n = sysread($sock, my $chunk, 8192);
+            last unless defined $n && $n > 0;
+            $rest .= $chunk;
+            $budget -= $n;
+        }
+        return { too_big => 1, method => $method // 'GET', path => $path // '/', headers => \%h, body => '' };
+    }
     while (length($rest) < $len) {
         my $n = sysread($sock, my $chunk, 8192);
         last unless defined $n && $n > 0;
@@ -504,6 +564,15 @@ sub respond {
             . "\r\nContent-Type: $ctype\r\nContent-Length: " . length($bytes)
             . "\r\nConnection: close\r\n\r\n" . $bytes;
     syswrite($sock, $out);
+}
+
+# 时间戳必须在 MAX_SKEW 秒内。签名本身覆盖 timestamp，但一份「旧的合法请求」
+# 仍然可以原样重放 —— 只有校验新鲜度才能挡住（实测重放会把网关再跑一遍）。
+sub fresh_ts {
+    my ($ts) = @_;
+    return 0 unless defined $ts && $ts =~ /^\d{1,12}$/;
+    my $skew = abs(time() - $ts);
+    return $skew <= $MAX_SKEW;
 }
 
 sub qs {
@@ -527,6 +596,11 @@ sub handle_wecom {
     my $ts    = qs($q, 'timestamp');
     my $nonce = qs($q, 'nonce');
     my $token = $c->{WECOM_CALLBACK_TOKEN} // '';
+
+    unless (fresh_ts($ts)) {                           # 防重放：先看新鲜度
+        audit('wecom_stale_ts', 'dropped');
+        return respond($sock, 403, 'text/plain', '');
+    }
 
     if ($r->{method} eq 'GET') {                       # 配置回调 URL 时的验证
         my $echo = qs($q, 'echostr') // '';
@@ -569,12 +643,13 @@ sub handle_wecom {
     my ($from)  = $plain =~ m{<FromUserName>\s*(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?\s*</FromUserName>}s;
     my ($text)  = $plain =~ m{<Content>\s*(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?\s*</Content>}s;
     my ($mtype) = $plain =~ m{<MsgType>\s*(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?\s*</MsgType>}s;
+    my ($msgid) = $plain =~ m{<MsgId>\s*(?:<!\[CDATA\[)?(\d+)(?:\]\]>)?\s*</MsgId>}s;
     respond($sock, 200, 'text/plain', 'success');      # 平台要求 5 秒内应答
     if ((defined $mtype && $mtype ne 'text') || !defined $from) {
         audit('wecom_skip', 'type=' . ($mtype // '?'));
         return 1;
     }
-    dispatch($c, $from, $text);
+    dispatch($c, $from, $text, $msgid);
     return 1;
 }
 
@@ -590,6 +665,10 @@ sub handle_feishu {
         my $want = sha256_hex("$ts$nc$ek$body");
         unless ($got eq $want) {
             audit('feishu_sig_fail', 'dropped');
+            return respond($sock, 403, 'application/json', '{}');
+        }
+        unless (fresh_ts($ts)) {
+            audit('feishu_stale_ts', 'dropped');
             return respond($sock, 403, 'application/json', '{}');
         }
     }
@@ -620,6 +699,7 @@ sub handle_feishu {
     }
 
     my $open_id = json_get($body, 'open_id');
+    my $msg_id  = json_get($body, 'message_id');
     my $content = json_get($body, 'content') // '';
     my $text = $content;
     $text = json_get($content, 'text') // '' if $content =~ /^\s*\{/;
@@ -632,17 +712,50 @@ sub handle_feishu {
     return 1;
 }
 
+sub cleanup_tmp {
+    my $dir = "$AGENT_DIR/tmp";
+    return unless -d $dir;
+    my $now = time;
+    opendir(my $dh, $dir) or return;
+    for my $f (readdir $dh) {
+        next if $f =~ /^\.\.?$/;
+        my $path = "$dir/$f";
+        unlink $path if -f $path && $now - (stat($path))[9] > 3600;
+    }
+    closedir $dh;
+}
+
 sub serve {
     my ($c) = @_;
     my $port = $ENV{PORT} || $c->{PORT} || 8099;
+    # 默认只听 127.0.0.1：回调正文是明文消息内容，绑 0.0.0.0 等于在同一网络里公开。
+    # 要对外就用穿透/反代转发到本机，确实需要监听全部网卡时显式设 BIND。
+    my $bind = $ENV{BIND} || $c->{BIND} || $DEFAULT_BIND;
+    cleanup_tmp();
     my $srv = IO::Socket::INET->new(
-        LocalAddr => '0.0.0.0', LocalPort => $port, Listen => 16,
-        ReuseAddr => 1, Proto => 'tcp') or die "无法监听端口 $port: $!\n";
-    print "监听 0.0.0.0:$port（platform=" . ($c->{PLATFORM} // '?') . "）\n";
-    $SIG{CHLD} = 'DEFAULT';
-    while (my $cli = $srv->accept()) {
+        LocalAddr => $bind, LocalPort => $port, Listen => 16,
+        ReuseAddr => 1, Proto => 'tcp') or die "无法监听 $bind:$port: $!\n";
+    print "监听 $bind:$port（platform=" . ($c->{PLATFORM} // '?') . "）\n";
+    print "注意：默认只监听本机。要让平台回调进来，请用穿透/反向代理转发到 $bind:$port。\n"
+        if $bind eq '127.0.0.1';
+    # 子进程退出会送 SIGCHLD，它会打断阻塞中的 accept()，让 accept 返回 undef —
+    # 直接把服务退出掉（实测：第二条消息一到，服务就干净地 exit 0 了）。
+    # 所以 accept 失败时先看是不是 EINTR，是就重试。
+    $SIG{CHLD} = sub { $CHILD_N-- if $CHILD_N > 0 };
+    while (1) {
+        my $cli = $srv->accept();
+        if (!$cli) {
+            next if $!{EINTR};
+            last;
+        }
         my $r = eval { read_request($cli) };
         if (!$r) { close $cli; next }
+        if ($r->{too_big}) {                            # 不读进内存，直接拒
+            audit('body_too_big', 'dropped');
+            respond($cli, 400, 'text/plain', '');
+            close $cli;
+            next;
+        }
         eval {
             my $p = $r->{path} // '';
             if    ($p =~ m{^/wecom})  { handle_wecom($c, $cli, $r) }
@@ -652,6 +765,7 @@ sub serve {
         audit('handler_error', substr($@, 0, 160)) if $@;
         close $cli;
         while (waitpid(-1, 1) > 0) { }                 # 回收后台子进程
+        $CHILD_N = 0 if $CHILD_N < 0;
     }
 }
 
