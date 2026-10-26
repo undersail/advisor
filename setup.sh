@@ -82,7 +82,8 @@ msg() {
       removed_old_wrapper) fmt="已删除旧的 %s。" ;;
       added_path) fmt="已把 %s 加入 PATH。" ;;
       installed_completion) fmt="已安装 bash 补全（%s）。" ;;
-      path_effective) fmt="（下次登录起生效。想马上使用，请执行 'source ~/.bash_profile'，或打开一个新终端）" ;;
+      path_ready) fmt="PATH 已生效，现在就能用 'advisor'。" ;;
+      path_needs_source) fmt="PATH 已写入，但当前会话还没生效：执行 'source %s'，或关掉这个窗口开一个新终端。" ;;
       no_python3) fmt="没找到可用的 python3，跳过 Advisor.app 的生成。" ;;
       gui_no_tk) fmt="%s 缺少 Tk 图形库，跳过 Advisor.app 的生成。" ;;
       gui_install_hint) fmt="  命令行版 advisor 不受影响，照常可用。想用图形界面请装 python.org 的 Python 3（自带 Tk），然后重跑 setup.sh。" ;;
@@ -130,7 +131,8 @@ msg() {
       removed_old_wrapper) fmt="Removed the old %s." ;;
       added_path) fmt="Added %s to PATH." ;;
       installed_completion) fmt="Installed bash completion (%s)." ;;
-      path_effective) fmt="(Takes effect next login. To use it now, run 'source ~/.bash_profile' or open a new Terminal window.)" ;;
+      path_ready) fmt="PATH is in effect - you can run 'advisor' right now." ;;
+      path_needs_source) fmt="PATH was written, but not active in this session yet: run 'source %s', or close this window and open a new Terminal." ;;
       no_python3) fmt="No usable python3 found, so skipping the Advisor.app build." ;;
       gui_no_tk) fmt="%s is missing the Tk graphics library, so skipping the Advisor.app build." ;;
       gui_install_hint) fmt="  The command-line 'advisor' is unaffected and still works. For the GUI, install Python 3 from python.org (it bundles Tk) and run setup.sh again." ;;
@@ -177,7 +179,8 @@ msg() {
       removed_old_wrapper) fmt="旧 %s を削除しました。" ;;
       added_path) fmt="PATHに %s を追加しました。" ;;
       installed_completion) fmt="bash補完を設置しました(%s)。" ;;
-      path_effective) fmt="(次回ログインから有効。今すぐ使うには 'source ~/.bash_profile' を実行するか、新しいターミナルを開いてください)" ;;
+      path_ready) fmt="PATH が有効になりました。今すぐ 'advisor' を使えます。" ;;
+      path_needs_source) fmt="PATH は書き込みましたが、このセッションではまだ有効ではありません: 'source %s' を実行するか、新しいターミナルを開いてください。" ;;
       no_python3) fmt="使える python3 が見つからないため Advisor.app の生成はスキップします。" ;;
       gui_no_tk) fmt="%s に Tk が入っていないため Advisor.app の生成はスキップします。" ;;
       gui_install_hint) fmt="  コマンド版 advisor は影響を受けず、そのまま使えます。GUI を使うには python.org の Python 3(Tk 同梱)を入れて setup.sh を再実行してください。" ;;
@@ -640,10 +643,32 @@ msg created_wrapper "$BIN_DIR/advisor"
 # 旧名(claude)が残っていれば片付ける
 [ -e "$BIN_DIR/claude" ] && rm -f "$BIN_DIR/claude" && msg removed_old_wrapper "$BIN_DIR/claude"
 
-if ! grep -qF 'export PATH=$HOME/bin:$PATH' "$HOME/.bash_profile" 2>/dev/null; then
-  echo "export PATH=\$HOME/bin:\$PATH" >> "$HOME/.bash_profile"
-  msg added_path "$BIN_DIR"
-fi
+# 把 $HOME/bin 加进 PATH，并**验证真的生效**。
+# 以前的写法有两个坑：
+#   1) grep -F 会把注释掉的 `# export PATH=$HOME/bin:$PATH` 当成已存在 → 什么都不写，
+#      用户开新终端还是 command not found；
+#   2) 只写 ~/.bash_profile，但 macOS 默认 shell 是 zsh，zsh 根本不读这个文件 ——
+#      写了等于没写，却照样打印「已加入 PATH」。
+# 所以：跳过注释行判断 + 按登录 shell 选文件 + 最后用登录 shell 真解析一次。
+PATH_WROTE_TO=""
+path_ensure() {
+  local target="$1"
+  mkdir -p "$(dirname "$target")" 2>/dev/null || true
+  [ -f "$target" ] || : > "$target"
+  # 只认「生效的行」：行首（允许缩进）就是 export PATH=...$HOME/bin
+  if grep -qE '^[[:space:]]*export[[:space:]]+PATH=.*\$HOME/bin' "$target" 2>/dev/null; then
+    return 0
+  fi
+  printf '%s\n' 'export PATH=$HOME/bin:$PATH' >> "$target"
+  PATH_WROTE_TO="$PATH_WROTE_TO $target"
+  msg added_path "$target"
+  return 0
+}
+path_ensure "$HOME/.bash_profile"
+# zsh（macOS 默认登录 shell）读 ~/.zprofile
+case "${SHELL:-}" in
+  *zsh*) path_ensure "$HOME/.zprofile" ;;
+esac
 
 # --- 5. bash補完の設置 ---
 cp "$SCRIPT_DIR/completion/advisor-completion.bash" "$COMPLETION_FILE"
@@ -656,7 +681,12 @@ if [ -f "$HOME/.claude-completion.bash" ]; then
   grep -v "source $HOME/.claude-completion.bash" "$HOME/.bash_profile" > "$HOME/.bash_profile.tmp" 2>/dev/null && mv "$HOME/.bash_profile.tmp" "$HOME/.bash_profile" || true
   rm -f "$HOME/.claude-completion.bash"
 fi
-msg path_effective
+# 用登录 shell 真解析一次：这一步才是「能不能用」的判据
+if bash -lc 'command -v advisor' >/dev/null 2>&1; then
+  msg path_ready
+else
+  msg path_needs_source "$HOME/.bash_profile"
+fi
 echo ""
 
 # --- 6. ダブルクリック用 Advisor.app (GUI) の生成 ---

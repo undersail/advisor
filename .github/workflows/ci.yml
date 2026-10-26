@@ -147,6 +147,13 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: git hook 测试（真的 commit 一次，验证拦截有效）
+        run: |
+          set -o pipefail
+          # hook 最坑的形态是「装了但没生效」，所以这里在临时仓库里真提交：
+          # 该拦的（本机路径 / key / CRLF / 调试残留）必须拦住，干净的必须能过。
+          python3 scripts/test-hooks.py
+
       - name: setup.sh 的 python3 探测与 GUI 前置条件
         run: |
           set -o pipefail

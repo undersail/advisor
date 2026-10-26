@@ -131,7 +131,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 57 条）
 - [x] `gui/advisor_gui.py`：硬编码文案扫一遍 —— 主题名原只有 `label`/`label_en`，zh 下会显示日文，已加 `label_zh` 并改 `theme_label()`
-- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 43 条（三语各 43）补中文，未命中落回原 en/ja
+- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 44 条（三语各 44）补中文，未命中落回原 en/ja
 - [x] `models.txt`：4 列格式 + 5 个模型补中文标签（Perl 解析同步改限 4 段选列）
 - [x] `README.zh.md` + 三份 README 互链 + 语言说明改三语
 - [x] `release/ReadMe_ZH.txt`（ASCII 文件名）+ `build_standalone_app.sh` 打包列表
@@ -467,3 +467,13 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
    真实 OS 兼容性、各家 API 真实往返、平台回调与审核。
 7. 动 `agent/claude-agent.pl` 核心逻辑前，先确认改动落在哪个里程碑并已开工，
    不要顺手重构。
+
+## 提交前卡口（git hook）
+
+```bash
+bash scripts/install-git-hooks.sh     # 每个克隆做一次（core.hooksPath → scripts/hooks）
+```
+
+装上之后 `git commit` 会自动拦：本机家目录等泄漏、疑似 API key、CRLF、调试残留。
+确需跳过用 `git commit --no-verify`。hook 自身有测试（`scripts/test-hooks.py`
+在临时仓库里真提交一次），CI 会跑，避免「装了等于没装」。

@@ -149,7 +149,70 @@ def main():
     finally:
         shutil.rmtree(run, ignore_errors=True)
 
-    # ---------------- 3. 主流程：没有 Tk 就不生成 app ----------------
+    # ---------------- 3. PATH 写入（advisor: command not found 那次） ----------------
+    # 旧写法用 grep -F 判断，注释掉的 `# export PATH=$HOME/bin:$PATH` 会被当成
+    # 「已经加过了」，于是一个字都不写，用户开新终端还是找不到 advisor。
+    try:
+        pfunc = extract_func(src, 'path_ensure')
+    except SystemExit:
+        pfunc = None
+    check('setup.sh 里有 path_ensure（PATH 写入集中在一处）', pfunc is not None)
+    if pfunc:
+        pwork = tempfile.mkdtemp(prefix='pathtest-')
+        try:
+            def run_path_ensure(profile, shell='/bin/bash'):
+                script = 'msg() { :; }\n' + pfunc + \
+                         '\nPATH_WROTE_TO=""\npath_ensure "$1"\nprintf "%%s" "$PATH_WROTE_TO"\n'
+                return subprocess.run(['/bin/bash', '-c', script, 'bash', profile],
+                                      capture_output=True, text=True,
+                                      env=dict(os.environ, SHELL=shell))
+
+            # a) 文件不存在 → 创建并写入
+            missing = os.path.join(pwork, 'new_profile')
+            run_path_ensure(missing)
+            body = open(missing, encoding='utf-8').read() if os.path.exists(missing) else ''
+            check('PATH 文件不存在时会创建并写入一行',
+                  'export PATH=$HOME/bin:$PATH' in body, body)
+
+            # b) 已经有生效的行 → 不重复写
+            dup = os.path.join(pwork, 'dup_profile')
+            with open(dup, 'w') as f:
+                f.write('export PATH=$HOME/bin:$PATH\n')
+            r = run_path_ensure(dup)
+            lines = open(dup, encoding='utf-8').read().count('export PATH=$HOME/bin:$PATH')
+            check('已有生效的 PATH 行时不重复写入', lines == 1, '出现 %d 次' % lines)
+
+            # c) 只有注释行 → 必须补真行（这就是那次 command not found 的形态）
+            commented = os.path.join(pwork, 'commented_profile')
+            with open(commented, 'w') as f:
+                f.write('# export PATH=$HOME/bin:$PATH\n')
+            run_path_ensure(commented)
+            body = open(commented, encoding='utf-8').read()
+            effective = [l for l in body.split('\n')
+                         if l.strip().startswith('export PATH=') and '$HOME/bin' in l]
+            check('只有注释掉的 PATH 行时会补一条真正生效的', len(effective) == 1,
+                  '生效行 %d 条' % len(effective))
+
+            # d) 写完真的能被登录 shell 解析到（端到端，不只是文件里有那行字）
+            home = os.path.join(pwork, 'home')
+            os.makedirs(home)
+            r = run_path_ensure(os.path.join(home, '.bash_profile'))
+            os.makedirs(os.path.join(home, 'bin'), exist_ok=True)
+            with open(os.path.join(home, 'bin', 'advisor'), 'w') as f:
+                f.write('#!/bin/bash\necho ok\n')
+            os.chmod(os.path.join(home, 'bin', 'advisor'), 0o755)
+            r = subprocess.run(['/bin/bash', '-lc', 'command -v advisor'],
+                               capture_output=True, text=True,
+                               env=dict(os.environ, HOME=home))
+            check('写完后登录 shell 能解析到 advisor（端到端）',
+                  home in r.stdout, r.stdout.strip()[:120] or r.stderr.strip()[:120])
+        finally:
+            shutil.rmtree(pwork, ignore_errors=True)
+
+        check('path_ensure 支持 zsh 的 ~/.zprofile（macOS 默认 shell）',
+              '.zprofile' in src, '没找到 .zprofile')
+
+    # ---------------- 4. 主流程：没有 Tk 就不生成 app ----------------
     check('主流程要求 python3 且具备 Tk 才生成 app',
           'PY3_HAS_TK' in src and re.search(r'if \[ -n "\$PY3" \] && \[ "\$PY3_HAS_TK" = 1 \]', src) is not None,
           '没找到 PY3_HAS_TK 判断')

@@ -1,0 +1,81 @@
+#!/bin/bash
+# scripts/hooks/pre-commit —— 提交前自动拦「本机路径 / 密钥 / 换行」这类问题
+#
+# 为什么需要：git 会一字不改地保存你写的任何东西，包括不该进公开仓库的
+# /Users/<你的名字>/... 和 API key。等 CI 红了再回滚历史，代价比本地拦一次大得多。
+#
+# 安装（每个克隆各做一次）：
+#     bash scripts/install-git-hooks.sh
+#
+# 跳过（明确知道自己在干什么时才用）：
+#     git commit --no-verify
+#
+# 覆盖范围说明（别以为装上就万事大吉）：
+#   · 泄漏检查用的是仓库里的 scripts/check-secrets.py，它会扫**已暂存**和未跟踪文件；
+#   · 它依赖 git，所以只在「用 git 提交」时生效；直接改文件再 push 到别处管不了；
+#   · 二进制/图片（SKIP_EXT）不扫；真正随机生成的密钥也可能不匹配规则，
+#     所以规则之外还要靠自己别把 key 写进文件。
+
+set -o pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+  echo "pre-commit: 不在 git 仓库里，跳过" >&2
+  exit 0
+}
+cd "$ROOT" || exit 1
+
+FAIL=0
+say() { printf '%s\n' "$*"; }
+
+# ------------------------------------------------------------------ 1. 泄漏检查
+if [ -f scripts/check-secrets.py ]; then
+  # 此刻暂存区已经是「即将被提交的内容」，所以这里看到的和真正入库的一致
+  if python3 scripts/check-secrets.py >/tmp/advisor-precommit-secrets.log 2>&1; then
+    say "pre-commit: 泄漏检查通过"
+  else
+    say ""
+    say "✗ 泄漏检查未通过 —— 下面这些内容会进公开历史，已阻止提交："
+    sed 's/^/    /' /tmp/advisor-precommit-secrets.log | head -30
+    say ""
+    say "  处理办法：改成占位值（如 <家目录>、sk-xxx），不要往白名单里加例外。"
+    FAIL=1
+  fi
+fi
+
+# ------------------------------------------------------------------ 2. 换行/编码
+# 用 perl 而不是 grep -U：macOS 是 BSD grep，不认 -U
+BAD_FILES=$(git diff --cached --name-only --diff-filter=ACM | while IFS= read -r f; do
+  case "$f" in *.png|*.icns|*.jpg|*.zip) continue ;; esac
+  [ -f "$f" ] || continue
+  if perl -ne 'exit 1 if /\r\n/' "$f" 2>/dev/null; then :; else printf '%s\n' "$f"; fi
+done)
+if [ -n "$BAD_FILES" ]; then
+  say ""
+  say "✗ 这些文件含 CRLF（编辑器约定是 LF）："
+  printf '%s\n' "$BAD_FILES" | sed 's/^/    /'
+  say "  修: perl -pi -e 's/\\r\\n/\\n/g' <文件>"
+  FAIL=1
+fi
+
+# ------------------------------------------------------------------ 3. 临时/调试残留
+# 提交前把调试标记带进去，等于把内部状态暴露给别人
+# 定义这些标记本身的文件当然会命中，跳过（否则卡口会拦住自己的提交）
+LEFTOVER=$(git diff --cached -U0 -- . \
+  ':(exclude)scripts/hooks/pre-commit' ':(exclude)scripts/test-hooks.py' \
+  | grep -E '^\+' | grep -vE '^\+\+\+' \
+  | grep -nE 'TEMP_MARK|DEBUG_HOOK|console\.log\("here|XXX_TODO|FIXME_删除' | head -5)
+if [ -n "$LEFTOVER" ]; then
+  say ""
+  say "✗ 暂存内容里有调试/临时标记："
+  printf '%s\n' "$LEFTOVER" | sed 's/^/    /'
+  say "  确认要提交就用 git commit --no-verify 跳过。"
+  FAIL=1
+fi
+
+if [ "$FAIL" = 0 ]; then
+  say "pre-commit: 换行与调试残留检查通过"
+  exit 0
+fi
+say ""
+say "pre-commit 拦下了这次提交。修好后重新 git add 再提交。"
+exit 1
