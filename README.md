@@ -1,5 +1,11 @@
 # Advisor
 
+
+> **About cloud services**: this is a purely local desktop tool. No hosted service is
+> provided. The optional remote relay (`remote/relay/`) must be deployed with **your own**
+> Cloudflare account; the repository contains no account IDs, tokens, KV namespace IDs
+> or workers.dev subdomains belonging to anyone.
+
 ## 🇺🇸 [Read this README in English →](README.en.md) ・ 🇨🇳 [中文版请读这里 →](README.zh.md)
 
 <img src="launcher/advisor.png" alt="Advisor" width="120">

@@ -1,0 +1,24 @@
+# 本地联调用的配置模板
+#
+# 用法（只在你自己机器上做，这个文件是模板，真正的配置不会被提交）：
+#   cp wrangler.local.toml.example wrangler.local.toml
+#   npx wrangler dev --local --config wrangler.local.toml --var RELAY_TOKEN:devtoken
+#
+# 为什么不用 wrangler.toml 里的 kv_namespaces：
+#   因为那会把一个「命名空间 id」写进会被提交的文件。本项目不含任何人的
+#   账号信息，连占位 id 也宁可不放在主配置里 —— 使用者要部署/联调时，
+#   填在 wrangler.local.toml（已在 .gitignore 中）里即可。
+#
+# 下面的 id 全是零：本地 miniflare 不校验它，真部署必须换成你自己
+# `npx wrangler kv namespace create RELAY` 的返回值。
+
+name = "advisor-relay"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+kv_namespaces = [
+  { binding = "RELAY", id = "00000000000000000000000000000000" }
+]
+
+[observability]
+enabled = true

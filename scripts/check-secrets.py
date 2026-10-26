@@ -43,6 +43,15 @@ RULES = [
     ('本机工具状态目录',
      re.compile(r'(?<![\w/])\.wrangler/|node_modules/[A-Za-z]')),
     ('疑似硬编码的 Bearer', re.compile(r'Bearer\s+[A-Za-z0-9._\-]{24,}')),
+    # ---- Cloudflare：本项目是纯前端，任何云资源都必须由使用者填自己的账号 ----
+    ('Cloudflare 账号/命名空间 ID', re.compile(r'(?:account_id|zone_id|namespace_id)\s*[=:]\s*[\"\']?[0-9a-f]{32}')),
+    ('Cloudflare 令牌环境变量被赋值',
+     re.compile(r'(?:CLOUDFLARE_(?:API_TOKEN|ACCOUNT_ID|ZONE_ID|API_KEY)|CF_API_(?:TOKEN|KEY))\s*[=:]\s*[\"\']?[A-Za-z0-9_\-]{16,}')),
+    ('具体的 workers.dev 子域',
+     re.compile(r'https?://(?!<)[A-Za-z0-9][A-Za-z0-9-]*\.(?!<)[A-Za-z0-9-]+\.workers\.dev')),
+    ('KV 命名空间真实 id（非全零占位）',
+     re.compile(r'id\s*=\s*[\"\'](?!0{32})[0-9a-f]{32}[\"\']')),
+    ('Cloudflare 全局 API key 形态', re.compile(r'\b[0-9a-f]{37}\b')),
 ]
 
 # 允许的「明显是假的 / 占位的」值：按出现位置放行
@@ -121,6 +130,16 @@ def main():
             if buf and cur not in SKIP_FILES and not cur.endswith(SKIP_EXT):
                 scan_text('commit %s:%s' % (sha[:8], cur), '\n'.join(buf), hits)
 
+    # 使用者的本地配置与 wrangler 状态：必须被忽略，不能入库
+    unignored = must_be_ignored(['remote/relay/wrangler.local.toml',
+                                 'remote/relay/.wrangler/',
+                                 'remote/relay/.dev.vars'])
+    if unignored:
+        print('这些路径没有被 .gitignore 覆盖，使用者填了自己的账号信息就会被提交：')
+        for p in unignored:
+            print('  · ' + p)
+        return 1
+
     if hits:
         print('发现可能泄漏的内容（%d 处）：' % len(hits))
         for where, line_no, name, text in hits[:40]:
@@ -133,6 +152,16 @@ def main():
 
     print('泄漏检查通过：%d 个已跟踪文件%s' % (len(files), '，含提交历史' if '--history' in sys.argv else ''))
     return 0
+
+
+def must_be_ignored(paths):
+    """这些路径必须在 .gitignore 里：一旦被跟踪，使用者的账号信息就会跟着提交。"""
+    bad = []
+    for p in paths:
+        r = subprocess.run(['git', 'check-ignore', '-q', p], cwd=ROOT)
+        if r.returncode != 0:
+            bad.append(p)
+    return bad
 
 
 if __name__ == '__main__':

@@ -2,6 +2,10 @@
 
 本地功能不依赖这个目录。**删掉 `remote/`，本地行为一字不变**（`scripts/check-decoupling.py` 守着这条界）。
 
+> **这台软件是纯本地的**：不提供任何后端或托管服务。`relay/` 里的 Cloudflare
+> Worker 只是一个**可选**的中继，**必须用你自己的 Cloudflare 账号部署**。
+> 仓库里不含任何人的账号、令牌、KV 命名空间 id 或 workers.dev 子域。
+
 ## 三个文件
 
 | 文件 | 作用 | 什么时候用 |

@@ -14,10 +14,18 @@ main = "worker.js"
 compatibility_date = "2024-11-01"
 
 # KV：消息队列
-# 本地 dev 用这个占位 id 就行；真部署时换成 `wrangler kv namespace create RELAY` 的返回值
-kv_namespaces = [
-  { binding = "RELAY", id = "00000000000000000000000000000000" }
-]
+# ★ 这里故意什么都不填。
+#   本项目不提供任何托管服务，也不含任何人的账号信息 —— 你要用中继，
+#   就得用自己的 Cloudflare 账号建一个 KV，再把它的 id 填在下面。
+#
+#   npx wrangler kv namespace create RELAY      ← 返回的 id 填到 <你的KV命名空间id>
+#
+#   不填的后果是 `wrangler deploy` 直接报错，这是刻意的：
+#   宁可部署不上，也不要让仓库里出现一个「看起来能用」的别人的 id。
+#
+# kv_namespaces = [
+#   { binding = "RELAY", id = "<你的KV命名空间id>" }
+# ]
 
 [observability]
 enabled = true

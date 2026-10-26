@@ -1,5 +1,10 @@
 # Advisor
 
+
+> **关于云服务**：本项目是纯本地的桌面软件，不提供任何托管服务。
+> 可选的远程接入中继（`remote/relay/`）要你自己用自己的 Cloudflare 账号部署；
+> 仓库里不含任何人的账号、令牌、KV 命名空间 id 或 workers.dev 子域。
+
 ## 🇯🇵 [日本語版はこちら →](README.md) ・ 🇺🇸 [Read this README in English →](README.en.md)
 
 <img src="launcher/advisor.png" alt="Advisor" width="120">

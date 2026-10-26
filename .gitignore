@@ -8,3 +8,8 @@ __pycache__/
 # wrangler 本地状态（miniflare 的 KV/R2 SQLite），绝不入库
 remote/relay/.wrangler/
 **/.wrangler/
+
+# 使用者自己的 wrangler 配置（含自己的 KV 命名空间 id）——绝不入库
+remote/relay/wrangler.local.toml
+remote/relay/.dev.vars
+.dev.vars
