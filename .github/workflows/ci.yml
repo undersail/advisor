@@ -141,6 +141,12 @@ jobs:
           # 不碰真网络、不碰真 key：本地起假端点，真跑 gateway。
           python3 scripts/test-remote.py
 
+      - name: 中继端到端测试（假中继，同契约）
+        run: |
+          set -o pipefail
+          # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
+          python3 scripts/test-relay.py
+
       - name: 编码与换行检查
         run: |
           set -o pipefail
