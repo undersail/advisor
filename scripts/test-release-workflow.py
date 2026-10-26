@@ -173,7 +173,34 @@ def main():
         r, out = negative('ReadMe_ZH.txt')
         check('缺 ReadMe_ZH.txt 的 zip → 校验失败',
               r.returncode != 0 and 'ReadMe_ZH.txt' in out, out.strip()[-160:])
+
+        # 清单很长时也不能假红：macOS 管道缓冲 16KB，`unzip -l | grep -q` 会因 SIGPIPE
+        # 让 pipeline 返回 141 → pipefail 下被判成「文件缺失」。这里把 zip 塞满条目，
+        # 让清单明显超过 16KB 再真跑一次。
+        many = full + ['Advisor.app/Contents/Resources/filler_%04d.bin' % i for i in range(1200)]
+        make_zip(many)
+        p = run_script(body, work, menv)
+        check('清单很长（>16KB）的 zip 仍校验通过（防 SIGPIPE 假阴性）',
+              p.returncode == 0, (p.stderr or p.stdout)[-200:])
         shutil.rmtree(work, ignore_errors=True)
+
+    # ---------------- 静态规则：pipefail + 提前退出的下游 = 假阴性 ----------------
+    # `生产者 | grep -q` 里 grep 一命中就退出，生产者收到 SIGPIPE(141)；
+    # 在 set -o pipefail 下 pipeline 返回 141，`if` 把它当成失败 —— 文件在也报缺失。
+    # 这不是理论问题：CI 的 macOS 腿就是这么假红过一次，真发布也会中招。
+    bad_pipe = []
+    for st in steps:
+        run = st.get('run') or ''
+        if 'pipefail' not in run:
+            continue
+        for line in run.split('\n'):
+            bare = line.split('#')[0].strip()
+            if not bare or bare.endswith('|| true'):
+                continue          # 显式吞掉退出码是可以的（SIGPIPE 已在注释里说明）
+            if '|' in bare and any(t in bare for t in ('grep -q', 'head -', 'grep -m')):
+                bad_pipe.append((st.get('name', '?'), bare[:70]))
+    check('pipefail 的步骤里没有「管道 + 会提前退出的下游」（SIGPIPE 会造成假阴性）',
+          not bad_pipe, str(bad_pipe[:3]))
 
     # ---------------- 发布说明检查步骤：四种组合真跑 ----------------
     # 这一步在 v0.2.1 的首次真实发布里把 job 弄红了；它本身只该提示、不该拦。

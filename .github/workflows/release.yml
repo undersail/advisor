@@ -103,7 +103,10 @@ jobs:
           echo "runner:   ${{ runner.os }} $(sw_vers -productVersion 2>/dev/null || true)"
           echo "python3:  $(python3 -V 2>&1)"
           echo "xcode:    $(xcode-select -p 2>/dev/null || echo '(none)')"
-          echo "zip:      $(zip -v 2>/dev/null | head -2 | tail -1)"
+          # 不用 `$(zip -v | head -2 | tail -1)`：head 提前退出会让 zip 吃 SIGPIPE，
+          # pipefail 下这里会变成非 0 并把整个步骤带下去。
+          zip -v 2>/dev/null | head -2 > /tmp/zipv.txt || true
+          echo "zip:      $(tail -1 /tmp/zipv.txt | tr -d '\n')"
 
       - name: 准备 Python 环境（venv + py2app）
         run: |
@@ -129,7 +132,11 @@ jobs:
             exit 1
           fi
           echo "=== zip 内容（前 20 项）==="
-          unzip -l "$ZIP" | head -24
+          # 不写成 `unzip -l "$ZIP" | head -24`：head 提前退出会给 unzip 送 SIGPIPE，
+          # 在 set -o pipefail 下 pipeline 状态变成 141 → 这一步假红。
+          # macOS 的管道缓冲只有 16KB（Linux 64KB），所以这个问题主要在 macOS 上暴露。
+          unzip -l "$ZIP" > dist/ziplist.txt 2>&1 || true
+          head -24 dist/ziplist.txt
 
       - name: 校验产物（内嵌资源齐全）
         env:
@@ -138,16 +145,25 @@ jobs:
           set -euo pipefail
           ZIP="dist/Advisor-v${ADVISOR_VERSION}-standalone.zip"
           # 分发版必须自带 agent 与两份数据表，否则别人的机器上跑不起来
+          # 先把清单读进变量，用 shell 的 case 做匹配。
+          # ★ 不能写成 `unzip -l "$ZIP" | grep -qF "$need"`：grep -q 一命中就退出，
+          #   上游 unzip 收到 SIGPIPE(141)，在 set -o pipefail 下 pipeline 返回 141，
+          #   `if` 就把它当成「没找到」—— 文件明明在也会报缺失。
+          #   macOS 管道缓冲 16KB、Linux 64KB，所以 macOS 上更容易假红（已在 CI 复现）。
+          LIST="$(unzip -Z1 "$ZIP" 2>/dev/null || unzip -l "$ZIP")"
           for need in "Advisor.app/Contents/Resources/claude-agent.pl" \
                       "Advisor.app/Contents/Resources/models.txt" \
                       "Advisor.app/Contents/Resources/providers.txt" \
                       "ReadMe_ZH.txt"; do
-            if unzip -l "$ZIP" | grep -qF "$need"; then
-              echo "  ok   $need"
-            else
-              echo "::error::$ZIP 里缺少 $need"
-              exit 1
-            fi
+            case "$LIST" in
+              *"$need"*) echo "  ok   $need" ;;
+              *)
+                echo "::error::$ZIP 里缺少 $need"
+                echo "--- 实际清单 ---"
+                printf '%s\n' "$LIST" | head -30 || true
+                exit 1
+                ;;
+            esac
           done
           # macOS 是 shasum，Linux 是 sha256sum —— 两边都能跑
           if command -v shasum >/dev/null 2>&1; then
