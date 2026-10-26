@@ -147,6 +147,13 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: 泄漏检查（密钥 / 令牌 / 本机路径 / 个人标识）
+        run: |
+          set -o pipefail
+          # 仓库是公开 fork：任何一次带 key 的提交都等于公开。
+          # 这条卡口的价值在于"挡住下一次"，而不是补救这一次。
+          python3 scripts/check-secrets.py
+
       - name: 编码与换行检查
         run: |
           set -o pipefail
