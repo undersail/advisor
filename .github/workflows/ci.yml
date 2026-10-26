@@ -123,6 +123,24 @@ jobs:
         run: python3 scripts/check-i18n.py
 
       # ---------- 6. 编码/换行卡口 ----------
+      - name: Perl 语法检查（remote/）
+        run: |
+          set -o pipefail
+          perl -c remote/gateway.pl
+          perl -c remote/notify.pl
+
+      - name: 远程与本地解耦卡口
+        run: |
+          set -o pipefail
+          # 远程能力只能靠核心的「--tools 收窄」实现；核心里出现远程分支就红。
+          python3 scripts/check-decoupling.py
+
+      - name: 远程端到端测试（假模型 + 假 webhook）
+        run: |
+          set -o pipefail
+          # 不碰真网络、不碰真 key：本地起假端点，真跑 gateway。
+          python3 scripts/test-remote.py
+
       - name: 编码与换行检查
         run: |
           set -o pipefail

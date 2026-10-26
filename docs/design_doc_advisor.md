@@ -251,6 +251,33 @@ flush；`read_line_interactive` 会把终端切 raw 模式，因此 `restore_tty
 
 ---
 
+## 4.3 远程接入的分层（M5）
+
+远程功能**不写在核心里**。核心里只有两个通用能力，远程用它俩搭起来：
+
+| 通用能力 | 参数/环境变量 | 语义 |
+|---|---|---|
+| 能力收窄 | `--tools=read_file,list_dir` | 只允许列出的工具；未知名字直接报错退出。只能收窄，不能扩权。 |
+| 历史目录覆盖 | `CLAUDE_HISTORY_DIR` | 指定历史落盘位置；核心不关心为什么。 |
+
+在这之上是 `remote/` 三个文件：
+
+- `remote/gateway.pl`：唯一的远程入口。白名单（`ALLOW`，为空即全部丢弃）、
+  审计（`~/.claude-agent/audit.log`，只追加、0600）、每个发送者一个常驻
+  agent 子进程（保持上下文）、工具集**写死** `read_file,list_dir`、历史目录
+  **写死** `~/.claude-agent/history-remote`、单轮 180 秒超时熔断。
+- `remote/notify.pl`：档① 出站通知。企微用 `markdown`、飞书用 `text`；
+  平台返回 HTTP 200 但 `errcode != 0` 也算失败（企微对无效 key 就是 200）。
+- 会话协议：网关 ↔ agent 走 `--rpc`（与 `--gui` 同一套 JSON 行协议）。
+
+**为什么只读是硬编码而不是开关**：远程没有人在旁边按 y/n。一个"临时打开"
+的开关，迟早会被常开。所以 `check-decoupling.py` 把"远程工具只能是
+read_file / list_dir"和"工具集不可配置"变成 CI 卡口。
+
+**凭据处理**：webhook URL 本身即凭据（带 key/hook token）。`notify.pl` 用
+`curl -K -` 从标准输入喂配置，URL 不进程命令行、不进 `ps`、不进日志；输出
+里只打目标名（`WECOM_WEBHOOK` / `FEISHU_WEBHOOK`）。
+
 ## 5. 加密历史：密钥层级
 
 ```

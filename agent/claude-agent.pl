@@ -319,6 +319,11 @@ my %S = (
         en => "No such number.\n",
         zh => "没有这个编号。\n",
     },
+    tool_not_allowed => {
+        ja => "このモードで使えるツールは %s だけです（%s は使えません）。\n",
+        en => "Only %s are available in this mode (%s is not).\n",
+        zh => "此模式只允许 %s（%s 不可用）。\n",
+    },
     menu_cancelled => {
         ja => "取消しました。\n",
         en => "Cancelled.\n",
@@ -731,7 +736,23 @@ my $RESUME         = 0;   # --resume: 保存済みの会話を選んで続きか
 my $CHANGE_PASS    = 0;   # --change-passphrase: 履歴パスフレーズを変更して終了
 my $SET_RECOVERY   = 0;   # --set-recovery: 合言葉(復旧用の秘密の質問)を設定して終了
 my $GUI            = 0;   # --gui: 端末用の表示をやめ、1行1件のJSONで入出力する
+# --tools=a,b : 使えるツールを絞る（能力の絞り込み。増やす方向には働かない）
+# 遠隔から使う場合はここで read_file,list_dir を渡す —— ただしその判断は
+# 呼び出し側の都合で決まる。本体は「ツールを絞れる」以上のことを知らない。
+my $TOOLS_ALLOW    = '';
+my @TOOLS_ALLOWED;   # 空 = 制限なし
                           #        (Python/tkinter のGUIから裏で駆動するため)
+
+# --tools は「--tools=a,b」と「--tools a,b」の両方を受ける。
+# 値を取る引数を for ループで扱うと、値の側が「未知の引数」として黙って
+# 捨てられる —— 実際にそれで能力制限が丸ごと効かなくなった（1行も警告が出ない）。
+# 先に正規化しておく。
+for my $i (0 .. $#ARGV) {
+    if ($ARGV[$i] eq '--tools' && defined $ARGV[$i + 1]) {
+        $ARGV[$i] = "--tools=$ARGV[$i + 1]";
+        splice(@ARGV, $i + 1, 1);
+    }
+}
 
 for my $arg (@ARGV) {
     if ($arg eq '--help' || $arg eq '-h') {
@@ -747,6 +768,10 @@ for my $arg (@ARGV) {
     if ($arg eq '--change-passphrase') { $CHANGE_PASS = 1; }
     if ($arg eq '--set-recovery')      { $SET_RECOVERY = 1; }
     if ($arg eq '--gui')               { $GUI = 1; }
+    # --rpc は --gui と完全に同じプロトコル。名前だけ用途で分けている
+    # (GUI は画面が相手、rpc はプログラムが相手)。
+    if ($arg eq '--rpc')               { $GUI = 1; }
+    if ($arg =~ /^--tools=(.*)$/)      { $TOOLS_ALLOW = $1; }
 }
 
 # --help に出す「どの環境変数に何を入れるか」の表。providers.txt から生成する
@@ -785,6 +810,8 @@ sub print_help {
       --resume          选择已保存的对话继续
       --change-passphrase 修改历史记录口令并退出
       --set-recovery    设置密保问题（找回口令用）并退出
+      --tools=<a,b>     只用列出的工具（能力收窄；名字写错会报错退出）
+      --rpc             与 --gui 相同的 JSON 行协议（给程序化前端用）
 
 环境变量:
   CLAUDE_PROVIDER    要用的 AI: %s（默认 anthropic）
@@ -793,6 +820,7 @@ sub print_help {
   CLAUDE_GEMINI_THINKING  设为 high 可让 Gemini 思考更深（默认 low=更快）
   CLAUDE_CURL        curl 命令路径（默认: curl，使用 PATH 上的那个）
   CLAUDE_CACERT      CA 证书文件（默认: 未指定，使用系统 curl 的信任库）
+  CLAUDE_HISTORY_DIR 历史记录目录（默认 ~/.claude-agent/history）
   CLAUDE_NO_HISTORY  设为 1 则不保存对话（也不询问口令）
   CLAUDE_OPENSSL     openssl 命令路径（默认: openssl）
 
@@ -813,6 +841,8 @@ EOH
       --resume          保存済みの会話を選んで続きから再開
       --change-passphrase 履歴パスフレーズを変更して終了
       --set-recovery    合言葉(復旧用の秘密の質問)を設定して終了
+      --tools=<a,b>     指定したツールだけ使う (絞る方向のみ。名前を間違えると終了)
+      --rpc             --gui と同じ JSON 行プロトコル (プログラム向け)
 
 環境変数:
   CLAUDE_PROVIDER    使うAI: %s (既定 anthropic)
@@ -821,6 +851,7 @@ EOH
   CLAUDE_GEMINI_THINKING  high にすると Gemini の思考を深くする (既定 low=速い)
   CLAUDE_CURL        curlコマンドのパス (既定: curl。PATH上のものを使用)
   CLAUDE_CACERT      CA証明書ファイル (既定: 未指定。システムcurlの信頼ストアを使用)
+  CLAUDE_HISTORY_DIR 履歴ディレクトリ (既定 ~/.claude-agent/history)
   CLAUDE_NO_HISTORY  1にすると会話を保存しない(パスフレーズも尋ねない)
   CLAUDE_OPENSSL     opensslコマンドのパス (既定: openssl)
 
@@ -1305,7 +1336,13 @@ sub emit_note {   # 補助的なお知らせ(切り替え完了など)
 # パスフレーズ(と、任意で「合言葉」)で包んで保存する。どちらか一方で
 # マスター鍵を取り出せるので、パスフレーズを忘れても合言葉で復旧できる。
 my $HISTORY_ENABLED = $ENV{CLAUDE_NO_HISTORY} ? 0 : 1;
-my $HISTORY_DIR     = "$ENV{HOME}/.claude-agent/history";
+# 履歴ディレクトリは環境変数で差し替えられる。ディレクトリが変われば鍵
+# ファイルも別になり、結果として「別のパスフレーズで守られた別の履歴」になる。
+# 本体は誰がなぜ差し替えたのかを知らない（ローカルの複数プロファイルでも、
+# 遠隔用の別領域でも、同じ仕組みで足りる）。
+my $HISTORY_DIR     = (defined $ENV{CLAUDE_HISTORY_DIR} && $ENV{CLAUDE_HISTORY_DIR} ne '')
+                      ? $ENV{CLAUDE_HISTORY_DIR}
+                      : "$ENV{HOME}/.claude-agent/history";
 my $KEY_FILE        = "$HISTORY_DIR/key.enc";           # マスター鍵をパスフレーズで包んだもの
 my $KEY_RECOVERY    = "$HISTORY_DIR/key.recovery.enc";  # 同じマスター鍵を合言葉の答えで包んだもの(任意)
 my $KEY_RECOVERY_Q  = "$HISTORY_DIR/key.recovery.q";    # 合言葉の質問文(平文)
@@ -2368,6 +2405,26 @@ my @TOOLS = (
     },
 );
 
+# --tools= による絞り込み。ここは「減らす」方向にしか働かない —— 登録簿に無い
+# 名前を渡されたら黙って無視せず死ぬ（設定ミスを静かに握り潰さない）。
+if ($TOOLS_ALLOW ne '') {
+    my %known = map { $_->{name} => 1 } @TOOLS;
+    my %want;
+    for my $n (split /,/, $TOOLS_ALLOW) {
+        $n =~ s/^\s+//; $n =~ s/\s+$//;
+        next if $n eq '';
+        unless ($known{$n}) {
+            die sprintf("--tools に未知のツール名 '%s' が指定されました（使えるのは: %s）\n",
+                        $n, join(', ', sort keys %known));
+        }
+        $want{$n} = 1;
+    }
+    if (%want) {
+        @TOOLS_ALLOWED = sort keys %want;
+        @TOOLS = grep { $want{ $_->{name} } } @TOOLS;
+    }
+}
+
 sub confirm {
     my ($msg) = @_;
 
@@ -2732,6 +2789,15 @@ sub confirm {
 
 sub run_tool {
     my ($name, $input) = @_;
+
+    # --tools で絞られていれば、その外はここでも止める（@TOOLS から消してある
+    # ので普通は来ないが、モデルが幻覚で存在しないツール名を返すことがある）。
+    if (@TOOLS_ALLOWED) {
+        my %ok = map { $_ => 1 } @TOOLS_ALLOWED;
+        unless ($ok{$name}) {
+            return L('tool_not_allowed', join(' / ', @TOOLS_ALLOWED), $name);
+        }
+    }
 
     if ($name eq 'read_file') {
         my $path = $input->{path};

@@ -140,3 +140,40 @@ python3 scripts/live-check.py deepseek
 10 项断言，只打印 PASS/FAIL，**不含 key**。想验别家就换参数
 （`openai` / `dashscope` / `moonshot` / `zhipu`；`anthropic` / `gemini` 走另外两种
 请求形状，脚本目前只覆盖 OpenAI 兼容那五家）。
+
+## 6. 远程接入（可选，M5）
+
+远程和本地是两套东西，先确认本地能跑再做这一步。
+
+### 6.1 只验通知（最快，1 分钟）
+
+1. 建 `~/.claude-agent/remote.conf`，写一行（企微群 → 群机器人 → 复制 webhook 地址）：
+   ```
+   WECOM_WEBHOOK = https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...
+   ```
+2. 跑：`perl remote/notify.pl --test`
+3. 应看到：`通知已发送：WECOM_WEBHOOK`，手机上群里收到一条
+   「advisor 通知连通性测试 —— 收到即成功。」
+4. 不对时看：`通知发送失败：WECOM_WEBHOOK（errcode 93000: ...）` —— 93000 是
+   key 无效或地址抄错；报 `url must start with https` 说明粘成了 http。
+
+### 6.2 验网关（远程只读）
+
+1. 同目录加白名单（先随便写你自己的 ID，随便什么串都行，这里只验证拦截逻辑）：
+   ```
+   ALLOW = alice
+   ```
+2. 跑一条：`perl remote/gateway.pl --once --from alice --text "列一下当前目录"`
+3. 应看到：正常的中文回答（说明 agent 被网关驱动起来了）
+4. 换成不在白名单的人：`perl remote/gateway.pl --once --from bob --text "ls"`
+   应看到：**什么都没有输出**（不回"无权限"，避免暴露机器人存在），
+   但 `~/.claude-agent/audit.log` 里有一行 `drop_sender from=bob`。
+5. 试让它写文件：「在 /tmp 建个文件」 —— 应被拒绝，且 `/tmp` 下不会出现文件。
+   拒绝理由会回给模型，模型会转述给你。
+
+### 6.3 验收要点（对着看，别只看"跑通了"）
+
+- [ ] `~/.claude-agent/audit.log` 存在且权限 `-rw-------`
+- [ ] 白名单外的人：无输出、有审计
+- [ ] 让写文件：没写成，且回答里说明了不能写
+- [ ] `remote.conf` 里没有 `HIST_PASS` 时，`~/.claude-agent/history/` 不该多出东西
