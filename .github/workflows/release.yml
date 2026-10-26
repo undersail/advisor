@@ -1,0 +1,170 @@
+name: Release
+
+# 打 tag 就出包：macOS runner 上做 standalone 构建（py2app），
+# 然后用 gh 建 GitHub Release，正文取 docs/releases/<tag>.md。
+#
+# 为什么不在这里同时跑 CI：CI 由 ci.yml 在 push main 时负责。
+# 这里只做「打包 + 发布」，失败点集中，日志好读。
+#
+# 手动演练：Actions → Release → Run workflow，填一个 tag（或留空）。
+# 手动触发只构建 + 存 artifact，**不**建 Release。
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要打包的 release 标识（留空 = 用当前分支 HEAD）'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: build & release (macos)
+    # 必须 macOS：py2app 只能在 macOS 上打，且产物与构建机的系统版本相关。
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0          # gh release --generate-notes 需要提交历史
+
+      - name: 解析版本（tag → 版本号）
+        id: ver
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_REF_NAME}"; fi
+          # tag 可能带或不带 v 前缀，版本号统一去掉前缀
+          VERSION="${TAG#v}"
+          if [ -z "$VERSION" ]; then VERSION="0.0.0"; fi
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag      = $TAG"
+          echo "version  = $VERSION"
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) : ;;
+            *) echo "::warning::tag '$TAG' 不是 vX.Y.Z 形态，仍继续（文件名会跟着它走）" ;;
+          esac
+
+      - name: 检查发布说明是否存在
+        run: |
+          set -euo pipefail
+          NOTES="docs/releases/${{ steps.ver.outputs.tag }}.md"
+          if [ -f "$NOTES" ]; then
+            echo "找到发布说明: $NOTES（$(wc -l < "$NOTES" | tr -d ' ') 行）"
+          else
+            echo "::warning::缺少 $NOTES —— Release 正文将回退为自动生成的变更日志。"
+            echo "约定：文件名必须等于 tag 名（见 docs/releases/README.md）。"
+          fi
+
+      - name: 环境信息（失败时便于定位）
+        run: |
+          set -o pipefail
+          echo "runner:   ${{ runner.os }} $(sw_vers -productVersion 2>/dev/null || true)"
+          echo "python3:  $(python3 -V 2>&1)"
+          echo "xcode:    $(xcode-select -p 2>/dev/null || echo '(none)')"
+          echo "zip:      $(zip -v 2>/dev/null | head -2 | tail -1)"
+
+      - name: 准备 Python 环境（venv + py2app）
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet py2app pyobjc-framework-Cocoa
+          python -c "import py2app, sys; print('py2app 就绪:', py2app.__file__)"
+
+      - name: 构建 standalone zip
+        env:
+          ADVISOR_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          source .venv/bin/activate
+          bash release/build_standalone_app.sh
+          ls -lh dist/
+          ZIP="dist/Advisor-v${ADVISOR_VERSION}-standalone.zip"
+          if [ ! -f "$ZIP" ]; then
+            echo "::error::没有生成 $ZIP"
+            ls -R dist/ || true
+            exit 1
+          fi
+          echo "=== zip 内容（前 20 项）==="
+          unzip -l "$ZIP" | head -24
+
+      - name: 校验产物（内嵌资源齐全）
+        env:
+          ADVISOR_VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          ZIP="dist/Advisor-v${ADVISOR_VERSION}-standalone.zip"
+          # 分发版必须自带 agent 与两份数据表，否则别人的机器上跑不起来
+          for need in "Advisor.app/Contents/Resources/claude-agent.pl" \
+                      "Advisor.app/Contents/Resources/models.txt" \
+                      "Advisor.app/Contents/Resources/providers.txt" \
+                      "ReadMe_ZH.txt"; do
+            if unzip -l "$ZIP" | grep -qF "$need"; then
+              echo "  ok   $need"
+            else
+              echo "::error::$ZIP 里缺少 $need"
+              exit 1
+            fi
+          done
+          # macOS 是 shasum，Linux 是 sha256sum —— 两边都能跑
+          if command -v shasum >/dev/null 2>&1; then
+            shasum -a 256 "$ZIP" > dist/SHA256SUMS.txt
+          else
+            sha256sum "$ZIP" > dist/SHA256SUMS.txt
+          fi
+          cat dist/SHA256SUMS.txt
+
+      - name: 保存构建产物（手动演练也能下载）
+        uses: actions/upload-artifact@v4
+        with:
+          name: Advisor-${{ steps.ver.outputs.version }}-standalone
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 建 GitHub Release（仅 tag 触发时）
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          NOTES="docs/releases/${TAG}.md"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG 已存在 —— 只覆盖产物，不改标题与说明"
+            gh release upload "$TAG" dist/*.zip dist/SHA256SUMS.txt --clobber
+            exit 0
+          fi
+          if [ -f "$NOTES" ]; then
+            gh release create "$TAG" \
+              dist/*.zip dist/SHA256SUMS.txt \
+              release/ReadMe_ZH.txt release/ReadMe_EN.txt release/ReadMe_JP.txt \
+              --title "Advisor $VERSION" \
+              --notes-file "$NOTES"
+          else
+            gh release create "$TAG" \
+              dist/*.zip dist/SHA256SUMS.txt \
+              release/ReadMe_ZH.txt release/ReadMe_EN.txt release/ReadMe_JP.txt \
+              --title "Advisor $VERSION" \
+              --generate-notes
+          fi
+          gh release view "$TAG" --json tagName,assets \
+            --template '{{.tagName}}: {{range .assets}}{{.name}} {{end}}{{"\n"}}'

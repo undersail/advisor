@@ -147,6 +147,13 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: 发布流水线验证（非 macOS 部分）
+        run: |
+          set -o pipefail
+          # 取 release.yml 里的 run: 原文在本机真跑：版本解析、产物校验的正负例。
+          # py2app 打包与 gh release 只能在 macOS runner 上验，本机跳过。
+          python3 scripts/test-release-workflow.py
+
       - name: 泄漏检查（密钥 / 令牌 / 本机路径 / 个人标识）
         run: |
           set -o pipefail

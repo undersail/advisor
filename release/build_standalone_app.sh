@@ -20,7 +20,9 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="0.1"
+# バージョンは環境変数で上書きできる（Release 用ビルドは tag から渡す）。
+# 未指定なら従来通り 0.1 —— ローカルで手元ビルドするときの既定値。
+VERSION="${ADVISOR_VERSION:-0.1}"
 OUT_DIR="$SCRIPT_DIR/dist"
 ICON_SRC="$SCRIPT_DIR/launcher/advisor.icns"
 
@@ -45,7 +47,11 @@ if ! xcode-select -p >/dev/null 2>&1; then
 fi
 
 echo "py2app / pyobjc を導入しています..."
-"$PY3" -m pip install --user --quiet py2app pyobjc-framework-Cocoa
+# venv の中では --user が使えない（User site-packages are not visible）。
+# GitHub Actions 側は venv で回すので、そこで落ちないように分岐する。
+PIP_USER_OPT="--user"
+[ -n "${VIRTUAL_ENV:-}" ] && PIP_USER_OPT=""
+"$PY3" -m pip install $PIP_USER_OPT --quiet py2app pyobjc-framework-Cocoa
 
 BUILD_DIR="$SCRIPT_DIR/.standalone-app-build"
 rm -rf "$BUILD_DIR"

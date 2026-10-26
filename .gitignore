@@ -13,3 +13,7 @@ remote/relay/.wrangler/
 remote/relay/wrangler.local.toml
 remote/relay/.dev.vars
 .dev.vars
+
+# 打包产物（release/build_standalone_app.sh 生成）
+dist/
+.standalone-app-build/

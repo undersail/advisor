@@ -369,9 +369,21 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 | **M4** ✅ | 方向二 · OpenAI 适配器 + 首批四家 + 两级菜单 + GUI onboarding + setup.sh 七家 | M3 | 已完成 |
 | **M5** ✅ | 方向三 · 远程网关（白名单 / 审计 / 只读硬关）+ 档① 出站通知 | M2, M4 | 已完成 |
 | **M6** 🚧 | 方向三 · 档② 轮询中继（队列 + 轮询端已完成；平台收发未做） | M5 ✅ | 剩平台凭据相关部分 |
-| **M7** | 发布链路（tag → Release → macOS runner 打 standalone zip） | M2 | 1~2 人日 |
+| **M7** ✅ | 发布链路（tag → Release → macOS runner 打 standalone zip） | M2 | 已完成 |
 | **M8** | Tier A（10.6~10.8 toolchain） | 独立 | 未估（最重） |
 | ~~档③~~ | 双向实时（仅飞书） | 触发条件见 §7.2 | 10~15 人日 |
+
+> **M7（已完成）**：`.github/workflows/release.yml` —— tag `v*` 触发，在
+> `macos-latest` 上用 venv + py2app 打 standalone 包，`gh release create` 建
+> Release，正文取 `docs/releases/<tag>.md`（缺失则警告并回退自动生成）。
+> 产物先过一次结构校验（内嵌 `claude-agent.pl` / `models.txt` / `providers.txt`
+> 与中文说明缺一不可），再算 SHA256。另有 `workflow_dispatch` 可手动演练
+> （只构建存 artifact，不发布）。
+>
+> 本地能验的都验了：`scripts/test-release-workflow.py` 从 `release.yml` 里
+> **取出 `run:` 原文真跑**（版本解析 v0.2.0→0.2.0、v1.10.3 不被截断；产物
+> 校验的正例通过、缺文件必红），17/17。**py2app 打包与 `gh release create`
+> 只能在 macOS runner 上验** —— 这一层本会话无法验证，首次真发布见分晓。
 
 > **M6 第一批（已完成）**：`remote/relay/worker.js`（Worker + KV 队列：`/push`、
 > `/pull` 取走即删、`/result`、`/outbox`、`/health`；定长比较校验令牌）+ 网关
