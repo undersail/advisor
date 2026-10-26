@@ -83,27 +83,34 @@ jobs:
       - name: models.txt 格式校验
         run: |
           set -o pipefail
-          # 约定：<model_id>|<日本語ラベル>|<English label>[|<中文标签>]
-          # 第 4 列可省（向后兼容用户自带的旧三列文件），但一旦写了就不能为空。
-          # 空行与 # 注释忽略。
+          # 约定：<model_id>|<日本語>|<English>|<中文>|<provider>|<base_url>|[flags]
+          # 只有前两列必需；第 3 列起可省（向后兼容老的三列表）。
+          # 写了哪一列，那一列就不能是空的。
+          # provider/base_url/flags 的业务校验交给 scripts/check-models.py。
           FAIL=0
           N=0
-          N3=0
           while IFS= read -r line; do
             case "$line" in ''|'#'*) continue;; esac
             N=$((N + 1))
             NF=$(printf '%s' "$line" | awk -F'|' '{print NF}')
-            if [ "$NF" -eq 3 ]; then
-              N3=$((N3 + 1))
-            elif [ "$NF" -ne 4 ]; then
-              echo "::error::第 ${N} 条不是 3 或 4 段（应为 id|ja|en 或 id|ja|en|zh）：$line"
+            if [ "$NF" -lt 2 ] || [ "$NF" -gt 7 ]; then
+              echo "::error::第 ${N} 条列数为 ${NF}，应在 2~7 之间：$line"
               FAIL=1
-            elif [ -z "$(printf '%s' "$line" | awk -F'|' '{print $4}')" ]; then
-              echo "::error::第 ${N} 条的第 4 段（中文标签）是空的：$line"
-              FAIL=1
+              continue
             fi
+            i=3
+            while [ "$i" -le "$NF" ]; do
+              if [ -z "$(printf '%s' "$line" | awk -F'|' -v i="$i" '{print $i}')" ]; then
+                # 第 6 列(base_url)对 anthropic/gemini 允许为空，交给 check-models.py 判断
+                if [ "$i" -ne 6 ]; then
+                  echo "::error::第 ${N} 条第 ${i} 列是空的：$line"
+                  FAIL=1
+                fi
+              fi
+              i=$((i + 1))
+            done
           done < models.txt
-          echo "有效模型条目: $N（其中未写中文标签 $N3 条）"
+          echo "有效模型条目: $N"
           [ "$N" -ge 1 ] || { echo "::error::models.txt 里没有可用模型"; exit 1; }
           [ "$FAIL" -eq 0 ] || exit 1
 
