@@ -34,6 +34,7 @@ use Digest::SHA qw(sha1_hex sha256 sha256_hex);
 use File::Path qw(make_path);
 use Fcntl qw(O_WRONLY O_CREAT O_APPEND);
 use File::Basename qw(dirname);
+use IO::Select;
 
 binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
@@ -51,9 +52,18 @@ my $API_BASE   = $ENV{PLATFORM_API_BASE} || '';
 # 安全默认值（都可用环境变量/配置覆盖，但默认必须是安全的那一侧）
 my $MAX_SKEW    = 300;            # 秒：时间戳超出即拒，防重放
 my $MAX_BODY    = 262144;         # 字节：请求体上限，防内存打爆
-my $MAX_CHILD   = 8;              # 同时处理的消息数上限，防 fork 拖垮机器
+my $MAX_QUEUE   = 32;             # 待处理消息上限（防刷），超出即丢
+my $GW_IDLE     = 1800;           # 秒：常驻网关空闲这么久就回收
+# 平台对单条文本有长度上限，超了会被平台直接拒（长时间思考的回答很容易超）。
+# 注意单位是**字节**：企微 text 上限 2048 字节，中文一个字 3 字节，
+# 按字符算会超（实测 2000 字符 ≈ 6000 字节，平台直接拒发）。
+my %TEXT_LIMIT  = (wecom => 1900, feishu => 3800);
+my $ACK_AFTER   = 3;              # 秒：超过这么久还没结果就先回一句"处理中"
+my $ACK_TEXT    = '收到，正在处理…（完成后把结果发给你）';
 my $DEFAULT_BIND = '127.0.0.1';   # 默认只听本机：对外要靠穿透/反代，别把明文撒到局域网
-my $CHILD_N = 0;
+my %GW;            # sender => { in, out, errh, pid, last }
+our ($JOB_R, $JOB_W);   # 主进程 → 工作进程 的任务管道
+my $QUEUE_N = 0;   # 已入队未回复的消息数
 # 平台会在超时后重投同一条消息（企微/飞书都会）。没有去重就会出现
 # 「一条指令被跑两遍」——对能改文件、能跑命令的 agent 来说这是真事故。
 # 按平台侧 MessageId 去重；没有 MessageId 时退回用签名摘要。
@@ -285,6 +295,21 @@ sub json_get {
     return $v;
 }
 
+# 管道里传的是 JSON 字符串形态，取回来要反转义（只处理我们自己写进去的那几种）
+sub json_unescape_str {
+    my ($v) = @_;
+    return '' unless defined $v;
+    $v =~ s/^"//;
+    $v =~ s/"$//;
+    $v =~ s/\\\\/\\/g;
+    $v =~ s/\\n/\n/g;
+    $v =~ s/\\r/\r/g;
+    $v =~ s/\\t/\t/g;
+    $v =~ s/\\"/"/g;
+    $v =~ s/\\u([0-9a-fA-F]{4})/chr(hex($1))/ge;
+    return $v;
+}
+
 sub urlenc {
     my ($s) = @_;
     $s = '' unless defined $s;
@@ -441,42 +466,114 @@ sub feishu_send {
     return 1;
 }
 
+# 按平台上限切分：企微 2048 字节、飞书 4000 字符，超了平台会拒发。
+# 切点不能落在 UTF-8 字符中间，否则平台收到的是乱码。
+sub split_text {
+    my ($text, $limit) = @_;
+    $limit ||= 2000;
+    my @out;
+    # 按**字节**切，但切点必须落在字符边界（否则平台收到半个汉字）。
+    # 用二分找「最大的、编码后不超过 limit 的字符数」。
+    my $bytes_of = sub { length(encode('UTF-8', $_[0])) };
+    while (length($text) > 0) {
+        if ($bytes_of->($text) <= $limit) { push @out, $text; last }
+        my ($lo, $hi) = (1, length($text));
+        while ($lo < $hi) {
+            my $mid = int(($lo + $hi + 1) / 2);
+            if ($bytes_of->(substr($text, 0, $mid)) <= $limit) { $lo = $mid }
+            else { $hi = $mid - 1 }
+        }
+        push @out, substr($text, 0, $lo);
+        $text = substr($text, $lo);
+    }
+    return @out;
+}
+
 sub send_text {
     my ($c, $to, $text) = @_;
-    return wecom_send($c, $to, $text)  if ($c->{PLATFORM} // '') eq 'wecom';
-    return feishu_send($c, $to, $text) if ($c->{PLATFORM} // '') eq 'feishu';
-    audit('send_skip', 'unknown platform');
-    return 0;
+    return 0 unless defined $text && $text =~ /\S/;
+    my $plat  = $c->{PLATFORM} // '';
+    my $limit = ($TEXT_LIMIT{$plat} || 1900) - 80;   # 80 字节留给「（1/3）」这类前缀
+    my @parts = split_text($text, $limit);
+    if (@parts > 1) {
+        audit('send_split', "parts=" . scalar(@parts) . " limit=$limit");
+    }
+    my $ok = 1;
+    my $i  = 0;
+    for my $part (@parts) {
+        $i++;
+        my $prefix = @parts > 1 ? "（$i/" . scalar(@parts) . "）" : '';
+        my $body   = $prefix . $part;
+        my $r = $plat eq 'wecom'  ? wecom_send($c, $to, $body)
+              : $plat eq 'feishu' ? feishu_send($c, $to, $body)
+              : do { audit('send_skip', 'unknown platform'); 0 };
+        $ok = 0 unless $r;
+        last unless $r;                 # 有一段失败就别继续灌，避免半截消息
+    }
+    return $ok;
 }
 
 # ------------------------------------------------------------------ 交给网关（复用白名单/审计/只读）
-sub run_gateway {
-    my ($sender, $text) = @_;
-    my $json = '{"from":' . json_esc($sender) . ',"text":' . json_esc($text) . "}\n";
+sub gw_spawn {
+    my ($sender) = @_;
     my $errh = gensym;
     my ($in, $out);
-    # 用 --stdin：消息内容不进 argv，ps 里看不到
     my @cmd = split /\s+/, $GATEWAY;
     my $pid = eval { open3($in, $out, $errh, @cmd, '--stdin') };
-    if (!$pid) { audit('gateway_fail', "cannot start: $@"); return undef }
+    if (!$pid) { audit('gateway_spawn_fail', "cannot start: $@"); return undef }
     binmode($in,  ':encoding(UTF-8)');
     binmode($out, ':encoding(UTF-8)');
-    print $in $json;
-    close $in;
-    my $reply = do { local $/; <$out> } // '';
-    close $out;
-    my $errs = do { local $/; <$errh> } // '';
-    close $errh;
-    waitpid($pid, 0);
-    audit('gateway_done', 'reply_len=' . length($reply)) if $errs !~ /\S/;
-    $reply =~ s/\s+$//;
+    select((select($in), $| = 1)[0]);          # 不刷新的话子进程收不到，双方互等
+    $GW{$sender} = { in => $in, out => $out, errh => $errh, pid => $pid, last => time() };
+    audit('gateway_spawn', "from=$sender pid=$pid");
+    return $GW{$sender};
+}
+
+sub gw_reap {
+    my ($sender) = @_;
+    my $s = delete $GW{$sender} or return;
+    close $s->{in};
+    close $s->{out};
+    close $s->{errh};
+    waitpid($s->{pid}, 0);
+    audit('gateway_reap', "from=$sender");
+}
+
+# 每个发送者一个常驻网关进程 —— 会话上下文才能接上（多轮对话）。
+# stdin 一行一个请求，stdout 一行一个 {"from","reply"}，所以读一行就是这次的结果。
+sub gw_call {
+    my ($sender, $text, $depth, $on_slow) = @_;
+    $depth ||= 0;
+    my $s = $GW{$sender} || gw_spawn($sender);
+    return undef unless $s;
+    $s->{last} = time();
+    print { $s->{in} } '{"from":' . json_esc($sender) . ',"text":' . json_esc($text) . "}\n";
+    # 先等 ACK_AFTER 秒；还没结果就告诉对方"在处理"，然后继续等真正的结果。
+    # 长任务（读一堆文件、跑命令）在手机上只看到"没反应"是很糟的体验。
+    if ($ACK_AFTER > 0) {
+        my $sel = IO::Select->new($s->{out});
+        if (!$sel->can_read($ACK_AFTER)) {
+            $on_slow->() if $on_slow;
+            audit('ack_sent', "from=$sender");
+        }
+    }
+    my $line = readline($s->{out});
+    if (!defined $line) {
+        # 网关没了（崩了/被回收）→ 清掉重开一次，别让这一条消息就此消失
+        audit('gateway_eof', "from=$sender retry=" . ($depth + 1));
+        gw_reap($sender);
+        return undef if $depth >= 1;
+        return gw_call($sender, $text, $depth + 1, $on_slow);
+    }
+    my $reply = json_get($line, 'reply');
+    audit('gateway_done', 'reply_len=' . length($reply // ''));
     return $reply;
 }
 
 sub seen_before {
     my ($key) = @_;
     my $now = time;
-    if (%SEEN && $now % 60 == 0) {          # 顺手清理过期项
+    if (%SEEN && $now % 60 == 0) {
         for my $k (keys %SEEN) { delete $SEEN{$k} if $SEEN{$k} < $now }
     }
     return 1 if $SEEN{$key} && $SEEN{$key} >= $now;
@@ -495,22 +592,35 @@ sub dispatch {
         return 0;
     }
     audit('inbound', "from=$sender len=" . length($text));
-    if ($CHILD_N >= $MAX_CHILD) {          # 忙不过来就丢弃，别把机器拖垮
-        audit('busy_drop', "inflight=$CHILD_N");
+    if ($QUEUE_N >= $MAX_QUEUE) {                 # 忙不过来就丢，别把机器拖垮
+        audit('busy_drop', "queued=$QUEUE_N");
         return 0;
     }
-    # 后台处理：平台要求 5 秒内应答，长任务必须先返回
-    my $pid = fork();
-    if (!defined $pid) {
-        my $r = run_gateway($sender, $text);
-        send_text($c, $sender, $r) if defined $r && $r =~ /\S/;
-        return 0;
+    $QUEUE_N++;
+    print { $JOB_W } json_esc($sender) . "\t" . json_esc($text) . "\n";
+    select((select($JOB_W), $| = 1)[0]);
+    return 1;
+}
+
+# 后台工作进程：串行处理消息，回复走平台 API。
+# 串行是特意的：同一个发送者的多轮对话必须按顺序喂给同一个网关进程。
+sub worker_loop {
+    my ($c) = @_;
+    binmode($JOB_R, ':encoding(UTF-8)');
+    $SIG{CHLD} = 'DEFAULT';
+    while (my $line = <$JOB_R>) {
+        chomp $line;
+        my ($fs, $ts) = split(/\t/, $line, 2);
+        my $sender = json_unescape_str($fs // '');
+        my $text   = json_unescape_str($ts // '');
+        # 空闲太久就回收常驻网关，别一直占着内存
+        my $now = time();
+        for my $k (keys %GW) { gw_reap($k) if $now - ($GW{$k}{last} // 0) > $GW_IDLE }
+        my $reply = gw_call($sender, $text, 0,
+            sub { send_text($c, $sender, $ACK_TEXT) });
+        send_text($c, $sender, $reply) if defined $reply && $reply =~ /\S/;
+        $QUEUE_N--;
     }
-    $CHILD_N++ if $pid;
-    return 0 if $pid;
-    # 子进程
-    my $reply = run_gateway($sender, $text);
-    send_text($c, $sender, $reply) if defined $reply && $reply =~ /\S/;
     exit 0;
 }
 
@@ -735,16 +845,41 @@ sub serve {
     # 要对外就用穿透/反代转发到本机，确实需要监听全部网卡时显式设 BIND。
     my $bind = $ENV{BIND} || $c->{BIND} || $DEFAULT_BIND;
     cleanup_tmp();
+    pipe($JOB_R, $JOB_W) or die "无法建任务管道: $!\n";
+    my $worker_pid = fork();
+    if (!defined $worker_pid) { die "无法启动工作进程: $!\n" }
+    if ($worker_pid == 0) {                        # 子进程：专职处理消息
+        close $JOB_W;
+        worker_loop($c);
+        exit 0;
+    }
+    close $JOB_R;
+    select((select($JOB_W), $| = 1)[0]);
     my $srv = IO::Socket::INET->new(
         LocalAddr => $bind, LocalPort => $port, Listen => 16,
         ReuseAddr => 1, Proto => 'tcp') or die "无法监听 $bind:$port: $!\n";
     print "监听 $bind:$port（platform=" . ($c->{PLATFORM} // '?') . "）\n";
     print "注意：默认只监听本机。要让平台回调进来，请用穿透/反向代理转发到 $bind:$port。\n"
         if $bind eq '127.0.0.1';
+    print "每个发送者一个常驻网关进程：多轮对话连续。\n";
     # 子进程退出会送 SIGCHLD，它会打断阻塞中的 accept()，让 accept 返回 undef —
     # 直接把服务退出掉（实测：第二条消息一到，服务就干净地 exit 0 了）。
     # 所以 accept 失败时先看是不是 EINTR，是就重试。
-    $SIG{CHLD} = sub { $CHILD_N-- if $CHILD_N > 0 };
+    # 只有工作进程一个子进程；它退出说明后台处理链断了，重开一个
+    $SIG{CHLD} = sub {
+        my $gone = waitpid(-1, 1);
+        if (defined $gone && $gone == $worker_pid) {
+            audit('worker_died', 'respawn');
+            pipe($JOB_R, $JOB_W) or return;
+            my $np = fork();
+            if (defined $np && $np == 0) { close $JOB_W; worker_loop($c); exit 0 }
+            if (defined $np) {
+                close $JOB_R;
+                select((select($JOB_W), $| = 1)[0]);
+                $worker_pid = $np;
+            }
+        }
+    };
     while (1) {
         my $cli = $srv->accept();
         if (!$cli) {
@@ -767,8 +902,7 @@ sub serve {
         };
         audit('handler_error', substr($@, 0, 160)) if $@;
         close $cli;
-        while (waitpid(-1, 1) > 0) { }                 # 回收后台子进程
-        $CHILD_N = 0 if $CHILD_N < 0;
+        waitpid($worker_pid, 1);                       # 回收（工作进程正常时不会退出）
     }
 }
 
@@ -853,6 +987,9 @@ if ($MODE eq 'test-push') {
 
 if ($MODE eq 'serve') {
     my $c = load_conf();
+    # 允许在配置里调整（0 = 关掉"处理中"提示）
+    $ACK_AFTER = $c->{ACK_AFTER} if ($c->{ACK_AFTER} // '') =~ /^\d+$/;
+    $ACK_TEXT  = $c->{ACK_TEXT}  if defined $c->{ACK_TEXT} && $c->{ACK_TEXT} =~ /\S/;
     my @miss = missing_keys($c);
     if (@miss) { print STDERR "配置不完整，缺少：@miss（先 --init）\n"; exit 1 }
     serve($c);

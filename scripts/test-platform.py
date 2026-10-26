@@ -162,12 +162,19 @@ def write_conf(home, conf, name='platform.conf'):
 
 
 def fake_gateway(home):
+    """模拟真网关 --stdin 的行为：一行请求进，一行 JSON（含 reply）出，
+    进程常驻（同一个发送者应当复用同一个进程）。"""
     p = os.path.join(home, 'fakegw.sh')
     with open(p, 'w', encoding='utf-8') as f:
         f.write('#!/bin/bash\n'
-                'read -r line\n'
-                'echo "$line" > "$HOME/gw_in.txt"\n'
-                'echo "网关收到：$line"\n')
+                'while IFS= read -r line; do\n'
+                '  printf \'%s pid=%s\\n\' "$line" "$$" >> "$HOME/gw_in.txt"\n'
+                '  body="${line//\\"/}\"\n'
+                '  case "$line" in\n'
+                '    *SLOW*) sleep 2 ;;\n'
+                '  esac\n'
+                '  printf \'{"from":"mock","reply":"网关收到：%s (pid %s)"}\\n\' "$body" "$$"\n'
+                'done\n')
     os.chmod(p, 0o755)
     return '/bin/bash ' + p
 
@@ -310,6 +317,43 @@ def main():
     check('企微消息：推送里带上了网关的回复正文', '网关收到' in sent_body, sent_body[:200])
     check('企微消息：推送带上了 agentid', '1000002' in sent_body, sent_body[:200])
 
+    # --- 多轮对话连续性：同一发送者的第二条消息应复用同一个网关进程 ---
+    xml2 = ('<xml><FromUserName><![CDATA[zhangsan]]></FromUserName>'
+            '<MsgType><![CDATA[text]]></MsgType>'
+            '<Content><![CDATA[那它的端口呢]]></Content>'
+            '<MsgId>123457</MsgId></xml>')
+    enc2 = wecom_encrypt(aes, xml2)
+    outer_b = '<xml><Encrypt><![CDATA[%s]]></Encrypt></xml>' % enc2
+    sig_b = wecom_sig(token, ts, nonce, enc2)
+    http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base, sig_b, ts, nonce), outer_b)
+    time.sleep(2.5)
+    calls = open(os.path.join(home, 'gw_in.txt'), encoding='utf-8').read().strip().split('\n')
+    pids = [ln.split('pid=')[-1] for ln in calls if 'pid=' in ln]
+    check('多轮对话：两条消息由同一个网关进程处理（会话上下文能接上）',
+          len(pids) >= 2 and pids[0] == pids[-1], 'pids=%s' % pids)
+
+    # --- 长回复：必须按平台上限分片，不能一次发（企微上限 2048 字节）---
+    long_text = '请总结这个目录的所有文件内容。' + '细节' * 1200      # 远超 2000 字节
+    xml3 = ('<xml><FromUserName><![CDATA[zhangsan]]></FromUserName>'
+            '<MsgType><![CDATA[text]]></MsgType>'
+            '<Content><![CDATA[%s]]></Content><MsgId>123458</MsgId></xml>' % long_text)
+    enc3 = wecom_encrypt(aes, xml3)
+    outer_c = '<xml><Encrypt><![CDATA[%s]]></Encrypt></xml>' % enc3
+    sig_c = wecom_sig(token, ts, nonce, enc3)
+    PUSHES.clear()
+    http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base, sig_c, ts, nonce), outer_c)
+    wait_for(lambda: [x for x in PUSHES if '网关收到' in x[2]], seconds=25)
+    parts = [x for x in PUSHES if x[0] == 'wecom']
+    check('长回复：被拆成多条发送（否则平台会直接拒发）', len(parts) >= 2, '条数=%d' % len(parts))
+    if parts:
+        too_long = [p for p in parts if len(json.loads(p[2])['text']['content'].encode()) > 2048]
+        check('长回复：每条都不超过企微 2048 字节上限', not too_long,
+              '超限 %d 条' % len(too_long))
+        joined = ''.join(json.loads(p[2])['text']['content'] for p in parts)
+        check('长回复：分片后内容没丢（末段含结尾、总长不短于原文）',
+              long_text[-10:] in joined and len(joined) >= len(long_text),
+              'joined_len=%d orig=%d' % (len(joined), len(long_text)))
+
     # --- 签名错：丢弃且不回复 ---
     PUSHES.clear()
     st, body = http_post('%s?msg_signature=bad&timestamp=%s&nonce=%s' % (base, ts, nonce), outer)
@@ -382,6 +426,38 @@ def main():
     check('白名单外的人：网关审计里留下 drop_sender', 'drop_sender' in audit_txt,
           audit_txt[-300:])
     stop(proc2)
+
+    # =============================== 处理中提示 ===============================
+    home_ack = tempfile.mkdtemp(prefix='plat-ack-')
+    port_ack = free_port()
+    conf_ack, aes_ack, token_ack = make_wecom_conf(home_ack, port_ack, api_base)
+    write_conf(home_ack, conf_ack + 'ACK_AFTER = 1\n')
+    gw_ack = fake_gateway(home_ack)
+    proc_ack = start_platform(home_ack, api_base, gw_ack)
+    base_ack = 'http://127.0.0.1:%d/wecom' % port_ack
+    wait_for(lambda: http_get(base_ack + '?msg_signature=x&timestamp=1&nonce=2&echostr=y')[0] == 403)
+    PUSHES.clear()
+    xml_slow = ('<xml><FromUserName><![CDATA[zhangsan]]></FromUserName>'
+                '<MsgType><![CDATA[text]]></MsgType>'
+                '<Content><![CDATA[SLOW 帮我把日志全看一遍]]></Content>'
+                '<MsgId>999001</MsgId></xml>')
+    enc_s = wecom_encrypt(aes_ack, xml_slow)
+    sig_s = wecom_sig(token_ack, str(int(time.time())), 'nz', enc_s)
+    ts_s = str(int(time.time()))
+    sig_s = wecom_sig(token_ack, ts_s, 'nz', enc_s)
+    http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base_ack, sig_s, ts_s, 'nz'),
+              '<xml><Encrypt><![CDATA[%s]]></Encrypt></xml>' % enc_s)
+    got_ack = wait_for(lambda: [x for x in PUSHES if '正在处理' in x[2]], seconds=10)
+    check('处理中提示：慢回复会先回一句「正在处理」', bool(got_ack),
+          'pushes=%d' % len(PUSHES))
+    got_final = wait_for(lambda: [x for x in PUSHES if '网关收到' in x[2]], seconds=20)
+    check('处理中提示：随后仍会发真正的结果', bool(got_final))
+    if got_ack and got_final:
+        order = [i for i, x in enumerate(PUSHES) if '正在处理' in x[2] or '网关收到' in x[2]]
+        check('处理中提示：顺序是先提示后结果', PUSHES[order[0]][2].find('正在处理') >= 0,
+              'order=%s' % order)
+    stop(proc_ack)
+    shutil.rmtree(home_ack, ignore_errors=True)
 
     # =============================== 飞书 ===============================
     home3 = tempfile.mkdtemp(prefix='plat-feishu-')
