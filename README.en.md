@@ -62,6 +62,8 @@ faces depending on your mood.
 - **Pick a vendor right on the GUI first screen** — a dropdown of seven;
   the "get a key" button follows your choice. The model menu is grouped
   by vendor instead of one long flat list.
+- **The installer supports seven vendors too** — `bash setup.sh` lists all
+  seven, shows where to get the key, and runs a connectivity test.
 - **Three GUI themes: Note, Coding, and Hacker** — a ruled-notebook-style
   chat screen, a green-on-black hacker terminal look, whatever matches
   your mood.

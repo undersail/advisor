@@ -662,6 +662,66 @@ $SIG{HUP}  = sub { blog("SIGHUP (端末が閉じられた?)"); restore_tty(); ex
 $SIG{__DIE__} = sub { blog("DIE" . ($^S ? "(in eval)" : "(FATAL)") . ": " . substr($_[0],0,300)); return; };
 
 # ------------------------------------------------------------------
+# providers.txt — キー環境変数名・既定モデル・キー取得URL・表示名の唯一の出所。
+# ここに書いておけば GUI の初回画面とメニューが自動で追従する。コード側に
+# URL やキー名を二重管理しない。
+# ------------------------------------------------------------------
+my %PROVIDER_INFO;   # provider => { key_env, default_model, key_url, ja, en, zh }
+my @PROVIDER_ORDER;  # providers.txt の並び順（メニューの順序に使う）
+{
+    my @cand;
+    push @cand, $ENV{CLAUDE_PROVIDERS_FILE} if $ENV{CLAUDE_PROVIDERS_FILE};
+    my $here = dirname(Cwd::abs_path($0) // $0);
+    push @cand, "$here/providers.txt", "$here/../providers.txt";
+    my $path;
+    for my $c (@cand) { if (defined $c && -f $c) { $path = $c; last } }
+    if (!$path) {
+        die "providers.txt が見つかりません。リポジトリ同梱のファイルが必要です。\n";
+    }
+    if (open(my $pf, '<:encoding(UTF-8)', $path)) {
+        while (my $l = <$pf>) {
+            chomp $l;
+            next unless $l =~ /\S/;
+            next if $l =~ /^\s*#/;
+            my ($name, $kenv, $dmodel, $kurl, $ja, $en, $zh) = split /\|/, $l, 7;
+            next unless defined $name && $name =~ /\S/;
+            for ($name, $kenv, $dmodel, $kurl) { $_ = '' unless defined $_; s/^\s+//; s/\s+$// }
+            $ja = $name unless defined $ja && $ja =~ /\S/;
+            $en = $name unless defined $en && $en =~ /\S/;
+            $zh = $name unless defined $zh && $zh =~ /\S/;
+            for ($ja, $en, $zh) { s/^\s+//; s/\s+$// }
+            $PROVIDER_INFO{$name} = {
+                key_env       => $kenv,
+                default_model => $dmodel,
+                key_url       => $kurl,
+                ja            => $ja,
+                en            => $en,
+                zh            => $zh,
+            };
+            push @PROVIDER_ORDER, $name;
+        }
+        close $pf;
+    }
+}
+
+# providers.txt の1項目を取り出す。無ければ即死（半端な既定値で動かさない）。
+sub provider_info {
+    my ($name, $field) = @_;
+    my $info = $PROVIDER_INFO{$name};
+    die "providers.txt に '$name' の行がありません。\n" unless $info;
+    return $info->{$field};
+}
+
+# 言語コードに応じた表示名
+sub provider_label {
+    my ($name) = @_;
+    my $info = $PROVIDER_INFO{$name} or return $name;
+    my $k = ($LANGCODE eq 'ja' || $LANGCODE eq 'zh' || $LANGCODE eq 'en') ? $LANGCODE : 'ja';
+    my $v = $info->{$k};
+    return (defined $v && $v ne '') ? $v : $name;
+}
+
+# ------------------------------------------------------------------
 # コマンドライン引数 (--help / --version はAPIキー無しでも動作させる)
 # モデル切り替えは ~/bin/claude (シェルラッパー) 側の -m/--select-model で
 # 行い、ここではCLAUDE_MODEL環境変数を読むだけにして本体は単純に保つ。
@@ -689,10 +749,34 @@ for my $arg (@ARGV) {
     if ($arg eq '--gui')               { $GUI = 1; }
 }
 
+# --help に出す「どの環境変数に何を入れるか」の表。providers.txt から生成する
+# (ここにベンダー名やキー変数名を書き足さない)。
+sub provider_key_table {
+    return '' unless @PROVIDER_ORDER;
+    my $out = '';
+    if ($LANGCODE eq 'zh') {
+        $out .= "\n各厂商的密钥变量与默认模型:\n";
+        $out .= sprintf("  %-10s %-22s %s\n", '厂商', '环境变量', '默认模型');
+    } elsif ($LANGCODE eq 'en') {
+        $out .= "\nKey variable and default model per vendor:\n";
+        $out .= sprintf("  %-10s %-22s %s\n", 'vendor', 'env var', 'default model');
+    } else {
+        $out .= "\nベンダーごとのキー変数と既定モデル:\n";
+        $out .= sprintf("  %-10s %-22s %s\n", 'ベンダー', '環境変数', '既定モデル');
+    }
+    for my $p (@PROVIDER_ORDER) {
+        $out .= sprintf("  %-10s %-22s %s\n", $p,
+                        provider_info($p, 'key_env'),
+                        provider_info($p, 'default_model'));
+    }
+    return $out;
+}
+
+
 sub print_help {
     # 中国語。未対応言語は従来通り日本語へ落ちる(この下の本文)。
     if ($LANGCODE eq 'zh') {
-        print <<'EOH';
+        my $h = <<'EOH';
 用法: advisor [选项]
 
   -h, --help            显示本帮助
@@ -703,10 +787,9 @@ sub print_help {
       --set-recovery    设置密保问题（找回口令用）并退出
 
 环境变量:
-  CLAUDE_PROVIDER    要用的 AI: anthropic（默认）或 gemini
-  ANTHROPIC_API_KEY  Anthropic API 密钥（CLAUDE_PROVIDER=anthropic 时必需）
-  GEMINI_API_KEY     Gemini API 密钥（CLAUDE_PROVIDER=gemini 时必需）
-  CLAUDE_MODEL       使用的模型（默认: claude-sonnet-5 / gemini-3.5-flash-lite）
+  CLAUDE_PROVIDER    要用的 AI: %s（默认 anthropic）
+  <厂商>_API_KEY     该厂商的密钥（变量名见下表；用哪家就设哪个）
+  CLAUDE_MODEL       使用的模型（默认取该厂商的默认模型，见 providers.txt）
   CLAUDE_GEMINI_THINKING  设为 high 可让 Gemini 思考更深（默认 low=更快）
   CLAUDE_CURL        curl 命令路径（默认: curl，使用 PATH 上的那个）
   CLAUDE_CACERT      CA 证书文件（默认: 未指定，使用系统 curl 的信任库）
@@ -716,9 +799,12 @@ sub print_help {
 对话中可用 /claude・/gemini 切换 AI（对话内容会保留）。
 模型选择用 `advisor --select-model` / `advisor -m <ID>`（由 shell 包装脚本处理）。
 EOH
+        $h =~ s{%s}{join(" / ", @PROVIDER_ORDER)}e;
+        print $h;
+        print provider_key_table();
         return;
     }
-    print <<'EOH';
+    my $hj = <<'EOH';
 使い方: advisor [オプション]
 
   -h, --help            このヘルプを表示
@@ -729,10 +815,9 @@ EOH
       --set-recovery    合言葉(復旧用の秘密の質問)を設定して終了
 
 環境変数:
-  CLAUDE_PROVIDER    使うAI: anthropic (既定) または gemini
-  ANTHROPIC_API_KEY  Anthropic APIキー (CLAUDE_PROVIDER=anthropic のとき必須)
-  GEMINI_API_KEY     Gemini APIキー   (CLAUDE_PROVIDER=gemini のとき必須)
-  CLAUDE_MODEL       使用するモデル (既定: claude-sonnet-5 / gemini-3.5-flash-lite)
+  CLAUDE_PROVIDER    使うAI: %s (既定 anthropic)
+  <ベンダー>_API_KEY そのベンダーのキー (変数名は下の表。使う社のものだけ設定すればよい)
+  CLAUDE_MODEL       使用するモデル (既定は各ベンダーの既定モデル。providers.txt 参照)
   CLAUDE_GEMINI_THINKING  high にすると Gemini の思考を深くする (既定 low=速い)
   CLAUDE_CURL        curlコマンドのパス (既定: curl。PATH上のものを使用)
   CLAUDE_CACERT      CA証明書ファイル (既定: 未指定。システムcurlの信頼ストアを使用)
@@ -742,6 +827,9 @@ EOH
 会話中に /claude・/gemini でAIを切り替えられる(会話は引き継がれる)。
 モデルの選択は `advisor --select-model` / `advisor -m <ID>` (シェルラッパー側)。
 EOH
+    $hj =~ s{%s}{join(" / ", @PROVIDER_ORDER)}e;
+    print $hj;
+    print provider_key_table();
 }
 
 # ------------------------------------------------------------------
@@ -807,66 +895,6 @@ my %MODEL_META;             # モデルID => { provider, base_url, notools }
 # OpenAI系(openai / deepseek / dashscope / moonshot / zhipu)は build/parse を
 # 共有する。ベンダーごとに違うのはキーの環境変数名・既定モデル・base_url だけ。
 # ------------------------------------------------------------------
-
-# ------------------------------------------------------------------
-# providers.txt — キー環境変数名・既定モデル・キー取得URL・表示名の唯一の出所。
-# ここに書いておけば GUI の初回画面とメニューが自動で追従する。コード側に
-# URL やキー名を二重管理しない。
-# ------------------------------------------------------------------
-my %PROVIDER_INFO;   # provider => { key_env, default_model, key_url, ja, en, zh }
-my @PROVIDER_ORDER;  # providers.txt の並び順（メニューの順序に使う）
-{
-    my @cand;
-    push @cand, $ENV{CLAUDE_PROVIDERS_FILE} if $ENV{CLAUDE_PROVIDERS_FILE};
-    my $here = dirname(Cwd::abs_path($0) // $0);
-    push @cand, "$here/providers.txt", "$here/../providers.txt";
-    my $path;
-    for my $c (@cand) { if (defined $c && -f $c) { $path = $c; last } }
-    if (!$path) {
-        die "providers.txt が見つかりません。リポジトリ同梱のファイルが必要です。\n";
-    }
-    if (open(my $pf, '<:encoding(UTF-8)', $path)) {
-        while (my $l = <$pf>) {
-            chomp $l;
-            next unless $l =~ /\S/;
-            next if $l =~ /^\s*#/;
-            my ($name, $kenv, $dmodel, $kurl, $ja, $en, $zh) = split /\|/, $l, 7;
-            next unless defined $name && $name =~ /\S/;
-            for ($name, $kenv, $dmodel, $kurl) { $_ = '' unless defined $_; s/^\s+//; s/\s+$// }
-            $ja = $name unless defined $ja && $ja =~ /\S/;
-            $en = $name unless defined $en && $en =~ /\S/;
-            $zh = $name unless defined $zh && $zh =~ /\S/;
-            for ($ja, $en, $zh) { s/^\s+//; s/\s+$// }
-            $PROVIDER_INFO{$name} = {
-                key_env       => $kenv,
-                default_model => $dmodel,
-                key_url       => $kurl,
-                ja            => $ja,
-                en            => $en,
-                zh            => $zh,
-            };
-            push @PROVIDER_ORDER, $name;
-        }
-        close $pf;
-    }
-}
-
-# providers.txt の1項目を取り出す。無ければ即死（半端な既定値で動かさない）。
-sub provider_info {
-    my ($name, $field) = @_;
-    my $info = $PROVIDER_INFO{$name};
-    die "providers.txt に '$name' の行がありません。\n" unless $info;
-    return $info->{$field};
-}
-
-# 言語コードに応じた表示名
-sub provider_label {
-    my ($name) = @_;
-    my $info = $PROVIDER_INFO{$name} or return $name;
-    my $k = ($LANGCODE eq 'ja' || $LANGCODE eq 'zh' || $LANGCODE eq 'en') ? $LANGCODE : 'ja';
-    my $v = $info->{$k};
-    return (defined $v && $v ne '') ? $v : $name;
-}
 
 my %PROVIDERS = (
     anthropic => {

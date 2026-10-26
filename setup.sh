@@ -57,35 +57,24 @@ msg() {
   # 中国語。未命中は空のままにして en/ja へフォールバックさせる。
   if [ "$LANGCODE" = "zh" ]; then
     case "$key" in
+      err_no_providers) fmt="找不到厂商表：%s（providers.txt 必须和 setup.sh 放在一起）" ;;
+      err_bad_choice) fmt="无效的编号（请输入 1~%s）。" ;;
+      key_intro_generic) fmt="需要 %s 的 API 密钥。还没有的话，在浏览器里打开下面这个页面：" ;;
+      key_where) fmt="  %s" ;;
+      api_error_nobase) fmt="models.txt 里没有 %s 的 base_url，无法连通性测试。" ;;
       tier_a) fmt="找到了 Tier A 工具链（~/claude-toolchain），将使用它。" ;;
       stock_curl) fmt="使用系统自带的 curl（Mavericks 及之后的版本已支持 TLS 1.2，无需另外编译）。" ;;
       title) fmt="=== high_sierra_claude (advisor) 安装向导 ===" ;;
       ask_provider) fmt="要使用哪一个 AI？" ;;
-      opt_gemini) fmt="  1) Gemini (Google)   — 有免费额度・无需信用卡              [默认]" ;;
-      opt_anthropic) fmt="  2) Anthropic (Claude) — 高性能・按量计费（需充值）" ;;
       enter_number) fmt="输入编号 [1]: " ;;
       using_provider) fmt="→ 使用 %s。" ;;
       reuse_key) fmt="直接使用已保存的 %s。" ;;
       reuse_key_hint) fmt="如果想换成别的密钥，请先执行 'rm %s' 再重新运行。" ;;
-      gemini_key_intro) fmt="需要 Gemini API 密钥。如果还没有：" ;;
-      gemini_key_1) fmt="  1. 打开 https://aistudio.google.com/apikey" ;;
-      gemini_key_2) fmt="  2. 用 Google 账号登录" ;;
-      gemini_key_3) fmt="  3. 点击 'Create API key' 生成密钥（只用免费额度则无需绑卡）" ;;
-      gemini_key_hint) fmt="以 'AIza' 开头的字符串就是 API 密钥。" ;;
-      anthropic_key_intro) fmt="需要 Anthropic API 密钥。如果还没有：" ;;
-      anthropic_key_1) fmt="  1. 打开 https://console.anthropic.com/ （和 claude.ai 不是同一个站点）" ;;
-      anthropic_key_2) fmt="  2. 注册账号 / 登录" ;;
-      anthropic_key_3) fmt="  3. 在左侧菜单 'API Keys' 里生成新密钥" ;;
-      anthropic_key_4) fmt="  4. 在 'Billing' 里充值少量额度（按量计费）" ;;
-      anthropic_key_note) fmt="注意：这跟登录 claude.ai 时的密码不是同一回事。" ;;
-      anthropic_key_hint) fmt="以 'sk-ant-api' 开头的长字符串就是 API 密钥。" ;;
       paste_key) fmt="粘贴 API 密钥后按回车（不会显示在屏幕上）：" ;;
       err_empty_key) fmt="错误：没有输入任何内容。请重新运行。" ;;
       err_placeholder) fmt="错误：内容里含有 '<' 或 '>'。" ;;
       err_placeholder2) fmt="是不是把说明文字里的占位符号一起粘贴进来了？" ;;
       err_placeholder3) fmt="请不要带符号，只粘贴密钥本身的值。" ;;
-      warn_gemini_prefix) fmt="警告：开头不是 'AIza'。请确认是否粘贴有误（仍会继续）。" ;;
-      warn_anthropic_prefix) fmt="警告：开头不是 'sk-ant-api'。是不是把 claude.ai 的密码粘贴进来了？（仍会继续）" ;;
       warn_short_key) fmt="警告：密钥只有 %s 个字符。复制是不是没复制全？" ;;
       saved_key) fmt="已保存到 %s（只有你的账户能读取该文件）" ;;
       placed_files) fmt="已把 claude-agent.pl / models.txt / advisor_gui.py 放到 %s。" ;;
@@ -106,45 +95,32 @@ msg() {
       usage_help) fmt="  advisor --help            查看全部选项" ;;
       usage_select) fmt="  advisor --select-model    选择要用的模型" ;;
       usage_model) fmt="  advisor -m <ID>           仅本次指定模型" ;;
-      usage_switch) fmt="  （对话中用 /claude・/gemini 切换 AI）" ;;
+      usage_switch) fmt="  （对话中使用 /claude /gemini /deepseek /qwen /kimi /glm 切换 AI）" ;;
       api_error) fmt="API 错误（HTTP %s）。请确认密钥是否正确，" ;;
-      api_error_gemini) fmt="请在 AI Studio 确认密钥是否有效。" ;;
-      api_error_anthropic) fmt="请在 Console 确认是否已充值。" ;;
       api_error_body) fmt="--- 服务器返回的内容 ---" ;;
       *) : ;;
     esac
   fi
   if [ -z "$fmt" ] && [ "$IS_EN" = "1" ]; then
     case "$key" in
+      err_no_providers) fmt="Provider table not found: %s (providers.txt must sit next to setup.sh)" ;;
+      err_bad_choice) fmt="Invalid number (enter 1~%s)." ;;
+      key_intro_generic) fmt="Needs a %s API key. If you do not have one, open this page in your browser:" ;;
+      key_where) fmt="  %s" ;;
+      api_error_nobase) fmt="models.txt has no base_url for %s, cannot run the connectivity test." ;;
       tier_a) fmt="Found the Tier A toolchain (~/claude-toolchain). Using it." ;;
       stock_curl) fmt="Using the system curl (Mavericks and later already support TLS 1.2, no extra build needed)." ;;
       title) fmt="=== high_sierra_claude (advisor) setup ===" ;;
       ask_provider) fmt="Which AI do you want to use?" ;;
-      opt_gemini) fmt="  1) Gemini (Google)    — free tier available, no credit card needed   [default]" ;;
-      opt_anthropic) fmt="  2) Anthropic (Claude) — high performance, pay-as-you-go (needs a credit charge)" ;;
       enter_number) fmt="Enter a number [1]: " ;;
       using_provider) fmt="→ Using %s." ;;
       reuse_key) fmt="Using the already-saved %s." ;;
       reuse_key_hint) fmt="To use a different key, run 'rm %s' and start over." ;;
-      gemini_key_intro) fmt="A Gemini API key is required. If you don't have one yet:" ;;
-      gemini_key_1) fmt="  1. Open https://aistudio.google.com/apikey" ;;
-      gemini_key_2) fmt="  2. Sign in with your Google account" ;;
-      gemini_key_3) fmt="  3. Click 'Create API key' (no card needed for the free tier)" ;;
-      gemini_key_hint) fmt="The API key is the string starting with 'AIza'." ;;
-      anthropic_key_intro) fmt="An Anthropic API key is required. If you don't have one yet:" ;;
-      anthropic_key_1) fmt="  1. Open https://console.anthropic.com/ (a different site from claude.ai)" ;;
-      anthropic_key_2) fmt="  2. Create an account / sign in" ;;
-      anthropic_key_3) fmt="  3. Create a new key from 'API Keys' in the left menu" ;;
-      anthropic_key_4) fmt="  4. Add a small credit charge under 'Billing' (pay-as-you-go)" ;;
-      anthropic_key_note) fmt="Note: this is not the password you use to sign in to claude.ai." ;;
-      anthropic_key_hint) fmt="The API key is the long string starting with 'sk-ant-api03-'." ;;
       paste_key) fmt="Paste your API key and press Enter (it won't be shown on screen): " ;;
       err_empty_key) fmt="Error: nothing was entered. Please run this again." ;;
       err_placeholder) fmt="Error: found '<' or '>' in the key." ;;
       err_placeholder2) fmt="Did you accidentally paste the placeholder brackets from the instructions too?" ;;
       err_placeholder3) fmt="Please paste just the key value, without those brackets." ;;
-      warn_gemini_prefix) fmt="Warning: it doesn't start with 'AIza'. Please check you copied it correctly (continuing anyway)." ;;
-      warn_anthropic_prefix) fmt="Warning: it doesn't start with 'sk-ant-api'. Did you paste your claude.ai password by mistake? (continuing anyway)" ;;
       warn_short_key) fmt="Warning: the key is only %s characters. Did the copy get cut off?" ;;
       saved_key) fmt="Saved to %s (readable only by your account)" ;;
       placed_files) fmt="Placed claude-agent.pl / models.txt / advisor_gui.py in %s." ;;
@@ -165,44 +141,31 @@ msg() {
       usage_help) fmt="  advisor --help            show all options" ;;
       usage_select) fmt="  advisor --select-model    choose which AI to use" ;;
       usage_model) fmt="  advisor -m <ID>           use a different AI for this session only" ;;
-      usage_switch) fmt="  (during a conversation, switch AI with /claude or /gemini)" ;;
+      usage_switch) fmt="  (mid-conversation: /claude /gemini /deepseek /qwen /kimi /glm to switch)" ;;
       api_error) fmt="API error (HTTP %s). Please check that the key is correct, and" ;;
-      api_error_gemini) fmt="check in AI Studio that the key is active." ;;
-      api_error_anthropic) fmt="check in the Console that credit has been charged." ;;
       api_error_body) fmt="--- Response from the server ---" ;;
     esac
   fi
   if [ -z "$fmt" ]; then
     case "$key" in
+      err_no_providers) fmt="プロバイダ表が見つかりません: %s（providers.txt は setup.sh と同じ場所に必要）" ;;
+      err_bad_choice) fmt="番号が正しくありません（1~%s で入力してください）。" ;;
+      key_intro_generic) fmt="%s の API キーが必要です。まだ無ければブラウザでこのページを開いてください:" ;;
+      key_where) fmt="  %s" ;;
+      api_error_nobase) fmt="models.txt に %s の base_url が無いため疎通確認できません。" ;;
       tier_a) fmt="Tier A toolchain (~/claude-toolchain) が見つかりました。こちらを使います。" ;;
       stock_curl) fmt="標準のcurlを使います(Mavericks以降はTLS1.2対応済みのため追加ビルド不要)。" ;;
       title) fmt="=== high_sierra_claude (advisor) セットアップ ===" ;;
       ask_provider) fmt="どちらのAIを使いますか?" ;;
-      opt_gemini) fmt="  1) Gemini (Google)   — 無料枠あり・クレジットカード不要        [既定]" ;;
-      opt_anthropic) fmt="  2) Anthropic (Claude) — 高性能・従量課金(要クレジットチャージ)" ;;
       enter_number) fmt="番号を入力 [1]: " ;;
       using_provider) fmt="→ %s を使います。" ;;
       reuse_key) fmt="保存済みの %s をそのまま使います。" ;;
       reuse_key_hint) fmt="別のキーに変えたい場合は 'rm %s' してから再実行してください。" ;;
-      gemini_key_intro) fmt="Gemini APIキーが必要です。まだお持ちでない場合:" ;;
-      gemini_key_1) fmt="  1. https://aistudio.google.com/apikey を開く" ;;
-      gemini_key_2) fmt="  2. Googleアカウントでログイン" ;;
-      gemini_key_3) fmt="  3. 'Create API key' でキーを発行(無料枠を使う分にはカード登録不要)" ;;
-      gemini_key_hint) fmt="'AIza' で始まる文字列がAPIキーです。" ;;
-      anthropic_key_intro) fmt="Anthropic APIキーが必要です。まだお持ちでない場合:" ;;
-      anthropic_key_1) fmt="  1. https://console.anthropic.com/ を開く (claude.aiとは別サイトです)" ;;
-      anthropic_key_2) fmt="  2. アカウントを作成 / ログイン" ;;
-      anthropic_key_3) fmt="  3. 左メニューの 'API Keys' から新しいキーを発行" ;;
-      anthropic_key_4) fmt="  4. 'Billing' で少額のクレジットをチャージ(従量課金)" ;;
-      anthropic_key_note) fmt="注意: claude.aiにログインする時のパスワードとは別物です。" ;;
-      anthropic_key_hint) fmt="'sk-ant-api03-' で始まる長い文字列がAPIキーです。" ;;
       paste_key) fmt="APIキーを貼り付けてEnter(画面には表示されません): " ;;
       err_empty_key) fmt="エラー: 何も入力されませんでした。もう一度実行してください。" ;;
       err_placeholder) fmt="エラー: '<' か '>' が含まれています。" ;;
       err_placeholder2) fmt="説明文のプレースホルダー記号を誤って一緒に貼り付けていませんか?" ;;
       err_placeholder3) fmt="記号を含めず、キーの値だけを貼り付けてください。" ;;
-      warn_gemini_prefix) fmt="警告: 'AIza' で始まっていません。貼り付けミスがないか確認してください(このまま続けます)。" ;;
-      warn_anthropic_prefix) fmt="警告: 'sk-ant-api' で始まっていません。claude.aiのパスワードなどを貼り付けていませんか?(このまま続けます)" ;;
       warn_short_key) fmt="警告: キーが %s 文字しかありません。コピーが途中で切れていませんか?" ;;
       saved_key) fmt="%s に保存しました(あなたのアカウントだけが読めるファイルです)" ;;
       placed_files) fmt="%s に claude-agent.pl / models.txt / advisor_gui.py を配置しました。" ;;
@@ -223,10 +186,8 @@ msg() {
       usage_help) fmt="  advisor --help            オプション一覧" ;;
       usage_select) fmt="  advisor --select-model    使うモデルを選ぶ" ;;
       usage_model) fmt="  advisor -m <ID>           このセッションだけモデルを指定" ;;
-      usage_switch) fmt="  (会話中に /claude・/gemini でAIを切り替え)" ;;
+      usage_switch) fmt="  (会話中に /claude /gemini /deepseek /qwen /kimi /glm でAIを切り替え)" ;;
       api_error) fmt="APIエラー(HTTP %s)。キーが正しいか、" ;;
-      api_error_gemini) fmt="AI Studio でキーが有効か確認してください。" ;;
-      api_error_anthropic) fmt="Console でクレジットがチャージされているか確認してください。" ;;
       api_error_body) fmt="--- サーバーからの応答 ---" ;;
       *) fmt="$key" ;;
     esac
@@ -275,20 +236,58 @@ echo ""
 [ -f "$ENV_FILE" ] && . "$ENV_FILE" 2>/dev/null || true
 
 # --- 1. 使うAIを選ぶ ---
+# ベンダーの一覧・キー変数名・既定モデル・キー取得URLは providers.txt が唯一の
+# 出所。GUI とまったく同じファイルを読む（ここにベンダー名を書き足さない）。
+PROVIDERS_FILE="$SCRIPT_DIR/providers.txt"
+if [ ! -f "$PROVIDERS_FILE" ]; then
+  msg err_no_providers "$PROVIDERS_FILE"
+  exit 1
+fi
+
+P_NAME=(); P_KENV=(); P_DMODEL=(); P_URL=(); P_LABEL=()
+P_COUNT=0
+while IFS='|' read -r _nm _ke _dm _ku _ja _en _zh; do
+  case "$_nm" in ''|'#'*) continue ;; esac
+  [ -z "$_ke" ] && continue
+  P_COUNT=$((P_COUNT + 1))
+  P_NAME[$P_COUNT]="$_nm"
+  P_KENV[$P_COUNT]="$_ke"
+  P_DMODEL[$P_COUNT]="$_dm"
+  P_URL[$P_COUNT]="$_ku"
+  case "$LANGCODE" in
+    zh) _lbl="$_zh" ;;
+    en) _lbl="$_en" ;;
+    *)  _lbl="$_ja" ;;
+  esac
+  [ -z "$_lbl" ] && _lbl="$_nm"
+  P_LABEL[$P_COUNT]="$_lbl"
+done < "$PROVIDERS_FILE"
+
+if [ "$P_COUNT" -eq 0 ]; then
+  msg err_no_providers "$PROVIDERS_FILE"
+  exit 1
+fi
+
 msg ask_provider
-msg opt_gemini
-msg opt_anthropic
+_i=1
+while [ "$_i" -le "$P_COUNT" ]; do
+  printf "  %d) %s\n" "$_i" "${P_LABEL[$_i]}"
+  _i=$((_i + 1))
+done
 printf "$(msg enter_number)"
 read -r PROVIDER_CHOICE
 PROVIDER_CHOICE="${PROVIDER_CHOICE:-1}"
-
-if [ "$PROVIDER_CHOICE" = "2" ]; then
-  PROVIDER="anthropic"
-  KEY_VAR="ANTHROPIC_API_KEY"
-else
-  PROVIDER="gemini"
-  KEY_VAR="GEMINI_API_KEY"
+case "$PROVIDER_CHOICE" in
+  ''|*[!0-9]*) PROVIDER_CHOICE=1 ;;
+esac
+if [ "$PROVIDER_CHOICE" -lt 1 ] || [ "$PROVIDER_CHOICE" -gt "$P_COUNT" ]; then
+  msg err_bad_choice "$P_COUNT"
+  exit 1
 fi
+PROVIDER="${P_NAME[$PROVIDER_CHOICE]}"
+KEY_VAR="${P_KENV[$PROVIDER_CHOICE]}"
+DEFAULT_MODEL="${P_DMODEL[$PROVIDER_CHOICE]}"
+KEY_PAGE="${P_URL[$PROVIDER_CHOICE]}"
 msg using_provider "$PROVIDER"
 echo ""
 
@@ -301,23 +300,11 @@ if [ -n "$EXISTING_KEY" ]; then
   API_KEY="$EXISTING_KEY"
   echo ""
 else
-  if [ "$PROVIDER" = "gemini" ]; then
-    msg gemini_key_intro
-    msg gemini_key_1
-    msg gemini_key_2
-    msg gemini_key_3
-    echo ""
-    msg gemini_key_hint
-  else
-    msg anthropic_key_intro
-    msg anthropic_key_1
-    msg anthropic_key_2
-    msg anthropic_key_3
-    msg anthropic_key_4
-    echo ""
-    msg anthropic_key_note
-    msg anthropic_key_hint
-  fi
+  # 厂商ごとの「何をクリックするか」の手順は書かない —— 各社のコンソールは
+  # 予告なく変わるし、7社ぶん×3言語で持つと必ず腐る。取得ページのURLだけ
+  # providers.txt から出して、あとは README に任せる。
+  msg key_intro_generic "${P_LABEL[$PROVIDER_CHOICE]}"
+  msg key_where "$KEY_PAGE"
   echo ""
 
   printf "$(msg paste_key)"
@@ -341,18 +328,6 @@ else
       exit 1
       ;;
   esac
-
-  if [ "$PROVIDER" = "gemini" ]; then
-    case "$API_KEY" in
-      AIza*) ;;
-      *) msg warn_gemini_prefix ;;
-    esac
-  else
-    case "$API_KEY" in
-      sk-ant-api*) ;;
-      *) msg warn_anthropic_prefix ;;
-    esac
-  fi
 
   key_len=$(echo -n "$API_KEY" | wc -c | tr -d ' ')
   if [ "$key_len" -lt 30 ]; then
@@ -386,6 +361,7 @@ set -e
 
 ENV_FILE="$ENV_FILE"
 MODELS_FILE="$BUILD_DIR/models.txt"
+PROVIDERS_FILE="$BUILD_DIR/providers.txt"
 AGENT_SCRIPT="$BUILD_DIR/claude-agent.pl"
 CURL_BIN="$CURL_BIN"
 CACERT="$CACERT"
@@ -490,9 +466,20 @@ list_models() {
   fi
 }
 
-# id が gemini... なら gemini、それ以外は anthropic
+# モデルID → プロバイダ。models.txt の provider 列が唯一の出所
+# （以前は「gemini で始まれば gemini、それ以外は anthropic」という2社前提だった）
 provider_of() {
-  case "\$1" in gemini*) echo gemini ;; *) echo anthropic ;; esac
+  local _p
+  _p="\$(awk -F'|' -v m="\$1" '\$1==m && \$5!="" {print \$5; exit}' "\$MODELS_FILE" 2>/dev/null)"
+  [ -z "\$_p" ] && _p="anthropic"
+  echo "\$_p"
+}
+
+# プロバイダ → キーの環境変数名（providers.txt から引く）
+keyvar_of() {
+  local _k
+  _k="\$(awk -F'|' -v p="\$1" '\$1==p {print \$2; exit}' "\$PROVIDERS_FILE" 2>/dev/null)"
+  echo "\$_k"
 }
 
 # 使うAIを選ぶ。引数に番号があれば非対話。CLAUDE_MODEL と CLAUDE_PROVIDER を
@@ -537,11 +524,20 @@ select_model() {
   if [ "\$LANGCODE" = "zh" ]; then echo "→ 使用 \$chosen。"
   elif [ "\$IS_EN" = "1" ]; then echo "→ Using \$chosen."
   else echo "→ \$chosen を使います。"; fi
-  local keyvar=ANTHROPIC_API_KEY
-  [ "\$prov" = gemini ] && keyvar=GEMINI_API_KEY
+  local keyvar
+  keyvar="\$(keyvar_of "\$prov")"
+  if [ -z "\$keyvar" ]; then
+    # providers.txt に無いプロバイダ（ユーザーが自分で足した等）はここで諦める
+    if [ "\$LANGCODE" = "zh" ]; then echo "※ providers.txt 里没有 \$prov 的密钥定义。"
+    elif [ "\$IS_EN" = "1" ]; then echo "※ providers.txt has no key entry for \$prov."
+    else echo "※ providers.txt に \$prov のキー定義がありません。"; fi
+    return 0
+  fi
   if ! grep -q "^export \$keyvar=" "\$ENV_FILE"; then
-    local slash=claude
-    [ "\$prov" = gemini ] && slash=gemini
+    # 会話中のコマンド名はプロバイダ名そのもの（/deepseek /qwen ...）。
+    # anthropic だけは昔の指の記憶に合わせて /claude を案内する。
+    local slash="\$prov"
+    [ "\$prov" = anthropic ] && slash=claude
     if [ "\$LANGCODE" = "zh" ]; then
       echo "※ 这个 AI 的密钥还没有。启动 'advisor' 后输入 /\$slash 即可登记。"
     elif [ "\$IS_EN" = "1" ]; then
@@ -770,26 +766,53 @@ else
   CACERT_OPT=()
 fi
 
-if [ "$PROVIDER" = "gemini" ]; then
-  GEMINI_MODEL="${CLAUDE_MODEL:-gemini-3.5-flash-lite}"
-  case "$GEMINI_MODEL" in gemini*) ;; *) GEMINI_MODEL="gemini-3.5-flash-lite" ;; esac
-  HTTP_CODE=$("$CURL_BIN" -s "${CACERT_OPT[@]}" \
-    "https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent" \
-    -H "x-goog-api-key: $API_KEY" \
-    -H "content-type: application/json" \
-    -d '{"contents":[{"parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":8}}' \
-    -o "$RESPONSE_FILE" \
-    -w "%{http_code}")
-else
-  HTTP_CODE=$("$CURL_BIN" -s "${CACERT_OPT[@]}" \
-    https://api.anthropic.com/v1/messages \
-    -H "x-api-key: $API_KEY" \
-    -H "anthropic-version: 2023-06-01" \
-    -H "content-type: application/json" \
-    -d '{"model":"claude-sonnet-5","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}' \
-    -o "$RESPONSE_FILE" \
-    -w "%{http_code}")
+# 叩き方は「認証の形」で3種類しかない:
+#   gemini    … x-goog-api-key ヘッダ + generateContent（モデルIDをURLに埋める）
+#   anthropic … x-api-key + anthropic-version ヘッダ + /v1/messages
+#   それ以外  … Authorization: Bearer + <base_url>/chat/completions
+# この3分岐は agent/claude-agent.pl の %PROVIDERS の auth と対応している。
+TEST_MODEL="${CLAUDE_MODEL:-$DEFAULT_MODEL}"
+BASE_URL="$(awk -F'|' -v m="$TEST_MODEL" '$1==m {print $6}' "$SCRIPT_DIR/models.txt" 2>/dev/null | head -1)"
+if [ -z "$BASE_URL" ]; then
+  BASE_URL="$(awk -F'|' -v p="$PROVIDER" '$5==p && $6!="" {print $6}' "$SCRIPT_DIR/models.txt" 2>/dev/null | head -1)"
 fi
+
+case "$PROVIDER" in
+  gemini)
+    case "$TEST_MODEL" in gemini*) ;; *) TEST_MODEL="$DEFAULT_MODEL" ;; esac
+    HTTP_CODE=$("$CURL_BIN" -s "${CACERT_OPT[@]}" \
+      "https://generativelanguage.googleapis.com/v1beta/models/${TEST_MODEL}:generateContent" \
+      -H "x-goog-api-key: $API_KEY" \
+      -H "content-type: application/json" \
+      -d '{"contents":[{"parts":[{"text":"hi"}]}],"generationConfig":{"maxOutputTokens":8}}' \
+      -o "$RESPONSE_FILE" \
+      -w "%{http_code}")
+    ;;
+  anthropic)
+    HTTP_CODE=$("$CURL_BIN" -s "${CACERT_OPT[@]}" \
+      https://api.anthropic.com/v1/messages \
+      -H "x-api-key: $API_KEY" \
+      -H "anthropic-version: 2023-06-01" \
+      -H "content-type: application/json" \
+      -d "{\"model\":\"$TEST_MODEL\",\"max_tokens\":10,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" \
+      -o "$RESPONSE_FILE" \
+      -w "%{http_code}")
+    ;;
+  *)
+    if [ -z "$BASE_URL" ]; then
+      msg api_error_nobase "$PROVIDER"
+      HTTP_CODE="000"
+    else
+      HTTP_CODE=$("$CURL_BIN" -s "${CACERT_OPT[@]}" \
+        "${BASE_URL%/}/chat/completions" \
+        -H "Authorization: Bearer $API_KEY" \
+        -H "content-type: application/json" \
+        -d "{\"model\":\"$TEST_MODEL\",\"max_tokens\":16,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}" \
+        -o "$RESPONSE_FILE" \
+        -w "%{http_code}")
+    fi
+    ;;
+esac
 
 echo ""
 if [ "$HTTP_CODE" = "200" ]; then
@@ -802,11 +825,7 @@ if [ "$HTTP_CODE" = "200" ]; then
   msg usage_switch
 else
   msg api_error "$HTTP_CODE"
-  if [ "$PROVIDER" = "gemini" ]; then
-    msg api_error_gemini
-  else
-    msg api_error_anthropic
-  fi
+  msg key_where "$KEY_PAGE"
   msg api_error_body
   cat "$RESPONSE_FILE"
   echo ""

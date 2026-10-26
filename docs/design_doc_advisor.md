@@ -203,6 +203,23 @@ OpenAI 兼容格式与内部格式（Anthropic content blocks）的对应关系�
   （编号依赖列表顺序，插一条模型就会错位）。
 - 两级菜单只是显示层的变化：`/model 3`、`/model <id>` 这两种老写法照旧可用。
 
+**setup.sh 也读同一张表（M4 收尾）**：安装脚本原来只有「1) Gemini / 2) Anthropic」
+两个写死的分支，加上两套厂商专属的「点哪里」步骤和密钥前缀检查。现在改成：
+
+- 厂商清单 / 密钥变量名 / 默认模型 / 密钥页 URL 全部从 `providers.txt` 取
+- 厂商专属的「第 1 步、第 2 步……」删掉了 —— 各社控制台改版频繁，7 家 × 3 语言
+  的手写步骤必然腐坏。只给密钥页 URL，详细说明留给 README
+- 密钥前缀检查（`AIza` / `sk-ant-api`）删掉 —— 那是对两家的刻意外推，对第三家
+  起就是无意义的警告
+- 连通性测试按「认证形状」分三支：gemini（模型 ID 嵌 URL）/ anthropic（专属头）/
+  其余（Bearer + `<base_url>/chat/completions`），base_url 从 `models.txt` 取
+- 包装脚本 `advisor` 里的 `provider_of()` 原本是「gemini 开头→gemini，其余→
+  anthropic」，现在查 `models.txt` 的 provider 列；新增 `keyvar_of()` 查
+  `providers.txt`
+
+⚠️ `setup.sh` 里**不能用 bash 4 特性**（`mapfile`、关联数组）—— macOS 自带的是
+bash 3.2，用了在真机上直接报错。厂商表用普通索引数组读。
+
 需要注意的 Gemini 特例：
 - **`thoughtSignature`**：Gemini 3 系在回传 `functionCall` 时必须原样带上，
   否则 400。转换层要保住这个字段。
