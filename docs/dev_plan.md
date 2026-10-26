@@ -9,7 +9,8 @@
 | 项目 | 状态 |
 |---|---|
 | Tier B（10.9 ~ 10.13+）终端 + GUI | ✅ 上游已实现 |
-| 双提供商（Claude / Gemini） | ✅ 已实现 |
+| 双提供商（Claude / Gemini） | ✅ 上游已实现 |
+| **7 提供商（+ OpenAI / DeepSeek / 通义千问 / Kimi / GLM）** | ✅ 本 fork 已实现（M4 核心）|
 | 加密历史 + 口令/合言葉双恢复 | ✅ 已实现 |
 | 日英双语（自动跟随系统语言） | ✅ 已实现 |
 | 内嵌 GUI key 注册 | ✅ 已实现 |
@@ -94,14 +95,20 @@ CLAUDE_LANG（手动覆盖，最高优先）
 回退链：zh 缺失的 key → en → ja。禁止出现空字符串。
 ```
 
-**C. `models.txt` 扩成 4 列，保持向后兼容**
+**C. `models.txt` 扩列，保持向后兼容**
+
+M2 先加第 4 列中文；M4 又把 provider / base_url / flags 加上，最终格式：
 
 ```
-id|日本語|English|中文        ← 4 列（新）
-id|日本語|English             ← 3 列（旧，中文回退英文）
-id|日本語                     ← 2 列（更旧，原样兼容）
+id|日本語|English|中文|provider|base_url|flags   ← 7 列（当前）
+id|日本語|English|中文                            ← 4 列（M2 时期，provider 靠 ID 前缀推断）
+id|日本語|English                                 ← 3 列（旧，中文回退英文）
+id|日本語                                          ← 2 列（更旧，原样兼容）
 ```
-`split /\|/, $l, 4` 天然兼容列数变少。CI 卡口改为"列数 2~4"而不是"必须 3"。
+`split /\|/, $l, 7` 天然兼容列数变少；缺列时 `provider` 留空、按
+`model_prefix` 反推，`base_url` 留空、回落到注册表默认。
+CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校验全在
+`scripts/check-models.py`。
 
 **D. 文档**
 - 新增 `README.zh.md`，并在 `README.md` / `README.en.md` 顶部互加语言切换链接

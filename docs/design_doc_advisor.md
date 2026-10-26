@@ -129,7 +129,7 @@ subprocess.Popen(cmd, env=env, stdin=PIPE, stdout=PIPE,
 
 > 这是踩过的坑写进 prompt 的典型例子。改 prompt 时不要删掉这段。
 
-### 4.2 双提供商：内部格式统一
+### 4.2 多提供商：内部格式统一
 
 **内部对话历史永远用 Anthropic 的 content blocks 格式**，只有在调用 Gemini 的
 前后做一次边界转换。因此工具执行、输入处理、历史渲染的代码完全不需要感知提供商。
@@ -308,7 +308,7 @@ Tier A 的接口已经预留：`CLAUDE_CURL` / `CLAUDE_CACERT` 可指向自建 t
 | `CLAUDE_LANG` | `ja` / `en` 强制语言，否则自动检测 |
 | `CLAUDE_GEMINI_THINKING` | `high` 加深 Gemini 思考 |
 
-`models.txt` 格式：`<model_id>|<日本語ラベル>|<English label>`，一行一条。
+`models.txt` 格式：`<model_id>|<日本語>|<English>|<中文>|<provider>|<base_url>|[flags]`，一行一条。只有前两列必需，第 3 列起可省（老的三列表仍可直接用）。
 CI 里有格式卡口，改格式必须同步改 CI。
 
 ---
