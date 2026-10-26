@@ -1,6 +1,6 @@
 # Advisor
 
-## 🇯🇵 [日本語版はこちらから読めます →](README.md)
+## 🇯🇵 [日本語版はこちらから読めます →](README.md) · 🇨🇳 [中文版请读这里 →](README.zh.md)
 
 <img src="launcher/advisor.png" alt="Advisor" width="120">
 
@@ -216,12 +216,13 @@ that ships with High Sierra).
   is set shallow (`LOW`) by default. Set `CLAUDE_GEMINI_THINKING=high` if you
   want it to think harder.
 
-## About the Japanese/English support
+## About the Chinese/Japanese/English support
 
 Advisor checks your Mac's system language (`defaults read -g AppleLocale`)
 and automatically switches the GUI, terminal text, `setup.sh` prompts, and
-even the native macOS menu bar between Japanese and English. You can also
-force a language with the `CLAUDE_LANG=en` (or `ja`) environment variable.
+even the native macOS menu bar between Chinese, Japanese and English. You can
+also force a language with the `CLAUDE_LANG=zh` (or `ja`, `en`) environment
+variable.
 
 ## Conversation history (encrypted, stored locally)
 

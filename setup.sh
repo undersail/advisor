@@ -27,28 +27,94 @@ set -e
 # --- 言語判定 ---
 # CLAUDE_LANG=en/ja があれば最優先(システム言語を変えずに英語表示を
 # 確認したいとき用)。例: CLAUDE_LANG=en bash setup.sh
-IS_EN=0
+# 表示言語を 3 値で持つ(ja / en / zh)。IS_EN は既存コードとの互換のため残す。
+LANGCODE="ja"
 case "${CLAUDE_LANG:-}" in
-  en) IS_EN=1 ;;
-  ja) IS_EN=0 ;;
+  en*) LANGCODE="en" ;;
+  ja*) LANGCODE="ja" ;;
+  zh*) LANGCODE="zh" ;;
   *)
     if command -v defaults >/dev/null 2>&1; then
       LOCALE_DETECTED="$(defaults read -g AppleLocale 2>/dev/null || true)"
       case "$LOCALE_DETECTED" in
-        ja*|"") IS_EN=0 ;;
-        *) IS_EN=1 ;;
+        ja*) LANGCODE="ja" ;;
+        zh*) LANGCODE="zh" ;;
+        "") LANGCODE="ja" ;;
+        *) LANGCODE="en" ;;
       esac
     fi
     ;;
 esac
+IS_EN=0
+[ "$LANGCODE" = "en" ] && IS_EN=1
 
 # msg <key> [printf-args...]: キーに対応する文言を表示する。
-# IS_EN=1のとき英語のcaseにヒットすればそれを、無ければ日本語(既定)に
-# フォールバックする(訳し漏れがあっても壊れず日本語表示になるだけ)。
+# 中国語 → 英語 → 日本語(既定) の順にフォールバックする。
+# 訳し漏れがあっても壊れず、既存の en/ja 表示は一切変わらない。
 msg() {
   local key="$1"; shift
   local fmt=""
-  if [ "$IS_EN" = "1" ]; then
+  # 中国語。未命中は空のままにして en/ja へフォールバックさせる。
+  if [ "$LANGCODE" = "zh" ]; then
+    case "$key" in
+      tier_a) fmt="找到了 Tier A 工具链（~/claude-toolchain），将使用它。" ;;
+      stock_curl) fmt="使用系统自带的 curl（Mavericks 及之后的版本已支持 TLS 1.2，无需另外编译）。" ;;
+      title) fmt="=== high_sierra_claude (advisor) 安装向导 ===" ;;
+      ask_provider) fmt="要使用哪一个 AI？" ;;
+      opt_gemini) fmt="  1) Gemini (Google)   — 有免费额度・无需信用卡              [默认]" ;;
+      opt_anthropic) fmt="  2) Anthropic (Claude) — 高性能・按量计费（需充值）" ;;
+      enter_number) fmt="输入编号 [1]: " ;;
+      using_provider) fmt="→ 使用 %s。" ;;
+      reuse_key) fmt="直接使用已保存的 %s。" ;;
+      reuse_key_hint) fmt="如果想换成别的密钥，请先执行 'rm %s' 再重新运行。" ;;
+      gemini_key_intro) fmt="需要 Gemini API 密钥。如果还没有：" ;;
+      gemini_key_1) fmt="  1. 打开 https://aistudio.google.com/apikey" ;;
+      gemini_key_2) fmt="  2. 用 Google 账号登录" ;;
+      gemini_key_3) fmt="  3. 点击 'Create API key' 生成密钥（只用免费额度则无需绑卡）" ;;
+      gemini_key_hint) fmt="以 'AIza' 开头的字符串就是 API 密钥。" ;;
+      anthropic_key_intro) fmt="需要 Anthropic API 密钥。如果还没有：" ;;
+      anthropic_key_1) fmt="  1. 打开 https://console.anthropic.com/ （和 claude.ai 不是同一个站点）" ;;
+      anthropic_key_2) fmt="  2. 注册账号 / 登录" ;;
+      anthropic_key_3) fmt="  3. 在左侧菜单 'API Keys' 里生成新密钥" ;;
+      anthropic_key_4) fmt="  4. 在 'Billing' 里充值少量额度（按量计费）" ;;
+      anthropic_key_note) fmt="注意：这跟登录 claude.ai 时的密码不是同一回事。" ;;
+      anthropic_key_hint) fmt="以 'sk-ant-api' 开头的长字符串就是 API 密钥。" ;;
+      paste_key) fmt="粘贴 API 密钥后按回车（不会显示在屏幕上）：" ;;
+      err_empty_key) fmt="错误：没有输入任何内容。请重新运行。" ;;
+      err_placeholder) fmt="错误：内容里含有 '<' 或 '>'。" ;;
+      err_placeholder2) fmt="是不是把说明文字里的占位符号一起粘贴进来了？" ;;
+      err_placeholder3) fmt="请不要带符号，只粘贴密钥本身的值。" ;;
+      warn_gemini_prefix) fmt="警告：开头不是 'AIza'。请确认是否粘贴有误（仍会继续）。" ;;
+      warn_anthropic_prefix) fmt="警告：开头不是 'sk-ant-api'。是不是把 claude.ai 的密码粘贴进来了？（仍会继续）" ;;
+      warn_short_key) fmt="警告：密钥只有 %s 个字符。复制是不是没复制全？" ;;
+      saved_key) fmt="已保存到 %s（只有你的账户能读取该文件）" ;;
+      placed_files) fmt="已把 claude-agent.pl / models.txt / advisor_gui.py 放到 %s。" ;;
+      created_wrapper) fmt="已创建 %s。" ;;
+      removed_old_wrapper) fmt="已删除旧的 %s。" ;;
+      added_path) fmt="已把 %s 加入 PATH。" ;;
+      installed_completion) fmt="已安装 bash 补全（%s）。" ;;
+      path_effective) fmt="（下次登录起生效。想马上使用，请执行 'source ~/.bash_profile'，或打开一个新终端）" ;;
+      no_python3) fmt="没找到 python3，跳过 Advisor.app 的生成。" ;;
+      created_app) fmt="已创建 %s（双击即可启动 GUI，不会打开终端）。" ;;
+      created_app_hint) fmt="  拖到 Dock 或桌面上，下次就能一键打开。" ;;
+      building_app) fmt="正在构建 Advisor.app（首次需要一点时间）…" ;;
+      building_app_clt) fmt="正在安装 Xcode Command Line Tools（仅首次・约 190MB，签名应用需要它）…" ;;
+      app_build_fallback) fmt="没能构建成正式应用，改为生成简易版（菜单栏里的应用名会显示为「Python」）。" ;;
+      checking_api) fmt="正在测试 API 连通性…" ;;
+      api_ok) fmt="连通性正常。准备就绪。" ;;
+      usage_intro) fmt="使用方法：在终端里输入 'advisor' 即可。" ;;
+      usage_help) fmt="  advisor --help            查看全部选项" ;;
+      usage_select) fmt="  advisor --select-model    选择要用的模型" ;;
+      usage_model) fmt="  advisor -m <ID>           仅本次指定模型" ;;
+      usage_switch) fmt="  （对话中用 /claude・/gemini 切换 AI）" ;;
+      api_error) fmt="API 错误（HTTP %s）。请确认密钥是否正确，" ;;
+      api_error_gemini) fmt="请在 AI Studio 确认密钥是否有效。" ;;
+      api_error_anthropic) fmt="请在 Console 确认是否已充值。" ;;
+      api_error_body) fmt="--- 服务器返回的内容 ---" ;;
+      *) : ;;
+    esac
+  fi
+  if [ -z "$fmt" ] && [ "$IS_EN" = "1" ]; then
     case "$key" in
       tier_a) fmt="Found the Tier A toolchain (~/claude-toolchain). Using it." ;;
       stock_curl) fmt="Using the system curl (Mavericks and later already support TLS 1.2, no extra build needed)." ;;
@@ -311,6 +377,7 @@ msg placed_files "$BUILD_DIR"
 # --- 4. advisor コマンド(ラッパー)の設置 ---
 mkdir -p "$BIN_DIR"
 WRAP_IS_EN="$IS_EN"
+WRAP_LANGCODE="$LANGCODE"
 cat > "$BIN_DIR/advisor" << WRAPEOF
 #!/bin/bash
 # advisor — high_sierra_claude ラッパーコマンド (setup.sh が自動生成)
@@ -324,24 +391,49 @@ CACERT="$CACERT"
 # CLAUDE_LANG=en/ja がその場で指定されていればそちらを優先し、
 # 無ければセットアップ時に判定した言語を使う。
 case "\${CLAUDE_LANG:-}" in
-  en) IS_EN=1 ;;
-  ja) IS_EN=0 ;;
-  *) IS_EN="$WRAP_IS_EN" ;;
+  en*) LANGCODE="en" ;;
+  ja*) LANGCODE="ja" ;;
+  zh*) LANGCODE="zh" ;;
+  *) LANGCODE="$WRAP_LANGCODE" ;;
 esac
+IS_EN=0
+[ "\$LANGCODE" = "en" ] && IS_EN=1
 
 # 端末の文字コードを UTF-8 に固定する。これが C ロケール等になっていると、
 # 素の行入力(canonical mode)で日本語1文字(3バイト)をtty側が1バイト単位で
 # 扱ってしまい、Backspace でカーソルと文字の位置がずれる・数文字先を消す、
 # という現象になる。Terminal の設定に依存せず必ず UTF-8 にする。
 if [ -z "\$LANG" ] || [ "\${LANG#*.}" = "\$LANG" ]; then
-  export LANG="ja_JP.UTF-8"
+  # 端末の文字コードは表示言語に合わせる(zh のとき ja_JP を避ける)
+  if [ "\$LANGCODE" = "zh" ]; then export LANG="zh_CN.UTF-8"; else export LANG="ja_JP.UTF-8"; fi
 fi
 export LC_CTYPE="\${LC_CTYPE:-\$LANG}"
 
 source "\$ENV_FILE"
 
 show_help() {
-  if [ "\$IS_EN" = "1" ]; then
+  if [ "\$LANGCODE" = "zh" ]; then
+    cat <<EOF
+用法: advisor [选项]
+
+  -h, --help              显示本帮助
+      --version           显示版本
+      --select-model [N]  选择要用的 AI。带上编号可立即决定（例：advisor --select-model 3）
+      --list-models       列出可用的 AI
+  -m, --model <ID>        仅本次改用别的 AI 启动
+      --list-history      列出已保存的对话（需要口令）
+      --resume            选择已保存的对话继续
+      --no-history        本次不保存对话（也不询问口令）
+      --change-passphrase 修改历史记录口令
+      --set-recovery      设置密保问题（忘记口令时使用）
+
+不带参数运行会使用已保存的设置启动。
+启动后输入列表里的编号即可切换 AI（输入 /model 可再次显示列表）。
+想从命令行决定，用 --select-model [N]。
+对话默认加密保存到 ~/.claude-agent/history
+（首次启动时设置口令。密保问题可选）。
+EOF
+  elif [ "\$LANGCODE" = "en" ]; then
     cat <<EOF
 Usage: advisor [option]
 
@@ -387,8 +479,10 @@ EOF
 }
 
 list_models() {
-  # models.txt は id|日本語説明|English description。IS_ENに応じて列を選ぶ。
-  if [ "\$IS_EN" = "1" ]; then
+  # models.txt は id|日本語|English|中文。LANGCODE に応じて列を選ぶ。
+  if [ "\$LANGCODE" = "zh" ]; then
+    awk -F'|' '{printf "  %-32s %s\n", \$1, (\$4 != "" ? \$4 : \$2)}' "\$MODELS_FILE"
+  elif [ "\$IS_EN" = "1" ]; then
     awk -F'|' '{printf "  %-32s %s\n", \$1, (\$3 != "" ? \$3 : \$2)}' "\$MODELS_FILE"
   else
     awk -F'|' '{printf "  %-32s %s\n", \$1, \$2}' "\$MODELS_FILE"
@@ -406,9 +500,12 @@ select_model() {
   local want="\$1"
   local i=1
   local ids=()
-  if [ "\$IS_EN" = "1" ]; then echo "Choose which AI to use:"; else echo "使うAIを選んでください:"; fi
-  while IFS='|' read -r id desc_ja desc_en; do
+  if [ "\$LANGCODE" = "zh" ]; then echo "选择要用的 AI："
+  elif [ "\$IS_EN" = "1" ]; then echo "Choose which AI to use:"
+  else echo "使うAIを選んでください:"; fi
+  while IFS='|' read -r id desc_ja desc_en desc_zh; do
     local desc="\$desc_ja"
+    if [ "\$LANGCODE" = "zh" ] && [ -n "\$desc_zh" ]; then desc="\$desc_zh"; fi
     if [ "\$IS_EN" = "1" ] && [ -n "\$desc_en" ]; then desc="\$desc_en"; fi
     printf "  %d) %s\n" "\$i" "\$desc"
     ids[\$i]="\$id"
@@ -416,13 +513,17 @@ select_model() {
   done < "\$MODELS_FILE"
   local choice="\$want"
   if [ -z "\$choice" ]; then
-    if [ "\$IS_EN" = "1" ]; then printf "Enter a number [1]: "; else printf "番号を入力 [1]: "; fi
+    if [ "\$LANGCODE" = "zh" ]; then printf "输入编号 [1]: "
+    elif [ "\$IS_EN" = "1" ]; then printf "Enter a number [1]: "
+    else printf "番号を入力 [1]: "; fi
     read -r choice
   fi
   choice=\${choice:-1}
   local chosen="\${ids[\$choice]}"
   if [ -z "\$chosen" ]; then
-    if [ "\$IS_EN" = "1" ]; then echo "Invalid choice."; else echo "無効な選択です。"; fi
+    if [ "\$LANGCODE" = "zh" ]; then echo "无效的选择。"
+    elif [ "\$IS_EN" = "1" ]; then echo "Invalid choice."
+    else echo "無効な選択です。"; fi
     exit 1
   fi
   local prov
@@ -432,13 +533,17 @@ select_model() {
   echo "export CLAUDE_MODEL=\$chosen" >> "\$ENV_FILE"
   echo "export CLAUDE_PROVIDER=\$prov" >> "\$ENV_FILE"
   chmod 600 "\$ENV_FILE"
-  if [ "\$IS_EN" = "1" ]; then echo "→ Using \$chosen."; else echo "→ \$chosen を使います。"; fi
+  if [ "\$LANGCODE" = "zh" ]; then echo "→ 使用 \$chosen。"
+  elif [ "\$IS_EN" = "1" ]; then echo "→ Using \$chosen."
+  else echo "→ \$chosen を使います。"; fi
   local keyvar=ANTHROPIC_API_KEY
   [ "\$prov" = gemini ] && keyvar=GEMINI_API_KEY
   if ! grep -q "^export \$keyvar=" "\$ENV_FILE"; then
     local slash=claude
     [ "\$prov" = gemini ] && slash=gemini
-    if [ "\$IS_EN" = "1" ]; then
+    if [ "\$LANGCODE" = "zh" ]; then
+      echo "※ 这个 AI 的密钥还没有。启动 'advisor' 后输入 /\$slash 即可登记。"
+    elif [ "\$IS_EN" = "1" ]; then
       echo "※ You don't have a key for this AI yet. Run 'advisor' and type /\$slash to register one."
     else
       echo "※ このAIのキーがまだありません。'advisor' を起動して /\$slash と打つと登録できます。"
@@ -491,7 +596,13 @@ while [ \$# -gt 0 ]; do
       shift 2
       ;;
     *)
-      if [ "\$IS_EN" = "1" ]; then
+      if [ "\$LANGCODE" = "zh" ]; then
+        echo "无法识别的选项。通常不需要加任何参数:" >&2
+        echo "  advisor            启动（一般这样就够）" >&2
+        echo "  advisor version    显示版本" >&2
+        echo "  advisor help       详细用法" >&2
+        echo "（前面的短横线 - 加不加都可以）" >&2
+      elif [ "\$IS_EN" = "1" ]; then
         echo "That option wasn't recognized. Usually you can just run:" >&2
         echo "  advisor            start (this is usually all you need)" >&2
         echo "  advisor version    show the version" >&2

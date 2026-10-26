@@ -83,18 +83,27 @@ jobs:
       - name: models.txt 格式校验
         run: |
           set -o pipefail
-          # 约定：<model_id>|<日本語ラベル>|<English label>，空行与 # 注释忽略
+          # 约定：<model_id>|<日本語ラベル>|<English label>[|<中文标签>]
+          # 第 4 列可省（向后兼容用户自带的旧三列文件），但一旦写了就不能为空。
+          # 空行与 # 注释忽略。
           FAIL=0
           N=0
+          N3=0
           while IFS= read -r line; do
             case "$line" in ''|'#'*) continue;; esac
             N=$((N + 1))
-            if [ "$(printf '%s' "$line" | awk -F'|' '{print NF}')" -ne 3 ]; then
-              echo "::error::第 ${N} 条不是 3 段（应为 id|ja|en）：$line"
+            NF=$(printf '%s' "$line" | awk -F'|' '{print NF}')
+            if [ "$NF" -eq 3 ]; then
+              N3=$((N3 + 1))
+            elif [ "$NF" -ne 4 ]; then
+              echo "::error::第 ${N} 条不是 3 或 4 段（应为 id|ja|en 或 id|ja|en|zh）：$line"
+              FAIL=1
+            elif [ -z "$(printf '%s' "$line" | awk -F'|' '{print $4}')" ]; then
+              echo "::error::第 ${N} 条的第 4 段（中文标签）是空的：$line"
               FAIL=1
             fi
           done < models.txt
-          echo "有效模型条目: $N"
+          echo "有效模型条目: $N（其中未写中文标签 $N3 条）"
           [ "$N" -ge 1 ] || { echo "::error::models.txt 里没有可用模型"; exit 1; }
           [ "$FAIL" -eq 0 ] || exit 1
 

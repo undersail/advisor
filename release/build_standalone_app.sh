@@ -99,10 +99,11 @@ cp -R "$BUILD_DIR/dist/Advisor.app" "$OUT_DIR/Advisor.app"
 # 解凍環境によって文字化けする(中身のテキストはUTF-8のままで問題ない)。
 cp "$SCRIPT_DIR/release/ReadMe_JP.txt" "$OUT_DIR/ReadMe_JP.txt"
 cp "$SCRIPT_DIR/release/ReadMe_EN.txt" "$OUT_DIR/ReadMe_EN.txt"
+cp "$SCRIPT_DIR/release/ReadMe_ZH.txt" "$OUT_DIR/ReadMe_ZH.txt"
 
 ZIP_NAME="Advisor-v${VERSION}-standalone.zip"
 ( cd "$OUT_DIR" && rm -f "$ZIP_NAME" && \
-  zip -r -q "$ZIP_NAME" Advisor.app ReadMe_JP.txt ReadMe_EN.txt )
+  zip -r -q "$ZIP_NAME" Advisor.app ReadMe_JP.txt ReadMe_EN.txt ReadMe_ZH.txt )
 
 echo ""
 echo "完成: $OUT_DIR/$ZIP_NAME"

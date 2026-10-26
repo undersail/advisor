@@ -663,6 +663,34 @@ for my $arg (@ARGV) {
 }
 
 sub print_help {
+    # 中国語。未対応言語は従来通り日本語へ落ちる(この下の本文)。
+    if ($LANGCODE eq 'zh') {
+        print <<'EOH';
+用法: advisor [选项]
+
+  -h, --help            显示本帮助
+      --version         显示版本
+      --list-history    列出已保存的对话并退出
+      --resume          选择已保存的对话继续
+      --change-passphrase 修改历史记录口令并退出
+      --set-recovery    设置密保问题（找回口令用）并退出
+
+环境变量:
+  CLAUDE_PROVIDER    要用的 AI: anthropic（默认）或 gemini
+  ANTHROPIC_API_KEY  Anthropic API 密钥（CLAUDE_PROVIDER=anthropic 时必需）
+  GEMINI_API_KEY     Gemini API 密钥（CLAUDE_PROVIDER=gemini 时必需）
+  CLAUDE_MODEL       使用的模型（默认: claude-sonnet-5 / gemini-3.5-flash-lite）
+  CLAUDE_GEMINI_THINKING  设为 high 可让 Gemini 思考更深（默认 low=更快）
+  CLAUDE_CURL        curl 命令路径（默认: curl，使用 PATH 上的那个）
+  CLAUDE_CACERT      CA 证书文件（默认: 未指定，使用系统 curl 的信任库）
+  CLAUDE_NO_HISTORY  设为 1 则不保存对话（也不询问口令）
+  CLAUDE_OPENSSL     openssl 命令路径（默认: openssl）
+
+对话中可用 /claude・/gemini 切换 AI（对话内容会保留）。
+模型选择用 `advisor --select-model` / `advisor -m <ID>`（由 shell 包装脚本处理）。
+EOH
+        return;
+    }
     print <<'EOH';
 使い方: advisor [オプション]
 
@@ -798,10 +826,18 @@ if ($ENV{CLAUDE_MODELS_FILE} && open(my $mf, '<:encoding(UTF-8)', $ENV{CLAUDE_MO
     while (my $l = <$mf>) {
         chomp $l;
         next unless $l =~ /\S/;
-        my ($id, $desc_ja, $desc_en) = split /\|/, $l, 3;
-        my $desc = ($LANGCODE eq 'en' && defined $desc_en && $desc_en ne '')
-            ? $desc_en
-            : ((defined $desc_ja && $desc_ja ne '') ? $desc_ja : $id);
+        my ($id, $desc_ja, $desc_en, $desc_zh) = split /\|/, $l, 4;
+        # 表示言語に合わせて説明文の列を選ぶ(空なら ja → id の順に落とす)。
+        my $desc;
+        if ($LANGCODE eq 'zh') {
+            $desc = $desc_zh;
+            $desc = $desc_en if !defined $desc || $desc eq '';
+        }
+        elsif ($LANGCODE eq 'en') {
+            $desc = $desc_en;
+        }
+        $desc = $desc_ja if !defined $desc || $desc eq '';
+        $desc = $id if !defined $desc || $desc eq '';
         push @MODEL_CHOICES, [ $id, $desc ];
     }
     close $mf;

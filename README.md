@@ -1,6 +1,6 @@
 # Advisor
 
-## 🇺🇸 [Read this README in English →](README.en.md)
+## 🇺🇸 [Read this README in English →](README.en.md) ・ 🇨🇳 [中文版请读这里 →](README.zh.md)
 
 <img src="launcher/advisor.png" alt="Advisor" width="120">
 
@@ -185,11 +185,11 @@ advisor -h / --version        ヘルプ / バージョン
 - Geminiは単純な質問でも思考に時間をかけがちなので、既定で思考を浅く(`LOW`)。
   深く考えさせたいときは`CLAUDE_GEMINI_THINKING=high`。
 
-## 日本語/英語について
+## 日本語/英語/中国語について
 
 Macのシステム言語設定(`defaults read -g AppleLocale`)を見て、GUI・ターミナル・
-`setup.sh`の案内文・OS標準のメニューバーまで、すべて自動で日本語/英語が切り替わります。
-`CLAUDE_LANG=en`(または`ja`)環境変数で手動指定もできます。
+`setup.sh`の案内文・OS標準のメニューバーまで、すべて自動で日本語/英語/中国語が
+切り替わります。`CLAUDE_LANG=en`(または`ja`、`zh`)環境変数で手動指定もできます。
 
 ## 会話履歴 (暗号化してローカル保存)
 
