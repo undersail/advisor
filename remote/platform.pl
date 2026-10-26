@@ -536,14 +536,17 @@ sub read_request {
     }
     my $len = $h{'content-length'} // 0;
     if ($len > $MAX_BODY) {
-        # 不把 2MB 读进内存，但也别一句话不说就断 —— 读掉一个小上限再回 400，
-        # 否则客户端看到的只有「连接被重置」。
-        my $budget = 1024 * 1024;
-        while ($budget > 0 && length($rest) < $budget && $len > 0) {
-            my $n = sysread($sock, my $chunk, 8192);
-            last unless defined $n && $n > 0;
-            $rest .= $chunk;
-            $budget -= $n;
+        # 上限之上要「丢弃式读完」再回 400：如果只读一半就关连接，客户端看到的是
+        # TCP RST 而不是 400（macOS 上实测如此，Linux 上碰巧能先读到 400）。
+        # 丢弃不累积，内存始终只有一块 64KB 的缓冲。
+        my $hard = 8 * 1024 * 1024;
+        if ($len <= $hard) {
+            my $need = $len - length($rest);
+            while ($need > 0) {
+                my $n = sysread($sock, my $chunk, 65536);
+                last unless defined $n && $n > 0;
+                $need -= $n;
+            }
         }
         return { too_big => 1, method => $method // 'GET', path => $path // '/', headers => \%h, body => '' };
     }
