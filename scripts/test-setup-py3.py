@@ -216,6 +216,11 @@ def main():
     check('主流程要求 python3 且具备 Tk 才生成 app',
           'PY3_HAS_TK' in src and re.search(r'if \[ -n "\$PY3" \] && \[ "\$PY3_HAS_TK" = 1 \]', src) is not None,
           '没找到 PY3_HAS_TK 判断')
+    check('缺 python3/Tk 时给出可复制的安装命令（python.org 与 brew 两条）',
+          'python.org/downloads/macos' in src and 'brew install python-tk' in src)
+    check('提示里说明「只装 CLT 仍没有 Tk」（这一步最容易走错）',
+          'Xcode Command Line Tools' in src and 'Tk' in src)
+
     check('缺 Tk 时有三语提示 gui_no_tk',
           len(re.findall(r'gui_no_tk\)\s*fmt=', src)) == 3,
           '%d 条' % len(re.findall(r'gui_no_tk\)\s*fmt=', src)))

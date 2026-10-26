@@ -19,7 +19,11 @@ jobs:
   check:
     name: check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # ★ 超时要按平台分开：GitHub 的 macOS runner 排队 10~30 分钟是常态，
+    #   而 timeout-minutes 把**排队时间也算在内**。统一写 10 分钟的话，
+    #   macOS 腿经常还没分配到机器就被取消 —— run 显示成红，其实一条都没跑
+    #   （实测：created 15:52:45 → cancelled 16:07:46，一步未执行）。
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 45 || 15 }}
     strategy:
       fail-fast: false
       matrix:

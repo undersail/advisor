@@ -836,6 +836,14 @@ else
     msg no_python3
   fi
   msg gui_install_hint
+  # 光说「装 python.org 的 Python 3」不够，直接给能复制的命令。
+  # 注意：只装 Xcode Command Line Tools 给的 /usr/bin/python3 **不含 Tk**，
+  # 装了也起不了图形界面 —— 这一步很多人会走错。
+  echo "  · python.org（自带 Tk，推荐）: https://www.python.org/downloads/macos/"
+  echo "  · 已经用 Homebrew 装了 python3 的话: brew install python-tk"
+  if ! xcode-select -p >/dev/null 2>&1; then
+    echo "  · 注意：只装 Xcode Command Line Tools（会带来 /usr/bin/python3）仍然没有 Tk，图形界面还是起不来。"
+  fi
 fi
 echo ""
 
