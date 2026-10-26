@@ -1,0 +1,116 @@
+name: CI
+
+# advisor 的 CI 只做"语法/一致性/启动"三件事，不跑真实 API 调用（需要密钥且计费）。
+# 真实目标机是 macOS（Snow Leopard ~ High Sierra 的系统 perl / python3），
+# 因此矩阵里同时包含 ubuntu（快速反馈）与 macos（贴近真实目标）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 环境信息（失败时便于定位）
+        run: |
+          echo "runner:   ${{ matrix.os }}"
+          echo "perl:     $(perl -v | grep -oE 'v5\.[0-9]+\.[0-9]+' | head -1)"
+          echo "python3:  $(python3 -V 2>&1)"
+          echo "bash:     $(bash --version | head -1)"
+          echo "curl:     $(curl --version | head -1)"
+          echo "openssl:  $(openssl version)"
+          echo "--- 仓库现状 ---"
+          echo "commit:   $(git rev-parse --short HEAD)"
+          echo "files:    $(git ls-files | wc -l | tr -d ' ')"
+
+      # ---------- 1. Perl 智能体本体 ----------
+      - name: Perl 语法检查（agent/claude-agent.pl）
+        run: |
+          set -o pipefail
+          # 目标是零 CPAN 依赖的单文件，因此必须在裸 perl 下通过
+          perl -c agent/claude-agent.pl 2>&1 | tee /tmp/perl-c.log
+          grep -q "syntax OK" /tmp/perl-c.log || {
+            echo "::error::perl -c 未返回 syntax OK（上方为真实报错）"
+            exit 1
+          }
+
+      - name: Perl 冒烟测试（--version）
+        run: |
+          set -o pipefail
+          OUT=$(perl agent/claude-agent.pl --version 2>&1 || true)
+          echo "输出: $OUT"
+          echo "$OUT" | grep -q "advisor" || {
+            echo "::error::--version 未输出 advisor 标识"
+            exit 1
+          }
+
+      # ---------- 2. GUI ----------
+      - name: Python 语法检查（gui/advisor_gui.py）
+        run: |
+          set -o pipefail
+          # 只编译不执行：CI 无显示器，且 tkinter 在 macOS runner 上不一定带
+          python3 -m py_compile gui/advisor_gui.py && echo "GUI 语法 OK"
+
+      # ---------- 3. Shell 脚本 ----------
+      - name: Shell 语法检查
+        run: |
+          set -o pipefail
+          for f in setup.sh completion/advisor-completion.bash release/build_standalone_app.sh; do
+            echo "--- $f ---"
+            bash -n "$f" || { echo "::error::$f 语法错误"; exit 1; }
+          done
+          echo "全部 shell 脚本语法 OK"
+
+      # ---------- 4. models.txt 格式卡口 ----------
+      - name: models.txt 格式校验
+        run: |
+          set -o pipefail
+          # 约定：<model_id>|<日本語ラベル>|<English label>，空行与 # 注释忽略
+          FAIL=0
+          N=0
+          while IFS= read -r line; do
+            case "$line" in ''|'#'*) continue;; esac
+            N=$((N + 1))
+            if [ "$(printf '%s' "$line" | awk -F'|' '{print NF}')" -ne 3 ]; then
+              echo "::error::第 ${N} 条不是 3 段（应为 id|ja|en）：$line"
+              FAIL=1
+            fi
+          done < models.txt
+          echo "有效模型条目: $N"
+          [ "$N" -ge 1 ] || { echo "::error::models.txt 里没有可用模型"; exit 1; }
+          [ "$FAIL" -eq 0 ] || exit 1
+
+      # ---------- 5. 编码/换行卡口 ----------
+      - name: 编码与换行检查
+        run: |
+          set -o pipefail
+          # 用 perl 而不是 grep -U：macOS 上是 BSD grep，不认 -U
+          BAD=0
+          for f in $(git ls-files | grep -vE '\.(png|icns)$'); do
+            if perl -e 'exit((do { local $/; open my $h, "<:raw", $ARGV[0] or exit 2; my $c = <$h>; $c =~ /\r/ }) ? 1 : 0)' "$f"; then
+              : # 无 CR
+            else
+              echo "::error::$f 含 CRLF，编辑器约定是 LF"
+              BAD=1
+            fi
+          done
+          [ "$BAD" -eq 0 ] || exit 1
+          echo "无 CRLF"

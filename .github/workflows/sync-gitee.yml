@@ -1,0 +1,72 @@
+name: Sync to Gitee Mirror
+
+# 把 main 分支镜像到 Gitee（参考 ezapps 的 sync-gitee.yml）。
+# 需要在本仓库 Settings → Secrets and variables → Actions 里配置：
+#   GITEE_DEPLOY_KEY —— Gitee 私人令牌（private token），需有 projects 权限
+# 目标仓：https://gitee.com/undersail/advisor
+# 注意：--force 会覆盖镜像仓的所有分支，Gitee 侧不要直接提交代码。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: sync-gitee
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: 推送到 Gitee
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 检出代码（完整历史）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 检查密钥是否已配置
+        run: |
+          if [ -z "${{ secrets.GITEE_DEPLOY_KEY }}" ]; then
+            echo "::error::缺少 GITEE_DEPLOY_KEY。请在 Settings → Secrets and variables → Actions 添加 Gitee 私人令牌。"
+            exit 1
+          fi
+          echo "密钥已配置"
+
+      - name: 环境信息（失败时便于定位）
+        run: |
+          echo "源:   ${{ github.repository }} @ ${{ github.ref_name }} ($(git rev-parse --short HEAD))"
+          echo "目标: gitee.com/undersail/advisor"
+          echo "分支: $(git branch -r | tr -d ' ' | tr '\n' ' ')"
+          echo "tag:  $(git tag | wc -l | tr -d ' ') 个"
+
+      - name: 推送到 Gitee 镜像
+        run: |
+          set -o pipefail
+          REMOTE="https://oauth2:${{ secrets.GITEE_DEPLOY_KEY }}@gitee.com/undersail/advisor.git"
+          # 分支：镜像仓以 GitHub 为准，故 --force
+          if git push "$REMOTE" --all --force 2>&1 | tee /tmp/push.log; then
+            echo "::notice::分支推送成功"
+          else
+            # 令牌会被 git 回显到错误信息里，打码后再报
+            sed -i "s/${{ secrets.GITEE_DEPLOY_KEY }}/***/g" /tmp/push.log
+            echo "::error::分支推送失败（上方日志为真实报错，令牌已打码）"
+            cat /tmp/push.log
+            exit 1
+          fi
+
+      - name: 推送 tag
+        run: |
+          set -o pipefail
+          REMOTE="https://oauth2:${{ secrets.GITEE_DEPLOY_KEY }}@gitee.com/undersail/advisor.git"
+          # tag 单独推：--all 不含 tag；镜像仓里已有的旧 tag 也一并覆盖
+          if git push "$REMOTE" --tags --force 2>&1 | tee /tmp/push-tags.log; then
+            echo "::notice::tag 推送成功"
+          else
+            sed -i "s/${{ secrets.GITEE_DEPLOY_KEY }}/***/g" /tmp/push-tags.log
+            echo "::warning::tag 推送失败（分支已同步，tag 未同步）"
+            cat /tmp/push-tags.log
+          fi
