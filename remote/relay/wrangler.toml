@@ -1,31 +1,30 @@
-# Cloudflare Worker 配置（档② 轮询中继）
+# Cloudflare Worker 配置（档② 轮询中继，队列用 Durable Object）
 #
-# 部署前：
+# 部署（全用你自己的 Cloudflare 账号，本仓库不含任何人的 id / token）：
 #   npx wrangler login
-#   npx wrangler kv namespace create RELAY     ← 把返回的 id 填到下面
-#   npx wrangler secret put RELAY_TOKEN        ← 长随机串，别写在这个文件里
-#   npx wrangler deploy
+#   npx wrangler deploy                    ← DO 不需要手建、也不需要填 id
+#   npx wrangler secret put RELAY_TOKEN    ← 长随机串，别写在这个文件里
 #
 # 本地联调（不需要账号）：
 #   npx wrangler dev --local --port 8787 --var RELAY_TOKEN:devtoken
+#
+# 为什么队列用 DO 而不是 KV：见 worker.js 顶部注释（取走即删要原子、要强一致）。
 
 name = "advisor-relay"
 main = "worker.js"
 compatibility_date = "2024-11-01"
 
-# KV：消息队列
-# ★ 这里故意什么都不填。
-#   本项目不提供任何托管服务，也不含任何人的账号信息 —— 你要用中继，
-#   就得用自己的 Cloudflare 账号建一个 KV，再把它的 id 填在下面。
-#
-#   npx wrangler kv namespace create RELAY      ← 返回的 id 填到 <你的KV命名空间id>
-#
-#   不填的后果是 `wrangler deploy` 直接报错，这是刻意的：
-#   宁可部署不上，也不要让仓库里出现一个「看起来能用」的别人的 id。
-#
-# kv_namespaces = [
-#   { binding = "RELAY", id = "<你的KV命名空间id>" }
-# ]
+# 队列后端：Durable Object（单实例串行 + 强一致 + 原子取走即删）
+# ★ 这里没有 id：DO 的实例由 idFromName('main') 在运行时算出来，
+#   所以仓库里不需要、也不会出现任何人的账号标识。换成 KV 就必须手建并填 id。
+[[durable_objects.bindings]]
+name = "RELAY"
+class_name = "RelayRoom"
+
+# 首次部署要迁移一次；之后改类名/存储后端才需要再加 tag
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayRoom"]
 
 [observability]
 enabled = true

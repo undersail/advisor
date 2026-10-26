@@ -18,7 +18,7 @@
 | 两级模型菜单（终端数字 / GUI `/model <id>`） | ✅ 已实现（M4）|
 | **远程只读网关**（白名单 / 审计 / 工具写死只读） | ✅ 本 fork 已实现（M5）|
 | **档① 出站通知**（企微群机器人 / 飞书自定义机器人） | ✅ 本 fork 已实现（M5）|
-| **档② 轮询中继**（Worker + KV 队列 + 老 Mac 轮询端） | ✅ 队列与轮询端已实现（M6 第一批）|
+| **档② 轮询中继**（Worker + Durable Object 队列 + 老 Mac 轮询端 + 平台端入队/回推） | ✅ 全通（M6）|
 | **档② 平台端收发**（企微/飞书回调 → 派活 → 回复推回手机） | ✅ 本 fork 已实现（M6 第二批，`remote/platform.pl`）|
 | **发布链路**（tag → macOS 打包 → Release） | ✅ 本 fork 已实现（M7）|
 | standalone zip 分发 | ✅ 已实现（未签名，首次启动需右键打开）|
@@ -392,7 +392,7 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 > 校验的正例通过、缺文件必红），17/17。**py2app 打包与 `gh release create`
 > 只能在 macOS runner 上验** —— 这一层本会话无法验证，首次真发布见分晓。
 
-> **M6 第一批（已完成）**：`remote/relay/worker.js`（Worker + KV 队列：`/push`、
+> **M6 第一批（已完成）**：`remote/relay/worker.js`（Worker + **Durable Object** 队列：`/push`、
 > `/pull` 取走即删、`/result`、`/outbox`、`/health`；定长比较校验令牌）+ 网关
 > `--poll` 模式（只拉白名单信箱，`--max-msgs` 便于测试）。
 > 验证：`scripts/test-relay.py` 对「同契约本地假中继」7/7，对**真 Worker**

@@ -4,7 +4,7 @@
 
 > **这台软件是纯本地的**：不提供任何后端或托管服务。`relay/` 里的 Cloudflare
 > Worker 只是一个**可选**的中继，**必须用你自己的 Cloudflare 账号部署**。
-> 仓库里不含任何人的账号、令牌、KV 命名空间 id 或 workers.dev 子域。
+> 仓库里不含任何人的账号、令牌、存储 id 或 workers.dev 子域。
 
 ## 三个文件
 
@@ -13,7 +13,7 @@
 | `platform.pl` | 企业微信 / 飞书 **回调服务**：验签、AES 解密、把回复推回手机 |
 | `gateway.pl` | 远程入口：白名单 / 审计 / 驱动 agent | 要远程派活时 |
 | `notify.pl` | 档① 出站通知（企微群机器人 / 飞书自定义机器人） | 只想"跑完了喊我一声" |
-| `relay/` | 档② 轮询中继（Cloudflare Worker + KV） | 老 Mac 在 NAT 后、手机要在外面派活 |
+| `relay/` | 档② 轮询中继（Cloudflare Worker + Durable Object 队列） | 老 Mac 在 NAT 后、手机要在外面派活 |
 
 ## 配置 `~/.claude-agent/remote.conf`
 

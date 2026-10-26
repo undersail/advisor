@@ -191,3 +191,29 @@ python3 scripts/live-check.py deepseek
       但 `~/.claude-agent/audit.log` 里出现 `drop_sender`
 - [ ] `--test-push "测试" --to <你的ID>` 能收到
 - [ ] 飞书：事件订阅里填回调地址，能通过 challenge 验证；发消息有回复
+
+### 7.4 中继模式（家里 Mac 在 NAT 后面时）
+
+不需要真实平台凭据也能验：
+
+```bash
+# 1) 本地起一个真 DO（不登录、不花钱）
+cd remote/relay && npx wrangler dev --local --port 8811 --var RELAY_TOKEN:devtoken
+#    /health 应返回 {"ok":true,...,"backend":"durable-object"}
+
+# 2) 不用 wrangler 的队列逻辑测试
+node scripts/test-relay-do.mjs        # 21 项，含取走即删 / 先进先出 / 并发不重号
+
+# 3) 平台端切到中继模式：在 ~/.claude-agent/platform.conf 里加
+#    RELAY_URL = http://127.0.0.1:8811
+#    RELAY_TOKEN = devtoken
+#    RELAY_POLL = 3
+perl remote/platform.pl --check       # 应提示「中继模式」
+perl remote/platform.pl --serve       # 启动后不再本地起网关
+
+# 4) 家里 Mac 那头取消息
+perl remote/gateway.pl --poll         # 从队列拉取 → 处理 → 结果写回
+```
+
+确认点：消息在手机发出后**不会**在本机起 `gateway.pl --stdin`；`--poll` 取到消息并
+处理后，手机能收到结果。
