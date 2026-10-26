@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: 检出代码（完整历史）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
