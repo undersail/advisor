@@ -415,6 +415,9 @@ def L(key, **kw):
 
 
 def theme_label(spec):
+    # 主题名也要跟随语言(没有 label_zh 时落回日文原名)
+    if LANG == "zh":
+        return spec.get("label_zh", spec["label"])
     return spec.get("label_en", spec["label"]) if LANG == "en" else spec["label"]
 
 
@@ -450,7 +453,7 @@ HL_TAG = {"str": "code_str", "com": "code_com", "num": "code_num", "kw": "code_k
 #   holes         = 左にルーズリーフの穴
 THEMES = {
     "paper": {
-        "label": "ノート", "label_en": "Note", "handwriting": True, "holes": True,
+        "label": "ノート", "label_en": "Note", "label_zh": "笔记", "handwriting": True, "holes": True,
         # 背景を少し明るく、文字(質問・回答とも)は逆にもう少し濃くして
         # はっきりさせた(明るくした分そのままだとコントラストが落ちる
         # ため。実際にはコントラスト比は上がっている: fg 9.57→12.5,
@@ -468,7 +471,7 @@ THEMES = {
         "font": ("Hiragino Maru Gothic ProN", 12),  # 少し小さめにして行数を稼ぐ
     },
     "coding": {
-        "label": "コーディング", "label_en": "Code", "prompt_prefix": True,
+        "label": "コーディング", "label_en": "Code", "label_zh": "编程", "prompt_prefix": True,
         "bg": "#1e1e1e", "fg": "#d4d4d4", "ai": "#cfcfcf", "prompt": "#c586c0",
         "dim": "#7a7a7a", "err": "#f48771", "rule": "#3a3a3a", "code_bg": "#252526",
         "line": "#3a3a3a", "input_bg": "#1e1e1e", "input_fg": "#d4d4d4",
@@ -476,7 +479,7 @@ THEMES = {
         "font": ("Menlo", 13),
     },
     "hacker": {
-        "label": "ハッカー", "label_en": "Hacker", "prompt_prefix": True,
+        "label": "ハッカー", "label_en": "Hacker", "label_zh": "黑客", "prompt_prefix": True,
         # エラー/終了コード(err)以外は全部緑にする、との要望。以前は
         # promptとhl.kw/numがシアン系だったので緑に寄せた。
         "bg": "#000000", "fg": "#39ff5a", "ai": "#33dd88", "prompt": "#00ff66",

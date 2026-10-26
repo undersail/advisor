@@ -59,7 +59,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **96** | `key => ["日本語", "English"]`，`L()` 用 `$pair->[1]`/`[0]` 取 |
+| `agent/claude-agent.pl` → `my %S` | **96** | 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
 | `gui/advisor_gui.py` → `_S` | **59** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|日本語ラベル|English label` |
@@ -112,17 +112,16 @@ id|日本語                     ← 2 列（更旧，原样兼容）
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [ ] `agent/claude-agent.pl`：`%S` 96 条补中文（文案还没动）
-- [ ] `agent/claude-agent.pl`：`print_help`（帮助全文，非 `%S` 条目）补中文
+- [x] `agent/claude-agent.pl`：`%S` 96 条补中文
+- [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
-- [ ] `gui/advisor_gui.py`：`_S` 59 条补中文（文案还没动）
-- [ ] `gui/advisor_gui.py`：GUI 里零散硬编码文案（菜单、对话框标题）扫一遍
-- [ ] `setup.sh`：`IS_EN` 改 `LANGCODE`，87 处 `msg()` 补第三语
-- [ ] `models.txt`：4 列格式 + 5 个模型补中文标签
-- [ ] `README.zh.md` + 语言切换链接
-- [ ] `release/ReadMe_ZH.txt`（ASCII 文件名）+ `build_standalone_app.sh` 打包列表
-- [ ] **CI 卡口**：三语 key 集合一致性
-      （`%S` / `_S` 抽出 key 列表，比较 `ja`、`en`、`zh` 三边是否等长同集合）
+- [x] `gui/advisor_gui.py`：`_S` 59 条补中文
+- [x] `gui/advisor_gui.py`：硬编码文案扫一遍 —— 主题名原只有 `label`/`label_en`，zh 下会显示日文，已加 `label_zh` 并改 `theme_label()`
+- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 54 条（非 87，87 是调用点数）补中文，未命中落回原 en/ja
+- [x] `models.txt`：4 列格式 + 5 个模型补中文标签（Perl 解析同步改限 4 段选列）
+- [x] `README.zh.md` + 三份 README 互链 + 语言说明改三语
+- [x] `release/ReadMe_ZH.txt`（ASCII 文件名）+ `build_standalone_app.sh` 打包列表
+- [x] **CI 卡口**：`scripts/check-i18n.py` —— 抽出 `%S` / `_S` 的全部 key，比较同一 key 的 `ja`/`en`/`zh` 占位符个数是否一致（不一致时 sprintf/format 会崩或错位）；未译条目只报告不判死，收尾阶段可加 `--strict`。已接入 CI 第 5 步
 
 ### 3.4 陷阱
 
@@ -358,7 +357,7 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 | 里程碑 | 内容 | 依赖 | 规模 |
 |---|---|---|---|
 | **M1** ✅ | 骨架落位（CI / Gitee 镜像 / 文档） | — | 已完成 |
-| **M2** | 方向一 · 中文化（三语 + CI key 卡口） | 无 | 3~5 人日 |
+| **M2** ✅ | 方向一 · 中文化（三语 + CI key 卡口） | 无 | 已完成 |
 | **M3** ✅ | 方向二 · 提供商注册表重构（只做抽象，不加新厂商） | 无 | 已完成 |
 | **M4** | 方向二 · OpenAI 适配器 + 首批四家 + 两级菜单 | M3 | 6~8 人日 |
 | **M5** | 方向三 · `--rpc` 模式 + 只读安全模型 + 档① 出站通知 | M2, M4 | 3~4 人日 |
