@@ -1,5 +1,10 @@
 # Advisor
 
+> **About cloud services**: this is a purely local desktop tool. No hosted service is
+> provided. The optional remote relay (`remote/relay/`) must be deployed with **your own**
+> Cloudflare account; the repository contains no account IDs, tokens, KV namespace IDs
+> or workers.dev subdomains belonging to anyone.
+
 ## 🇯🇵 [日本語版はこちらから読めます →](README.md) · 🇨🇳 [中文版请读这里 →](README.zh.md)
 
 <img src="launcher/advisor.png" alt="Advisor" width="120">
@@ -308,6 +313,8 @@ actually talk to either AI. No API key is included in the code anywhere.
   Google account — the free tier (no card required) is enough to get
   started comfortably.
 - **Anthropic**: get a key at
+
+- **Remote access (optional)** — drive it from outside through a read-only gateway; notify results to WeCom / Feishu. See `remote/README.md`.
   [console.anthropic.com](https://console.anthropic.com/) and add a small
   credit charge under Billing (this is separate, pay-as-you-go billing —
   not the same as a claude.ai Pro/Max subscription).

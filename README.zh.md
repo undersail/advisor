@@ -286,6 +286,8 @@ API 密钥。
   [aistudio.google.com/apikey](https://aistudio.google.com/apikey) 申请 —— 免费额度
   （无需绑卡）足够舒服地起步。
 - **Anthropic**：在 [console.anthropic.com](https://console.anthropic.com/) 申请，
+
+- **远程接入（可选）** —— 经只读网关从外面派活，结果可推到企业微信 / 飞书。配置见 `remote/README.md`。
   并在 Billing 里充值少量额度（这是单独的按量计费，和 claude.ai 的 Pro/Max 订阅不是
   一回事）。
 

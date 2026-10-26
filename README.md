@@ -1,10 +1,10 @@
 # Advisor
 
 
-> **About cloud services**: this is a purely local desktop tool. No hosted service is
-> provided. The optional remote relay (`remote/relay/`) must be deployed with **your own**
-> Cloudflare account; the repository contains no account IDs, tokens, KV namespace IDs
-> or workers.dev subdomains belonging to anyone.
+> **クラウドサービスについて**：本ソフトは完全にローカルで動くデスクトップツールです。
+> ホスティングサービスは提供していません。任意機能の遠隔リレー（`remote/relay/`）は
+> **ご自身の Cloudflare アカウント**でデプロイしてください。リポジトリには誰の
+> アカウント ID・トークン・KV ネームスペース ID・workers.dev サブドメインも含まれません。
 
 ## 🇺🇸 [Read this README in English →](README.en.md) ・ 🇨🇳 [中文版请读这里 →](README.zh.md)
 
@@ -265,6 +265,8 @@ Macのシステム言語設定(`defaults read -g AppleLocale`)を見て、GUI・
 - **Gemini**: [aistudio.google.com/apikey](https://aistudio.google.com/apikey)で
   Googleアカウントがあれば発行でき、無料枠(カード登録不要)だけで気軽に使い始められます。
 - **Anthropic**: [console.anthropic.com](https://console.anthropic.com/)でキーを発行し、
+
+- **遠隔から使う（任意）** —— 読み取り専用のゲートウェイ経由で、外出先から指示を出せます。企業 WeChat / 飛書への通知にも対応。設定は `remote/README.md`。
   Billingで少額チャージ(claude.aiのPro/Max等のサブスクリプションとは別の従量課金)。
 
 ## ライセンス

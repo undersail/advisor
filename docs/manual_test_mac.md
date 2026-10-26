@@ -65,7 +65,7 @@ bash setup.sh
 
 然后重开终端：
 ```bash
-advisor --version     # advisor (high_sierra_claude) 0.1
+advisor --version     # advisor (high_sierra_claude) <VERSION 文件里的版本>
 advisor --list-models # 12 条，带中文说明
 advisor -m glm-4.6    # 指定模型起一轮
 ```

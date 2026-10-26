@@ -11,17 +11,24 @@
 | Tier B（10.9 ~ 10.13+）终端 + GUI | ✅ 上游已实现 |
 | 双提供商（Claude / Gemini） | ✅ 上游已实现 |
 | **7 提供商（+ OpenAI / DeepSeek / 通义千问 / Kimi / GLM）** | ✅ 本 fork 已实现（M4）|
+| **中文化（跟随系统语言，三语 102 + 57 条）** | ✅ 本 fork 已实现（M2）|
 | 加密历史 + 口令/合言葉双恢复 | ✅ 已实现 |
 | 日英双语（自动跟随系统语言） | ✅ 已实现 |
-| 内嵌 GUI key 注册 | ✅ 已实现 |
-| standalone zip 分发 | ✅ 已实现（未签名） |
+| 内嵌 GUI key 注册（7 家下拉） | ✅ 已实现（M4-GUI）|
+| 两级模型菜单（终端数字 / GUI `/model <id>`） | ✅ 已实现（M4）|
+| **远程只读网关**（白名单 / 审计 / 工具写死只读） | ✅ 本 fork 已实现（M5）|
+| **档① 出站通知**（企微群机器人 / 飞书自定义机器人） | ✅ 本 fork 已实现（M5）|
+| **档② 轮询中继**（Worker + KV 队列 + 老 Mac 轮询端） | ✅ 队列与轮询端已实现（M6 第一批）|
+| **档② 平台端收发**（把结果推回手机） | ❌ 未做：需自建应用凭据 + 回调验签/AES，必须真凭据联调 |
+| **发布链路**（tag → macOS 打包 → Release） | ✅ 本 fork 已实现（M7）|
+| standalone zip 分发 | ✅ 已实现（未签名，首次启动需右键打开）|
+| CI / Gitee 镜像 / 文档骨架 | ✅ 本仓已落位（§1）|
 | **Tier A（10.6 ~ 10.8）** | ❌ 未开工 |
-| CI / Gitee 镜像 / 文档骨架 | ✅ 本仓已落位（§1） |
-| **中文支持** | ❌ 待做（方向一） |
-| **OpenAI + 国产模型接口** | ❌ 待做（方向二） |
-| **企业微信 / 飞书远程接入** | ❌ 待做（方向三，微信已排除） |
+| ~~微信接入~~ | 已排除（认证主体 + 公网回调 + 5 秒硬超时）|
 
----
+> 版本号只有一个来源：仓库根目录的 `VERSION`。`--version`、`setup.sh` 生成的
+> Info.plist、发布 zip 名、Release 的 tag 全部跟它走；`scripts/check-version.py`
+> 在 CI 里守着这条，写死版本号会红。
 
 ## 1. 本仓已铺好的工程骨架
 
@@ -60,8 +67,8 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **96** | 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
-| `gui/advisor_gui.py` → `_S` | **59** | 同上，`L()` 里 `ja, en = _S[key]` |
+| `agent/claude-agent.pl` → `my %S` | **102** | 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `gui/advisor_gui.py` → `_S` | **57** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|日本語ラベル|English label` |
 | 文档 | README.md(ja) / README.en.md / release/ReadMe_JP.txt / ReadMe_EN.txt | 日英各一份 |
@@ -83,7 +90,7 @@ need_key => { ja => '%s を設定してください', en => 'Please set %s', zh 
 ```
 
 理由：加语言不用改索引、不会错位。改动面其实很小 —— **读取点各自只有 1 处**
-（`L()` 函数），剩下 96 + 59 条是纯数据替换。
+（`L()` 函数），剩下 102 + 57 条是纯数据替换。
 
 **B. 语言解析改成三分支 + 回退链**
 
@@ -119,12 +126,12 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 96 条补中文
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 102 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
-- [x] `gui/advisor_gui.py`：`_S` 59 条补中文
+- [x] `gui/advisor_gui.py`：`_S` 补中文（现 57 条）
 - [x] `gui/advisor_gui.py`：硬编码文案扫一遍 —— 主题名原只有 `label`/`label_en`，zh 下会显示日文，已加 `label_zh` 并改 `theme_label()`
-- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 54 条（非 87，87 是调用点数）补中文，未命中落回原 en/ja
+- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 41 条（三语各 41）补中文，未命中落回原 en/ja
 - [x] `models.txt`：4 列格式 + 5 个模型补中文标签（Perl 解析同步改限 4 段选列）
 - [x] `README.zh.md` + 三份 README 互链 + 语言说明改三语
 - [x] `release/ReadMe_ZH.txt`（ASCII 文件名）+ `build_standalone_app.sh` 打包列表
@@ -136,7 +143,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 - `setup.sh` 的 heredoc 里嵌了给 `~/bin/advisor` 生成的代码，**那段是生成给
   bash 3.2 用的**，中文字面量在里面要留意引号嵌套
 - 别翻译 `run_shell` 类工具名、`--flag` 名、环境变量名 —— 只翻人类可读文案
-- 上游日后同步会在这 96+59 条上冲突，**同步时要整段手动合并**，不要盲信
+- 上游日后同步会在这 102+57 条上冲突，**同步时要整段手动合并**，不要盲信
   `git merge` 的自动结果
 
 **规模**：约 242 条文案 + 6 处逻辑分派。**风险低**（纯数据 + 一处读取逻辑），
