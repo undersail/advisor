@@ -57,6 +57,10 @@ ALLOW_SUBSTR = [
 # 二进制/生成物不扫
 SKIP_EXT = ('.png', '.icns', '.jpg', '.jpeg', '.gif', '.zip', '.ico', '.pdf')
 
+# 这个文件本身不扫：它的规则文本里必然出现被禁的模式（例如 .wrangler/），
+# 那是规则的定义，不是泄漏。
+SKIP_FILES = {'scripts/check-secrets.py'}
+
 
 def allowed(line, m):
     # git@github.com:owner/repo.git 是 SSH 地址，不是邮箱
@@ -85,7 +89,7 @@ def main():
     hits = []
     files = tracked_files()
     for f in files:
-        if f.endswith(SKIP_EXT):
+        if f.endswith(SKIP_EXT) or f in SKIP_FILES:
             continue
         try:
             with open(f'{ROOT}/{f}', 'rb') as fh:
@@ -97,14 +101,25 @@ def main():
         scan_text(f, raw.decode('utf-8', 'replace'), hits)
 
     if '--history' in sys.argv:
-        # 扫历史提交里"新增的行" —— 只关心我加进去的东西
+        # 扫历史提交里"新增的行" —— 只关心被加进去的东西。
+        # 按文件切分，才能让 SKIP_FILES 生效（否则卡口自身的规则文本会自命中）。
         shas = subprocess.run(['git', 'rev-list', '--all'], capture_output=True,
                               text=True, cwd=ROOT).stdout.split()
         for sha in shas:
-            d = subprocess.run(['git', 'show', '--format=%h', sha],
+            d = subprocess.run(['git', 'show', '--format=%h', '--unified=0', sha],
                                capture_output=True, text=True, cwd=ROOT).stdout
-            added = '\n'.join(l[1:] for l in d.split('\n') if l.startswith('+'))
-            scan_text(f'commit {sha[:8]}', added, hits)
+            cur = ''
+            buf = []
+            for line in d.split('\n'):
+                if line.startswith('+++ b/'):
+                    if buf and cur not in SKIP_FILES and not cur.endswith(SKIP_EXT):
+                        scan_text('commit %s:%s' % (sha[:8], cur), '\n'.join(buf), hits)
+                    cur = line[6:]
+                    buf = []
+                elif line.startswith('+') and not line.startswith('+++'):
+                    buf.append(line[1:])
+            if buf and cur not in SKIP_FILES and not cur.endswith(SKIP_EXT):
+                scan_text('commit %s:%s' % (sha[:8], cur), '\n'.join(buf), hits)
 
     if hits:
         print('发现可能泄漏的内容（%d 处）：' % len(hits))
