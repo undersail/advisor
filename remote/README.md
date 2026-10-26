@@ -10,6 +10,7 @@
 
 | 文件 | 作用 | 什么时候用 |
 |---|---|---|
+| `platform.pl` | 企业微信 / 飞书 **回调服务**：验签、AES 解密、把回复推回手机 |
 | `gateway.pl` | 远程入口：白名单 / 审计 / 驱动 agent | 要远程派活时 |
 | `notify.pl` | 档① 出站通知（企微群机器人 / 飞书自定义机器人） | 只想"跑完了喊我一声" |
 | `relay/` | 档② 轮询中继（Cloudflare Worker + KV） | 老 Mac 在 NAT 后、手机要在外面派活 |
@@ -78,3 +79,21 @@ Worker 只负责「收下消息 / 交出去 / 收回结果」。**把结果真�
 
 所以当前能用的形态是：**Mac 主动拉取 → 处理 → 结果进 `/outbox`**。
 要打通手机端，先确认平台侧的自建应用能拿到凭据，再补这一层。
+
+## 平台端收发（`platform.pl`）
+
+手机 → 平台回调 → `platform.pl` → `gateway.pl`（白名单/审计/只读都在这里）→ 回复推回手机。
+
+```bash
+perl remote/platform.pl --init                  # 录入凭据（存 ~/.claude-agent/platform.conf，0600）
+perl remote/platform.pl --check                 # 只校验配置
+perl remote/platform.pl --serve                 # 起回调服务（默认 8099）
+perl remote/platform.pl --test-push "测试" --to <你的ID>   # 验凭据与网络
+```
+
+- 回调地址：`https://<你的域名或穿透地址>/wecom`（企微）或 `/feishu`（飞书），
+  **必须公网可达**，本机 NAT 后需要内网穿透
+- 白名单仍然只在 `~/.claude-agent/remote.conf` 的 `ALLOW` 里配（企微填 UserID，飞书填 open_id），
+  platform.pl 自己不判白名单 —— 判定与审计只有一处
+- 企微要核对明文尾部的 ReceiveId 是否等于本企业 CorpID（规范里的完整性校验），对不上就拒绝
+- 凭据只在这台机器上；仓库里不含任何人的 corp id / secret / AESKey

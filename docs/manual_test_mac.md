@@ -177,3 +177,17 @@ python3 scripts/live-check.py deepseek
 - [ ] 白名单外的人：无输出、有审计
 - [ ] 让写文件：没写成，且回答里说明了不能写
 - [ ] `remote.conf` 里没有 `HIST_PASS` 时，`~/.claude-agent/history/` 不该多出东西
+
+## 7. 平台端收发（真机 + 真平台）
+
+本地已用自造凭据验过验签/解密/白名单/回推（`scripts/test-platform.py` 25 项），
+真机要验的是「平台真的能连上你」：
+
+- [ ] `perl remote/platform.pl --init` 录入凭据，`--check` 显示配置齐全
+- [ ] 企微：管理后台填回调 URL（`https://<域名>/wecom`），点保存能通过验证
+      （会打到你的 `--serve` 上，走 GET + echostr 解密）
+- [ ] 手机上给应用发一条消息，几秒内收到回复
+- [ ] 把 `ALLOW` 里删掉自己，再发一条 —— 应该**没有回复**，
+      但 `~/.claude-agent/audit.log` 里出现 `drop_sender`
+- [ ] `--test-push "测试" --to <你的ID>` 能收到
+- [ ] 飞书：事件订阅里填回调地址，能通过 challenge 验证；发消息有回复

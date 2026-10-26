@@ -147,6 +147,12 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: 平台端到端（自造凭据：验签 / AES / 白名单 / 回推）
+        run: |
+          set -o pipefail
+          # 不需要任何真实 token：EncodingAESKey、回调 Token、Encrypt Key 全是现场生成的。
+          python3 scripts/test-platform.py
+
       - name: 版本与文档数字防漂移
         run: |
           set -o pipefail

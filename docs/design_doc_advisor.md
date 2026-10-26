@@ -251,6 +251,26 @@ flush；`read_line_interactive` 会把终端切 raw 模式，因此 `restore_tty
 
 ---
 
+### 4.6 平台端收发（M6 第二批）
+
+```
+手机 ──(平台回调, 验签+AES)──> platform.pl ──(--stdin)──> gateway.pl ──> agent
+     <──(平台发消息 API)──────────┘
+```
+
+- `platform.pl` 只做三件事：**验签、解密、把回复推回平台**。
+- 白名单、审计、只读工具集、独立历史全部在 `gateway.pl` —— 判定只有一处，
+  平台端不重复实现（`scripts/check-decoupling.py` 守着 `run_shell` 不进远程工具）。
+- 企微：回调签名 `sha1(sort(token,timestamp,nonce,encrypt))`；明文 = 随机16 + 长度4 +
+  消息 + **ReceiveId(=CorpID)** + 32 字节块填充，IV = AESKey 前 16 字节。
+  ReceiveId 必须等于本企业 CorpID —— 这是规范里的完整性校验，只做 PKCS#7 判断不够
+  （密文被改时填充仍可能合法）。
+- 飞书：签名 `sha256(timestamp + nonce + EncryptKey + body)`；密文
+  `base64(IV + AES-256-CBC(sha256(EncryptKey)))`。
+- AES 走系统 `openssl`（与用系统 curl 一致），零 CPAN。
+- 平台要求 5 秒内应答，所以先回 200 再 `fork` 后台跑 agent，结果异步推回。
+- 凭据由使用者 `--init` 录入，存 `~/.claude-agent/platform.conf`（0600）。
+
 ### 4.5 远程接入的分层（M5）
 
 远程功能**不写在核心里**。核心里只有两个通用能力，远程用它俩搭起来：
