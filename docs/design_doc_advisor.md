@@ -149,7 +149,36 @@ subprocess.Popen(cmd, env=env, stdin=PIPE, stdout=PIPE,
 > 新增提供商 = 注册表加一个条目 + 一对 `build_*`/`parse_*` 函数，
 > 不再需要在 4 个地方同步改 if/elsif。
 > 辅助函数：`provider_spec($name)`（未注册即 die）、`provider_for_model($id)`
-> （按 `model_prefix` 反查，都不匹配时回落 `anthropic`）。
+> （按 `model_prefix` 反查，都不匹配时回落 `anthropic`）、
+> `provider_from_command($cmd)`（`/claude` `/qwen` 等命令名 → provider，别名见
+> `%PROVIDER_ALIAS`）。
+
+**M4 起扩到 7 个（2026-10）**：`anthropic` / `gemini` / `openai` / `deepseek` /
+`dashscope`（通义千问）/ `moonshot`（Kimi）/ `zhipu`（GLM）。后五家都走 OpenAI
+兼容协议，**共用同一对 `build_request_openai` / `parse_response_openai`**，
+彼此只差 `key_env`、`default_model`、`base_url`。新增厂商 = 注册表加一条目 +
+`models.txt` 加一行。
+
+OpenAI 兼容格式与内部格式（Anthropic content blocks）的对应关系：
+
+| 内部（始终用这个） | OpenAI 兼容请求 |
+|---|---|
+| `system` 参数 | `messages[0] = {role:'system'}` |
+| `{type:'text'}` | 同一条消息的 `content`（多段用 `\n` 拼接）|
+| `{type:'tool_use', id, name, input}` | `assistant.tool_calls[]`，`arguments` 是 **JSON 字符串** |
+| `{type:'tool_result', tool_use_id, content}` | 独立的 `{role:'tool', tool_call_id, content}` 消息 |
+| `tools[].name/description/input_schema` | `{type:'function', function:{name, description, parameters}}` |
+
+两个一定要记住的坑：
+- **`tool_result` 不能像 Anthropic 那样塞进 user 消息数组**，必须是独立的
+  `role:'tool'` 消息，靠 `tool_call_id` 关联。
+- **`reasoning_content`（DeepSeek-R1 等的思考日志）不能回传**，否则 API 返回 400。
+  适配器在解析阶段就丢弃，历史里不会存在。
+
+其他机制：
+- `base_url` 的优先级：`models.txt` 该行的 base_url → `CLAUDE_BASE_URL` → 注册表默认。
+- `notools` 旗标（`models.txt` 第 7 列）会让请求不带 `tools`，用于不支持函数调用的模型。
+- API 端点默认是 `<base_url>/chat/completions`，末尾斜杠会被吃掉。
 
 需要注意的 Gemini 特例：
 - **`thoughtSignature`**：Gemini 3 系在回传 `functionCall` 时必须原样带上，

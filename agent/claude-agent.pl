@@ -117,9 +117,9 @@ my %S = (
         zh => "请设置 %s\n",
     },
     unknown_provider     => {
-        ja => "不明なプロバイダ: '%s' (anthropic か gemini)\n",
-        en => "Unknown provider: '%s' (anthropic or gemini)\n",
-        zh => "未知的提供商：'%s'（可选 anthropic 或 gemini）\n",
+        ja => "不明なプロバイダ: '%s'\n(選べるのは: %s)\n",
+        en => "Unknown provider: '%s'\n(available: %s)\n",
+        zh => "未知的提供商：'%s'\n（可选：%s）\n",
     },
     cannot_connect       => {
         ja => "サーバーに接続できませんでした。通信環境を確認して、もう一度どうぞ。\n",
@@ -730,6 +730,8 @@ my $ENV_FILE_PATH = ($ENV{HOME} || '.') . '/.claude-agent-env';
 # Gemini API 無料枠を、既定(anthropic)では従量課金の Claude を使う。
 # 会話中に /claude・/gemini でも切り替えられる(下の会話ループ参照)。
 my ($PROVIDER, $API_KEY, $MODEL, $API_URL, $ANTHROPIC_VERSION);
+my $NOTOOLS = 0;            # 1 なら tools を送らない(非対応モデル)
+my %MODEL_META;             # モデルID => { provider, base_url, notools }
 
 # $provider に応じて $API_KEY / $MODEL / $API_URL 等を(再)設定する。
 # 起動時と、会話中の /claude・/gemini の両方から呼ばれる。対応する
@@ -755,6 +757,29 @@ my ($PROVIDER, $API_KEY, $MODEL, $API_URL, $ANTHROPIC_VERSION);
 #   api_version    anthropic-version ヘッダの値(必要なときだけ)
 #   build / parse  内部形式(Anthropic content blocks)との相互変換
 # ------------------------------------------------------------------
+# ------------------------------------------------------------------
+# プロバイダ登録表
+#
+# 「キーの環境変数名・既定モデル・投げ先URL・リクエスト構築・応答解析」を
+# 1箇所にまとめる。以前はこの情報が configure_provider / build_headers /
+# build_request / parse_response の4箇所に if/elsif で散っており、
+# プロバイダを1つ増やすには4箇所を同時に直す必要があった(直し忘れが
+# そのまま不具合になる)。ここに1エントリ足せば済む形にしておく。
+#
+# 各エントリの項目:
+#   key_env        APIキーを読む環境変数名
+#   auth           ヘッダの流儀: 'x-api-key'(既定) / 'goog' / 'bearer'
+#   model_prefix   CLAUDE_MODEL を採用してよいモデルIDの接頭辞
+#   default_model  既定モデル
+#   url            固定エンドポイント(anthropic)
+#   url_template   %s にモデルIDを埋めるエンドポイント(gemini)
+#   base_url       OpenAI互換エンドポイントの基底(末尾に /chat/completions を足す)
+#   api_version    anthropic-version ヘッダの値(必要な場合のみ)
+#   build / parse  内部形式(Anthropic content blocks)との変換関数
+#
+# OpenAI系(openai / deepseek / dashscope / moonshot / zhipu)は build/parse を
+# 共有する。ベンダーごとに違うのはキーの環境変数名・既定モデル・base_url だけ。
+# ------------------------------------------------------------------
 my %PROVIDERS = (
     anthropic => {
         key_env       => 'ANTHROPIC_API_KEY',
@@ -775,18 +800,87 @@ my %PROVIDERS = (
         build         => \&build_request_gemini,
         parse         => \&parse_response_gemini,
     },
+    openai => {
+        key_env       => 'OPENAI_API_KEY',
+        auth          => 'bearer',
+        model_prefix  => 'gpt',
+        default_model => 'gpt-4o',
+        base_url      => 'https://api.openai.com/v1',
+        build         => \&build_request_openai,
+        parse         => \&parse_response_openai,
+    },
+    deepseek => {
+        key_env       => 'DEEPSEEK_API_KEY',
+        auth          => 'bearer',
+        model_prefix  => 'deepseek',
+        default_model => 'deepseek-chat',
+        base_url      => 'https://api.deepseek.com/v1',
+        build         => \&build_request_openai,
+        parse         => \&parse_response_openai,
+    },
+    dashscope => {
+        key_env       => 'DASHSCOPE_API_KEY',
+        auth          => 'bearer',
+        model_prefix  => 'qwen',
+        default_model => 'qwen-plus',
+        base_url      => 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        build         => \&build_request_openai,
+        parse         => \&parse_response_openai,
+    },
+    moonshot => {
+        key_env       => 'MOONSHOT_API_KEY',
+        auth          => 'bearer',
+        model_prefix  => 'kimi',
+        default_model => 'kimi-k2-0905-preview',
+        base_url      => 'https://api.moonshot.cn/v1',
+        build         => \&build_request_openai,
+        parse         => \&parse_response_openai,
+    },
+    zhipu => {
+        key_env       => 'ZHIPU_API_KEY',
+        auth          => 'bearer',
+        model_prefix  => 'glm',
+        default_model => 'glm-4.6',
+        base_url      => 'https://open.bigmodel.cn/api/paas/v4',
+        build         => \&build_request_openai,
+        parse         => \&parse_response_openai,
+    },
 );
+
+# 会話中に打つコマンド名のうち、プロバイダ名と違うもの。
+# (/claude は既存ユーザーの指が覚えているので残す)
+my %PROVIDER_ALIAS = (
+    claude => 'anthropic',
+    qwen   => 'dashscope',
+    tongyi => 'dashscope',
+    kimi   => 'moonshot',
+    glm    => 'zhipu',
+);
+
+# コマンド名 → プロバイダ名。該当なしは空文字。
+sub provider_from_command {
+    my ($cmd) = @_;
+    return $cmd if $PROVIDERS{$cmd};
+    my $t = $PROVIDER_ALIAS{$cmd};
+    return ($t && $PROVIDERS{$t}) ? $t : '';
+}
 
 # 未登録のプロバイダ名はここで弾く(各関数が個別に判定しない)。
 sub provider_spec {
     my ($name) = @_;
-    return $PROVIDERS{$name} || die L('unknown_provider', $name);
+    return $PROVIDERS{$name}
+        || die L('unknown_provider', $name, join(' / ', sort keys %PROVIDERS));
 }
+
 
 # モデルIDから担当プロバイダを引く(接頭辞が一致する最初のもの)。
 # どれにも一致しなければ anthropic に倒す — 既存の受け皿を変えないため。
+# モデルIDから担当プロバイダを引く(接頭辞が一致する最初のもの)。
+# models.txt にプロバイダ列があればそちらが優先される(switch_to_model 参照)。
+# どれにも一致しなければ anthropic に倒す — 既存の受け皿を変えないため。
 sub provider_for_model {
     my ($id) = @_;
+    return 'anthropic' unless defined $id && $id ne '';
     for my $name (sort keys %PROVIDERS) {
         my $pfx = $PROVIDERS{$name}{model_prefix} || next;
         return $name if $id =~ /^\Q$pfx\E/;
@@ -811,22 +905,53 @@ sub configure_provider {
         ? $env_model
         : $spec->{default_model};
 
-    $API_URL = defined $spec->{url}
-        ? $spec->{url}
-        : sprintf($spec->{url_template}, $MODEL);
-    $ANTHROPIC_VERSION = $spec->{api_version};
+    # 投げ先URLの決め方は3通り:
+    #   url           固定(anthropic)
+    #   url_template  モデルIDを埋める(gemini)
+    #   base_url      OpenAI互換。モデルごとの base_url が models.txt に
+    #                 あればそれを、無ければプロバイダ既定を使う。
+    #                 CLAUDE_BASE_URL で丸ごと差し替えられる(自前のプロキシ等)。
+    if (defined $spec->{url}) {
+        $API_URL = $spec->{url};
+    }
+    elsif (defined $spec->{url_template}) {
+        $API_URL = sprintf($spec->{url_template}, $MODEL);
+    }
+    else {
+        my $base = '';
+        my $meta = $MODEL_META{$MODEL};
+        $base = $meta->{base_url} if $meta && defined $meta->{base_url} && $meta->{base_url} ne '';
+        $base = $ENV{CLAUDE_BASE_URL}
+            if defined $ENV{CLAUDE_BASE_URL} && $ENV{CLAUDE_BASE_URL} ne '';
+        $base = $spec->{base_url} if $base eq '';
+        $base =~ s{/+$}{};
+        $API_URL = $base . '/chat/completions';
+    }
 
+    # ツール非対応モデルは tools を送らない(送ると 400 になる実装がある)。
+    $NOTOOLS = ($MODEL_META{$MODEL} && $MODEL_META{$MODEL}{notools}) ? 1 : 0;
+
+    $ANTHROPIC_VERSION = $spec->{api_version};
     $PROVIDER = $provider;
 }
 
 # 選べるAIの一覧 ([id, 説明], ...)。ラッパーが CLAUDE_MODELS_FILE で場所を教える。
 # models.txt は id|日本語の説明|English description の3列(後方互換で2列でも可)。
+# 選べるAIの一覧 ([id, 説明], ...)。ラッパーが CLAUDE_MODELS_FILE で場所を教える。
+# models.txt の列: id|日本語|English|中文|provider|base_url|flags
+#   後方互換: 説明文の列が無くても、provider 以降が無くても動く
+#   flags は空白/カンマ区切り。現在は notools のみ。
 my @MODEL_CHOICES;
 if ($ENV{CLAUDE_MODELS_FILE} && open(my $mf, '<:encoding(UTF-8)', $ENV{CLAUDE_MODELS_FILE})) {
     while (my $l = <$mf>) {
         chomp $l;
         next unless $l =~ /\S/;
-        my ($id, $desc_ja, $desc_en, $desc_zh) = split /\|/, $l, 4;
+        next if $l =~ /^\s*#/;
+        my ($id, $desc_ja, $desc_en, $desc_zh, $mprov, $mbase, $mflags) = split /\|/, $l, 7;
+        $id = '' unless defined $id;
+        $id =~ s/^\s+|\s+$//g;
+        next if $id eq '';
+
         # 表示言語に合わせて説明文の列を選ぶ(空なら ja → id の順に落とす)。
         my $desc;
         if ($LANGCODE eq 'zh') {
@@ -838,6 +963,20 @@ if ($ENV{CLAUDE_MODELS_FILE} && open(my $mf, '<:encoding(UTF-8)', $ENV{CLAUDE_MO
         }
         $desc = $desc_ja if !defined $desc || $desc eq '';
         $desc = $id if !defined $desc || $desc eq '';
+        $desc =~ s/^\s+|\s+$//g;
+
+        my $prov = defined $mprov ? $mprov : '';
+        my $base = defined $mbase ? $mbase : '';
+        $prov =~ s/^\s+|\s+$//g;
+        $base =~ s/^\s+|\s+$//g;
+        my $flags = defined $mflags ? $mflags : '';
+        $flags = lc $flags;
+
+        %{ $MODEL_META{$id} } = (
+            provider => $prov,
+            base_url => $base,
+            notools  => ($flags =~ /\bnotools\b/) ? 1 : 0,
+        );
         push @MODEL_CHOICES, [ $id, $desc ];
     }
     close $mf;
@@ -929,7 +1068,11 @@ sub show_model_menu {
 # 次回起動に引き継ぐため ~/.claude-agent-env にも書く。
 sub switch_to_model {
     my ($id) = @_;
-    my $target_provider = provider_for_model($id);
+    # models.txt に provider 列があればそれを優先する。無ければモデルIDの
+    # 接頭辞から推測(既存の受け皿を変えない)。
+    my $declared = ($MODEL_META{$id} && $MODEL_META{$id}{provider}) ? $MODEL_META{$id}{provider} : '';
+    my $target_provider = $declared ne '' ? $declared : provider_for_model($id);
+
     my $prev_model = $ENV{CLAUDE_MODEL};
     $ENV{CLAUDE_MODEL} = $id;
 
@@ -938,7 +1081,7 @@ sub switch_to_model {
         $ok = switch_provider($target_provider);
     }
     else {
-        eval { configure_provider($PROVIDER) };  # $MODEL と(Geminiの)$API_URL を作り直す
+        eval { configure_provider($PROVIDER) };  # $MODEL と投げ先URLを作り直す
         if ($@) { print $@; $ok = 0; }
     }
 
@@ -1198,10 +1341,16 @@ package main;
 # ヘッダ文字列の配列として渡す(call_api自体はどっちのAIか知らない)。
 sub build_headers {
     my $spec = provider_spec($PROVIDER);
+    my $auth = $spec->{auth} || 'x-api-key';
+
     # APIキーはここで組み立て、call_api にはヘッダ文字列の配列として渡す
-    # (call_api 自体はどっちのAIか知らない)。
-    if (($spec->{auth} || '') eq 'goog') {
+    # (call_api 自体はどのAIか知らない)。
+    if ($auth eq 'goog') {
         return [ "x-goog-api-key: $API_KEY", "content-type: application/json" ];
+    }
+    if ($auth eq 'bearer') {
+        # OpenAI互換(OpenAI / DeepSeek / 通義千問 / Kimi / 智谱)
+        return [ "Authorization: Bearer $API_KEY", "content-type: application/json" ];
     }
     my @headers = ("x-api-key: $API_KEY");
     push @headers, "anthropic-version: $ANTHROPIC_VERSION" if defined $ANTHROPIC_VERSION;
@@ -1444,6 +1593,139 @@ sub parse_response_gemini {
     }
     return @blocks;
 }
+
+# ------------------------------------------------------------------
+# OpenAI 互換 API (OpenAI / DeepSeek / 通義千問 / Kimi / 智谱)
+#
+# 内部形式(Anthropic の content blocks)との違い:
+#   · system はメッセージ配列の先頭に role=system で1件入れる
+#   · tool_use は assistant.tool_calls[]、引数は JSON「文字列」
+#   · tool_result は role=tool の独立メッセージで tool_call_id で紐付ける
+#     (Anthropic のように user メッセージ配列へ入れ子にできない)
+#   · tools は {type=>'function', function=>{...}} で1段包む
+# ------------------------------------------------------------------
+sub build_request_openai {
+    my ($messages, $tools, $system) = @_;
+
+    my @out;
+    push @out, { role => 'system', content => $system }
+        if defined $system && $system ne '';
+
+    for my $msg (@$messages) {
+        my $role = $msg->{role} || 'user';
+        if (!ref $msg->{content}) {
+            push @out, { role => $role, content => $msg->{content} };
+            next;
+        }
+
+        my (@texts, @calls, @results);
+        for my $block (@{ $msg->{content} }) {
+            my $t = $block->{type} || '';
+            if ($t eq 'text') {
+                next if $block->{thought};   # 思考ログは送り返さない
+                push @texts, $block->{text};
+            }
+            elsif ($t eq 'tool_use') {
+                push @calls, {
+                    id       => $block->{id},
+                    type     => 'function',
+                    function => {
+                        name      => $block->{name},
+                        arguments => MiniJSON::encode($block->{input} || {}),
+                    },
+                };
+            }
+            elsif ($t eq 'tool_result') {
+                my $c = $block->{content};
+                $c = MiniJSON::encode($c) if ref $c;   # 文字列以外はJSONにして渡す
+                push @results, {
+                    role         => 'tool',
+                    tool_call_id => $block->{tool_use_id},
+                    content      => defined $c ? $c : '',
+                };
+            }
+        }
+
+        push @out, @results;
+        if (@calls) {
+            my $m = { role => 'assistant', tool_calls => \@calls };
+            $m->{content} = join("\n", @texts) if @texts;
+            push @out, $m;
+        }
+        elsif (@texts) {
+            push @out, { role => $role, content => join("\n", @texts) };
+        }
+    }
+
+    my $req = { model => $MODEL, messages => \@out };
+    $req->{max_tokens} = $MAX_TOKENS;
+    if (!$NOTOOLS && $tools && @$tools) {
+        $req->{tools} = [
+            map {
+                +{ type => 'function', function => {
+                    name        => $_->{name},
+                    description => $_->{description},
+                    parameters  => $_->{input_schema},
+                } }
+            } @$tools
+        ];
+    }
+    return $req;
+}
+
+my $openai_call_seq = 0;
+
+sub parse_response_openai {
+    my ($resp) = @_;
+
+    if ($resp->{error}) {
+        my $e   = $resp->{error};
+        my $msg = ref $e eq 'HASH'
+            ? (defined $e->{message} ? $e->{message} : MiniJSON::encode($e))
+            : $e;
+        die L('api_error_short', $msg) . "\n";
+    }
+
+    my $choice = ($resp->{choices} && $resp->{choices}[0]) || {};
+    my $msg    = $choice->{message} || {};
+    my @blocks;
+
+    # reasoning_content(DeepSeek-R1 等の思考ログ)は履歴に入れない。
+    # 送り返すと API 側が 400 を返す実装があるため、意図的に捨てる。
+    my $content = $msg->{content};
+    if (ref $content eq 'ARRAY') {
+        # 一部ベンダーは content を parts 配列で返す
+        my @t = map { $_->{text} }
+                grep { ref $_ eq 'HASH' && defined $_->{text} } @$content;
+        $content = join("\n", @t);
+    }
+    push @blocks, { type => 'text', text => $content }
+        if defined $content && $content ne '';
+
+    for my $tc (@{ $msg->{tool_calls} || [] }) {
+        my $fn   = $tc->{function} || {};
+        my $args = $fn->{arguments};
+        my $input;
+        if (defined $args && $args ne '') {
+            $input = eval { MiniJSON::decode($args) };
+            $input = { _raw => $args } if $@ || ref $input ne 'HASH';
+        }
+        else {
+            $input = {};
+        }
+        push @blocks, {
+            type  => 'tool_use',
+            id    => (defined $tc->{id} && $tc->{id} ne '')
+                        ? $tc->{id}
+                        : 'openai-call-' . (++$openai_call_seq),
+            name  => $fn->{name},
+            input => $input,
+        };
+    }
+
+    return @blocks;
+}
+
 
 # ------------------------------------------------------------------
 # 会話履歴の暗号化保存
@@ -2532,13 +2814,14 @@ sub handle_turn {
         return;
     }
 
-    # プロバイダ(Claude/Gemini)だけ切り替える
-    if ($input eq '/claude' || $input eq '/gemini') {
-        my $target = $input eq '/claude' ? 'anthropic' : 'gemini';
-        if ($target eq $PROVIDER) {
+    # プロバイダだけ切り替える(/claude /gemini /openai /deepseek /qwen /kimi /glm ...)
+    # 知らない名前(/foo など)はここで捕まえず、下のふつうの発言として流す。
+    my $cmd_target = ($input =~ m{^/([a-z][a-z0-9_]*)$}) ? provider_from_command($1) : '';
+    if ($cmd_target ne '') {
+        if ($cmd_target eq $PROVIDER) {
             emit_note(L('already_on', $PROVIDER, $MODEL));
         }
-        elsif (switch_provider($target)) {
+        elsif (switch_provider($cmd_target)) {
             persist_env('CLAUDE_PROVIDER', $PROVIDER);
             persist_env('CLAUDE_MODEL', $MODEL);
             emit_note(L('switched_to_kept', $PROVIDER, $MODEL));

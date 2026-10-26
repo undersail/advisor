@@ -42,8 +42,10 @@ Claude(Anthropic)とGemini(Google)、両方のAPIに対応しています。
 
 - **軽量・外部依存ほぼゼロ** — エージェント本体(`agent/claude-agent.pl`)はCPAN
   モジュール依存ゼロの単一ファイルPerlスクリプト。GUIはPython標準同梱のtkinterのみ。
-- **2つのAIをいつでも切り替え** — Claude(Anthropic)とGemini(Google)。
-  Geminiは無料枠があるので、課金ゼロで試せます。
+- **7つのAIをいつでも切り替え** — Claude(Anthropic)・Gemini(Google)・OpenAI・DeepSeek・通義千問(阿里雲)・Kimi(月之暗面)・GLM(智谱AI)。
+  会話中に `/claude` `/gemini` `/deepseek` `/qwen` `/kimi` `/glm` `/openai` で
+  切り替えられます。Geminiは無料枠があるので、課金ゼロで試せます。
+  OpenAI互換の他社APIも `models.txt` に1行足せば使えます。
 - **GUI: ノート/コーディング/ハッカーの3テーマ** — 罫線入りノート風の会話画面、
   黒地に緑文字のハッカー風など、気分に合わせて切り替えられます。
 - **ターミナルからも直接使える** — `advisor` コマンド一発。GUIを使わない人にも。

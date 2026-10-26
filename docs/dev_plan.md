@@ -244,17 +244,17 @@ provider 分开存（例如 `CLAUDE_API_KEY_OPENAI` / `_DEEPSEEK`），
 ### 4.5 任务清单
 
 - [x] 抽 `%PROVIDERS` 注册表，4 个函数改成查表（M3 已完成）
-- [ ] `build_request_openai` / `parse_response_openai`（含 tool_calls ↔ tool_use 双向转换）
-- [ ] `headers_openai`：鉴权用 Authorization 头（值为 Bearer + key）+ base_url 可配置；首批四家 base_url 与推荐模型
-- [ ] `models.txt` 扩列：`id|ja|en|zh|provider|base_url`（列数向后兼容）
-- [ ] 多 key 存储（按 provider）
-- [ ] 工具能力降级（`notools` 标记 → 纯对话）
-- [ ] `reasoning_content` 剥离
-- [ ] 两级模型菜单（终端 + GUI + bash 补全三处同步）
-- [ ] GUI onboarding 支持新 provider
-- [ ] `unknown_provider` 报错文案里写死了「anthropic か gemini」，加厂商时必须改成按注册表生成（M3 遗留）
-- [ ] **CI 卡口**：`models.txt` 里声明的 provider 必须都在 `%PROVIDERS` 里存在
-- [ ] 真实连通性手测（需各厂商 key，本地做，不进 CI）
+- [x] `build_request_openai` / `parse_response_openai`（含 tool_calls ↔ tool_use 双向转换）
+- [x] `headers_openai`：鉴权用 Authorization 头（值为 Bearer + key）+ base_url 可配置；首批四家 base_url 与推荐模型（另加 OpenAI 本体，共 5 个 base_url 型 provider）
+- [x] `models.txt` 扩列：`id|ja|en|zh|provider|base_url|[flags]`（列数向后兼容，12 条模型）
+- [x] 多 key 存储（按 provider）：`switch_provider` 读注册表的 `key_env`，各厂商独立环境变量
+- [x] 工具能力降级（`notools` 标记 → 请求不带 tools）
+- [x] `reasoning_content` 剥离（解析阶段丢弃，历史里不存在）
+- [ ] 两级模型菜单（终端 + GUI + bash 补全三处同步）—— **未做**：目前 12 个模型仍是一级平铺列表
+- [ ] GUI onboarding 支持新 provider —— **未做**：GUI 首启页面仍只有 Gemini/Anthropic。当前可绕开：对话中直接 `/deepseek` 等命令会提示粘贴密钥
+- [x] `unknown_provider` 报错文案改为按注册表生成（M3 遗留已清）
+- [x] **CI 卡口**：`scripts/check-models.py` —— provider 必须在注册表里、base_url 型必须有 base_url、ID 不重复、flags 词合法（已接入 CI 第 4b 步）
+- [ ] 真实连通性手测（需各厂商 key，本地做，不进 CI）—— **未做**：已在本地用 mock 的 OpenAI 兼容服务验证完整链路，真 key 需你提供
 
 **规模**：注册表重构 1~2 人日；openai 适配器 + 双向转换 2~3 人日；
 菜单两级化与 GUI 同步 2 人日；能力降级与坑 2~3 人日。**合计约 7~10 人日**。
@@ -359,7 +359,7 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 | **M1** ✅ | 骨架落位（CI / Gitee 镜像 / 文档） | — | 已完成 |
 | **M2** ✅ | 方向一 · 中文化（三语 + CI key 卡口） | 无 | 已完成 |
 | **M3** ✅ | 方向二 · 提供商注册表重构（只做抽象，不加新厂商） | 无 | 已完成 |
-| **M4** | 方向二 · OpenAI 适配器 + 首批四家 + 两级菜单 | M3 | 6~8 人日 |
+| **M4** 🔶 | 方向二 · OpenAI 适配器 + 首批四家（核心已完成，菜单/GUI onboarding 未做） | M3 | 核心已完成 |
 | **M5** | 方向三 · `--rpc` 模式 + 只读安全模型 + 档① 出站通知 | M2, M4 | 3~4 人日 |
 | **M6** | 方向三 · 档② 轮询中继（双向派活可用） | M5 | 3~5 人日 |
 | **M7** | 发布链路（tag → Release → macOS runner 打 standalone zip） | M2 | 1~2 人日 |

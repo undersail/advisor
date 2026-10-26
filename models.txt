@@ -1,5 +1,12 @@
-claude-opus-5|Claude Opus 5 — 最高性能・有料|Claude Opus 5 — top performance, paid|Claude Opus 5 — 顶级性能・付费
-claude-sonnet-5|Claude Sonnet 5 — バランス型・有料|Claude Sonnet 5 — balanced, paid|Claude Sonnet 5 — 均衡型・付费
-claude-haiku-4-5-20251001|Claude Haiku 4.5 — 高速・有料|Claude Haiku 4.5 — fast, paid|Claude Haiku 4.5 — 高速・付费
-gemini-3.5-flash-lite|Gemini Flash-Lite — 速い・無料|Gemini Flash-Lite — fast, free|Gemini Flash-Lite — 快・免费
-gemini-3.6-flash|Gemini Flash — 高性能・無料|Gemini Flash — high performance, free|Gemini Flash — 高性能・免费
+claude-opus-5|Claude Opus 5 — 最高性能・有料|Claude Opus 5 — top performance, paid|Claude Opus 5 — 顶级性能・付费|anthropic|
+claude-sonnet-5|Claude Sonnet 5 — バランス型・有料|Claude Sonnet 5 — balanced, paid|Claude Sonnet 5 — 均衡型・付费|anthropic|
+claude-haiku-4-5-20251001|Claude Haiku 4.5 — 高速・有料|Claude Haiku 4.5 — fast, paid|Claude Haiku 4.5 — 高速・付费|anthropic|
+gemini-3.5-flash-lite|Gemini Flash-Lite — 速い・無料|Gemini Flash-Lite — fast, free|Gemini Flash-Lite — 快・免费|gemini|
+gemini-3.6-flash|Gemini Flash — 高性能・無料|Gemini Flash — high performance, free|Gemini Flash — 高性能・免费|gemini|
+gpt-4o|GPT-4o — OpenAI|GPT-4o — OpenAI|GPT-4o — OpenAI|openai|https://api.openai.com/v1
+deepseek-chat|DeepSeek Chat — 安価で高速|DeepSeek Chat — cheap and fast|DeepSeek Chat — 便宜、快|deepseek|https://api.deepseek.com/v1
+deepseek-reasoner|DeepSeek Reasoner — 推論特化|DeepSeek Reasoner — reasoning-focused|DeepSeek Reasoner — 擅长推理|deepseek|https://api.deepseek.com/v1
+qwen-plus|通義千問 Plus — 阿里雲|Qwen Plus — Alibaba Cloud|通义千问 Plus — 阿里云|dashscope|https://dashscope.aliyuncs.com/compatible-mode/v1
+qwen-max|通義千問 Max — 阿里雲 上位|Qwen Max — Alibaba Cloud, top tier|通义千问 Max — 阿里云端顶配|dashscope|https://dashscope.aliyuncs.com/compatible-mode/v1
+kimi-k2-0905-preview|Kimi K2 — 長文に強い|Kimi K2 — strong on long context|Kimi K2 — 长文本强|moonshot|https://api.moonshot.cn/v1
+glm-4.6|GLM-4.6 — 智谱AI|GLM-4.6 — Zhipu AI|GLM-4.6 — 智谱 AI|zhipu|https://open.bigmodel.cn/api/paas/v4

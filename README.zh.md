@@ -40,8 +40,11 @@ Gemini（Google）。
 
 - **轻量，几乎无外部依赖** —— 智能体本体（`agent/claude-agent.pl`）是一个单文件
   Perl 脚本，零 CPAN 依赖。GUI 只用 Python 自带的 `tkinter`。
-- **随时在两个 AI 之间切换** —— Claude（Anthropic）和 Gemini（Google）。Gemini
-  有免费额度，整件事可以零成本先试一遍。
+- **随时在七个 AI 之间切换** —— Claude（Anthropic）、Gemini（Google）、
+  OpenAI、DeepSeek、通义千问（阿里云）、Kimi（月之暗面）、GLM（智谱 AI）。
+  对话中用 `/claude` `/gemini` `/deepseek` `/qwen` `/kimi` `/glm` `/openai`
+  切换。Gemini 有免费额度，整件事可以零成本先试一遍。
+  其他 OpenAI 兼容的 API 也能用 —— 在 `models.txt` 里加一行即可。
 - **GUI 三主题：笔记、编程、黑客** —— 横线笔记本式的聊天界面、黑底绿字的黑客终端
   风格，跟着心情走。
 - **也能当普通终端命令用** —— 敲 `advisor` 就行，不需要 GUI。
@@ -225,6 +228,35 @@ Advisor 会检查 Mac 的系统语言（`defaults read -g AppleLocale`），并�
 - 历史加密通过调用 `openssl` 完成（见上）
 - `CLAUDE_CURL` / `CLAUDE_CACERT` 环境变量可以换用自建工具链给 Tier A 机器使用
   （若 `~/claude-toolchain` 存在，`setup.sh` 会自动优先使用它）
+
+## 支持的 AI 与自定义模型
+
+内置 7 个厂商，各自读自己的环境变量（`/deepseek` 之类的命令会在对话中提示你粘贴）：
+
+| 厂商 | 命令 | 环境变量 | 默认模型 |
+|---|---|---|---|
+| Anthropic | `/claude` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
+| Google | `/gemini` | `GEMINI_API_KEY` | `gemini-3.5-flash-lite` |
+| OpenAI | `/openai` | `OPENAI_API_KEY` | `gpt-4o` |
+| DeepSeek | `/deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| 通义千问（阿里云） | `/qwen` | `DASHSCOPE_API_KEY` | `qwen-plus` |
+| Kimi（月之暗面） | `/kimi` | `MOONSHOT_API_KEY` | `kimi-k2-0905-preview` |
+| GLM（智谱） | `/glm` | `ZHIPU_API_KEY` | `glm-4.6` |
+
+后五家走的是 OpenAI 兼容协议，共用同一套适配器。要加自己的模型，在 `models.txt`
+里加一行：
+
+```
+<模型ID>|<日文说明>|<英文说明>|<中文说明>|<provider>|<base_url>|[flags]
+```
+
+- `provider` 必须是上面 7 个之一（想接别家 OpenAI 兼容服务就写 `openai`）
+- `base_url` 是 OpenAI 兼容端点，程序会自己接上 `/chat/completions`
+- 第 4 列之后都可以省略，省略时按前几列工作
+- `flags` 目前只有 `notools`（该模型不支持函数调用时加上，程序就不会发送工具定义）
+- 想整体换掉端点（比如走自建代理），设 `CLAUDE_BASE_URL` 即可，优先级高于表格
+
+> 模型 ID 请以各厂商文档为准 —— 内置值只是方便起步的默认。
 
 ## 关于费用
 

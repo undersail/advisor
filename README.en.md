@@ -53,9 +53,12 @@ faces depending on your mood.
 - **Lightweight, almost no external dependencies** — the agent itself
   (`agent/claude-agent.pl`) is a single Perl file with zero CPAN
   dependencies. The GUI uses only Python's bundled `tkinter`.
-- **Switch between two AIs anytime** — Claude (Anthropic) and Gemini
-  (Google). Gemini has a free tier, so you can try the whole thing at
-  zero cost.
+- **Switch between seven AIs anytime** — Claude (Anthropic), Gemini
+  (Google), OpenAI, DeepSeek, Qwen (Alibaba Cloud), Kimi (Moonshot) and
+  GLM (Zhipu). Mid-conversation: `/claude` `/gemini` `/deepseek` `/qwen`
+  `/kimi` `/glm` `/openai`. Gemini has a free tier, so you can try the
+  whole thing at zero cost. Any other OpenAI-compatible API works too —
+  just add one line to `models.txt`.
 - **Three GUI themes: Note, Coding, and Hacker** — a ruled-notebook-style
   chat screen, a green-on-black hacker terminal look, whatever matches
   your mood.

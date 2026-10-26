@@ -107,6 +107,10 @@ jobs:
           [ "$N" -ge 1 ] || { echo "::error::models.txt 里没有可用模型"; exit 1; }
           [ "$FAIL" -eq 0 ] || exit 1
 
+      # ---------- 4b. models.txt 与注册表一致性 ----------
+      - name: models.txt 与注册表一致性
+        run: python3 scripts/check-models.py
+
       # ---------- 5. 三语文案占位符一致性 ----------
       - name: 三语文案占位符卡口
         run: python3 scripts/check-i18n.py
