@@ -4,3 +4,7 @@ __pycache__/
 *.pyc
 /dist/
 .standalone-app-build/
+
+# wrangler 本地状态（miniflare 的 KV/R2 SQLite），绝不入库
+remote/relay/.wrangler/
+**/.wrangler/
