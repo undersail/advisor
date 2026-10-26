@@ -39,8 +39,10 @@ results = []
 def check(name, ok, detail=None):
     results.append((name, ok))
     print('  %s %s' % ('ok  ' if ok else 'FAIL', name))
-    if not ok and detail:
-        print('       细节: %s' % str(detail)[:500].replace('\n', ' / '))
+    if not ok:
+        if detail:
+            print('       细节: %s' % str(detail)[:500].replace('\n', ' / '))
+        print('::error::%s | 细节: %s' % (name, str(detail or '')[:300].replace('\n', ' / ')))
 
 
 def free_port():
@@ -245,6 +247,10 @@ def main():
         print('本机没有 openssl，跳过（platform.pl 依赖系统 openssl 做 AES）')
         return 0
 
+    print('环境: %s %s | openssl: %s | perl: %s' % (
+        sys.platform, sys.version.split()[0],
+        subprocess.run(['openssl', 'version'], capture_output=True, text=True).stdout.strip(),
+        subprocess.run(['/usr/bin/perl', '-e', 'print $]'], capture_output=True, text=True).stdout.strip()))
     mock, api_port = start_mock_api()
     api_base = 'http://127.0.0.1:%d' % api_port
 
@@ -492,6 +498,8 @@ def main():
         print('失败项：')
         for n in bad:
             print('  · ' + n)
+            # GitHub Actions 会把这些变成 annotation：没有 token 也能读到的失败细节
+            print('::error::平台测试失败: %s' % n)
         return 1
     return 0
 
