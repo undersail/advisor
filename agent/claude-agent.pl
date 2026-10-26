@@ -322,27 +322,86 @@ my ($PROVIDER, $API_KEY, $MODEL, $API_URL, $ANTHROPIC_VERSION);
 # 環境変数(ANTHROPIC_API_KEY / GEMINI_API_KEY)が無ければ die する
 # — 起動時はそれで終了、切り替え時は呼び出し側で eval して握り、
 # 今のプロバイダのまま継続する。
+# ------------------------------------------------------------------
+# プロバイダ登録表
+#
+# 「キーの環境変数名 / 既定モデル / 投げ先URL / リクエスト構築 / 応答解析」を
+# 1箇所にまとめる。以前はこの情報が configure_provider・build_headers・
+# build_request・parse_response の4箇所に if/elsif で散っており、
+# プロバイダを1つ増やすには4箇所を同時に直す必要があった
+# (直し忘れがそのまま不具合になる)。ここに1エントリ足せば済む形にする。
+#
+# 各項目:
+#   key_env        APIキーを読む環境変数名
+#   auth           ヘッダの流儀: 'goog' 以外は x-api-key 系(既定)
+#   model_prefix   CLAUDE_MODEL を採用してよいモデルIDの接頭辞
+#   default_model  既定モデル
+#   url            固定エンドポイント(url_template が無いとき使う)
+#   url_template   %s にモデルIDを埋めるエンドポイント
+#   api_version    anthropic-version ヘッダの値(必要なときだけ)
+#   build / parse  内部形式(Anthropic content blocks)との相互変換
+# ------------------------------------------------------------------
+my %PROVIDERS = (
+    anthropic => {
+        key_env       => 'ANTHROPIC_API_KEY',
+        auth          => 'x-api-key',
+        model_prefix  => 'claude',
+        default_model => 'claude-sonnet-5',
+        url           => 'https://api.anthropic.com/v1/messages',
+        api_version   => '2023-06-01',
+        build         => \&build_request_anthropic,
+        parse         => \&parse_response_anthropic,
+    },
+    gemini => {
+        key_env       => 'GEMINI_API_KEY',
+        auth          => 'goog',
+        model_prefix  => 'gemini',
+        default_model => 'gemini-3.5-flash-lite',
+        url_template  => 'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent',
+        build         => \&build_request_gemini,
+        parse         => \&parse_response_gemini,
+    },
+);
+
+# 未登録のプロバイダ名はここで弾く(各関数が個別に判定しない)。
+sub provider_spec {
+    my ($name) = @_;
+    return $PROVIDERS{$name} || die L('unknown_provider', $name);
+}
+
+# モデルIDから担当プロバイダを引く(接頭辞が一致する最初のもの)。
+# どれにも一致しなければ anthropic に倒す — 既存の受け皿を変えないため。
+sub provider_for_model {
+    my ($id) = @_;
+    for my $name (sort keys %PROVIDERS) {
+        my $pfx = $PROVIDERS{$name}{model_prefix} || next;
+        return $name if $id =~ /^\Q$pfx\E/;
+    }
+    return 'anthropic';
+}
+
+
 sub configure_provider {
     my ($provider) = @_;
+    my $spec = provider_spec($provider);
+
+    my $env_key = $spec->{key_env};
+    $ENV{$env_key} or die L('need_key', $env_key);
+    $API_KEY = $ENV{$env_key};
+
     # CLAUDE_MODEL はプロバイダをまたぐと食い違うので、その provider の
-    # 名前で始まるときだけ採用し、そうでなければ既定モデルにする。
+    # 接頭辞で始まるときだけ採用し、そうでなければ既定モデルにする。
     my $env_model = $ENV{CLAUDE_MODEL} || '';
-    if ($provider eq 'gemini') {
-        $ENV{GEMINI_API_KEY} or die L('need_key', 'GEMINI_API_KEY');
-        $API_KEY = $ENV{GEMINI_API_KEY};
-        $MODEL   = ($env_model =~ /^gemini/) ? $env_model : 'gemini-3.5-flash-lite';
-        $API_URL = "https://generativelanguage.googleapis.com/v1beta/models/$MODEL:generateContent";
-    }
-    elsif ($provider eq 'anthropic') {
-        $ENV{ANTHROPIC_API_KEY} or die L('need_key', 'ANTHROPIC_API_KEY');
-        $API_KEY = $ENV{ANTHROPIC_API_KEY};
-        $MODEL   = ($env_model =~ /^claude/) ? $env_model : 'claude-sonnet-5';
-        $API_URL = 'https://api.anthropic.com/v1/messages';
-        $ANTHROPIC_VERSION = '2023-06-01';
-    }
-    else {
-        die L('unknown_provider', $provider);
-    }
+    my $pfx       = $spec->{model_prefix} || '';
+    $MODEL = ($pfx ne '' && $env_model =~ /^\Q$pfx\E/)
+        ? $env_model
+        : $spec->{default_model};
+
+    $API_URL = defined $spec->{url}
+        ? $spec->{url}
+        : sprintf($spec->{url_template}, $MODEL);
+    $ANTHROPIC_VERSION = $spec->{api_version};
+
     $PROVIDER = $provider;
 }
 
@@ -389,7 +448,10 @@ sub switch_provider {
     eval { configure_provider($target) };
     return 1 unless $@;   # キーが揃っていてそのまま切り替えOK
 
-    my $key_name = $target eq 'gemini' ? 'GEMINI_API_KEY' : 'ANTHROPIC_API_KEY';
+    # キー名も登録表から引く(以前はここでプロバイダ名を直書きしていた)
+    my $spec = eval { provider_spec($target) };
+    return 0 unless $spec;
+    my $key_name = $spec->{key_env};
 
     # GUIモードでは、GUI側にキー取得ページの案内・入力・疎通確認まで
     # 任せ、検証済みのキーを {"t":"key","value":...} で受け取る
@@ -445,7 +507,7 @@ sub show_model_menu {
 # 次回起動に引き継ぐため ~/.claude-agent-env にも書く。
 sub switch_to_model {
     my ($id) = @_;
-    my $target_provider = ($id =~ /^gemini/) ? 'gemini' : 'anthropic';
+    my $target_provider = provider_for_model($id);
     my $prev_model = $ENV{CLAUDE_MODEL};
     $ENV{CLAUDE_MODEL} = $id;
 
@@ -713,14 +775,16 @@ package main;
 # プロバイダごとのHTTPヘッダ。APIキーはここで組み立て、call_api には
 # ヘッダ文字列の配列として渡す(call_api自体はどっちのAIか知らない)。
 sub build_headers {
-    if ($PROVIDER eq 'gemini') {
+    my $spec = provider_spec($PROVIDER);
+    # APIキーはここで組み立て、call_api にはヘッダ文字列の配列として渡す
+    # (call_api 自体はどっちのAIか知らない)。
+    if (($spec->{auth} || '') eq 'goog') {
         return [ "x-goog-api-key: $API_KEY", "content-type: application/json" ];
     }
-    return [
-        "x-api-key: $API_KEY",
-        "anthropic-version: $ANTHROPIC_VERSION",
-        "content-type: application/json",
-    ];
+    my @headers = ("x-api-key: $API_KEY");
+    push @headers, "anthropic-version: $ANTHROPIC_VERSION" if defined $ANTHROPIC_VERSION;
+    push @headers, "content-type: application/json";
+    return \@headers;
 }
 
 sub call_api {
@@ -830,9 +894,7 @@ sub quote {
 # ------------------------------------------------------------------
 sub build_request {
     my ($messages, $tools, $system) = @_;
-    return $PROVIDER eq 'gemini'
-        ? build_request_gemini($messages, $tools, $system)
-        : build_request_anthropic($messages, $tools, $system);
+    return provider_spec($PROVIDER)->{build}->($messages, $tools, $system);
 }
 
 sub build_request_anthropic {
@@ -913,9 +975,7 @@ sub _gemini_thinking_config {
 
 sub parse_response {
     my ($resp) = @_;
-    return $PROVIDER eq 'gemini'
-        ? parse_response_gemini($resp)
-        : parse_response_anthropic($resp);
+    return provider_spec($PROVIDER)->{parse}->($resp);
 }
 
 sub parse_response_anthropic {

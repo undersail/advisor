@@ -242,7 +242,7 @@ provider 分开存（例如 `CLAUDE_API_KEY_OPENAI` / `_DEEPSEEK`），
 
 ### 4.5 任务清单
 
-- [ ] 抽 `%PROVIDERS` 注册表，4 个函数改成查表
+- [x] 抽 `%PROVIDERS` 注册表，4 个函数改成查表（M3 已完成）
 - [ ] `build_request_openai` / `parse_response_openai`（含 tool_calls ↔ tool_use 双向转换）
 - [ ] `headers_openai`：鉴权用 Authorization 头（值为 Bearer + key）+ base_url 可配置；首批四家 base_url 与推荐模型
 - [ ] `models.txt` 扩列：`id|ja|en|zh|provider|base_url`（列数向后兼容）
@@ -251,6 +251,7 @@ provider 分开存（例如 `CLAUDE_API_KEY_OPENAI` / `_DEEPSEEK`），
 - [ ] `reasoning_content` 剥离
 - [ ] 两级模型菜单（终端 + GUI + bash 补全三处同步）
 - [ ] GUI onboarding 支持新 provider
+- [ ] `unknown_provider` 报错文案里写死了「anthropic か gemini」，加厂商时必须改成按注册表生成（M3 遗留）
 - [ ] **CI 卡口**：`models.txt` 里声明的 provider 必须都在 `%PROVIDERS` 里存在
 - [ ] 真实连通性手测（需各厂商 key，本地做，不进 CI）
 
@@ -356,7 +357,7 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 |---|---|---|---|
 | **M1** ✅ | 骨架落位（CI / Gitee 镜像 / 文档） | — | 已完成 |
 | **M2** | 方向一 · 中文化（三语 + CI key 卡口） | 无 | 3~5 人日 |
-| **M3** | 方向二 · 提供商注册表重构（先只做抽象，不加新厂商） | 无 | 1~2 人日 |
+| **M3** ✅ | 方向二 · 提供商注册表重构（只做抽象，不加新厂商） | 无 | 已完成 |
 | **M4** | 方向二 · OpenAI 适配器 + 首批四家 + 两级菜单 | M3 | 6~8 人日 |
 | **M5** | 方向三 · `--rpc` 模式 + 只读安全模型 + 档① 出站通知 | M2, M4 | 3~4 人日 |
 | **M6** | 方向三 · 档② 轮询中继（双向派活可用） | M5 | 3~5 人日 |

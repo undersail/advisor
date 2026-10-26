@@ -142,6 +142,15 @@ subprocess.Popen(cmd, env=env, stdin=PIPE, stdout=PIPE,
                                     （contents / parts 转换）
 ```
 
+> **已实现（M3）**：分派点已收敛到 `agent/claude-agent.pl` 的 `my %PROVIDERS` 注册表。
+> 每个条目声明 `key_env / auth / model_prefix / default_model / url|url_template /
+> api_version / build / parse`，`configure_provider`、`build_headers`、
+> `build_request`、`parse_response` 四处都改成「查表 + 调用」。
+> 新增提供商 = 注册表加一个条目 + 一对 `build_*`/`parse_*` 函数，
+> 不再需要在 4 个地方同步改 if/elsif。
+> 辅助函数：`provider_spec($name)`（未注册即 die）、`provider_for_model($id)`
+> （按 `model_prefix` 反查，都不匹配时回落 `anthropic`）。
+
 需要注意的 Gemini 特例：
 - **`thoughtSignature`**：Gemini 3 系在回传 `functionCall` 时必须原样带上，
   否则 400。转换层要保住这个字段。
