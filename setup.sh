@@ -200,6 +200,9 @@ msg() {
 }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# バージョンの出所はリポジトリ直下の VERSION ファイルだけ。
+APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d ' \t\r\n')"
+[ -z "$APP_VERSION" ] && APP_VERSION="0.0.0-dev"
 ENV_FILE="$HOME/.claude-agent-env"
 BUILD_DIR="$HOME/claude-build"
 BIN_DIR="$HOME/bin"
@@ -558,7 +561,7 @@ while [ \$# -gt 0 ]; do
   case "\$norm" in
     "") shift ;;
     h|help|"?") show_help; exit 0 ;;
-    v|version) echo "advisor (high_sierra_claude) 0.1"; exit 0 ;;
+    v|version) echo "advisor (high_sierra_claude) $APP_VERSION"; exit 0 ;;
     list-models|listmodels|models) list_models; exit 0 ;;
     select-model|selectmodel|select)
       # 設定だけして終了する(起動は次に 'advisor' と打てばよい)
@@ -671,15 +674,15 @@ export PATH="\$HOME/bin:/usr/local/bin:/usr/bin:/bin"
 exec "$PY3" "\$HOME/claude-build/advisor_gui.py"
 APPEOF
   chmod +x "$APP_PATH/Contents/MacOS/Advisor"
-  cat > "$APP_PATH/Contents/Info.plist" << 'PLISTEOF'
+  cat > "$APP_PATH/Contents/Info.plist" << PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleName</key><string>Advisor</string>
   <key>CFBundleDisplayName</key><string>Advisor</string>
   <key>CFBundleIdentifier</key><string>com.high-sierra-claude.advisor</string>
-  <key>CFBundleVersion</key><string>0.1</string>
-  <key>CFBundleShortVersionString</key><string>0.1</string>
+  <key>CFBundleVersion</key><string>${APP_VERSION}</string>
+  <key>CFBundleShortVersionString</key><string>${APP_VERSION}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>Advisor</string>
   <key>CFBundleIconFile</key><string>advisor.icns</string>
@@ -723,8 +726,8 @@ OPTIONS = {
         "CFBundleName": "Advisor",
         "CFBundleDisplayName": "Advisor",
         "CFBundleIdentifier": "com.high-sierra-claude.advisor",
-        "CFBundleVersion": "0.1",
-        "CFBundleShortVersionString": "0.1",
+        "CFBundleVersion": "$APP_VERSION",
+        "CFBundleShortVersionString": "$APP_VERSION",
         "NSHighResolutionCapable": True,
     },
 }

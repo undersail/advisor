@@ -147,6 +147,12 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: 版本与文档数字防漂移
+        run: |
+          set -o pipefail
+          # 版本号只有一个来源（VERSION 文件）；文档里写的条数必须对得上实际。
+          python3 scripts/check-version.py -v
+
       - name: 发布流水线验证（非 macOS 部分）
         run: |
           set -o pipefail

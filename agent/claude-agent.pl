@@ -73,6 +73,23 @@ sub dbg  {
 # (LANG環境変数はGUIアプリ起動時に空なことがあり、あてにできない)。
 # 判定できなければ、この項目の既存ユーザーに合わせて日本語を既定にする。
 # ------------------------------------------------------------------
+# バージョンの出所はリポジトリ直下の VERSION ファイルだけ（tag と一致させる）。
+# 配布アプリでは VERSION を同梱するので、スクリプトと同じ場所も見る。
+sub app_version {
+    my $dir = $0;
+    $dir =~ s{/[^/]*$}{};
+    for my $p ("$dir/../VERSION", "$dir/VERSION") {
+        next unless -f $p;
+        open(my $fh, '<', $p) or next;
+        my $v = <$fh>;
+        close $fh;
+        next unless defined $v;
+        $v =~ s/\s+//g;
+        return $v if $v ne '';
+    }
+    return 'unknown';
+}
+
 my $LANGCODE = 'ja';
 if (defined $ENV{CLAUDE_LANG} && $ENV{CLAUDE_LANG} =~ /^(en|ja|zh)/i) {
     # CLAUDE_LANG=en/ja/zh があれば最優先(システム言語を変えずに表示言語を
@@ -760,7 +777,7 @@ for my $arg (@ARGV) {
         exit 0;
     }
     if ($arg eq '--version') {
-        print "advisor (high_sierra_claude) 0.1\n";
+        print "advisor (high_sierra_claude) " . app_version() . "\n";
         exit 0;
     }
     if ($arg eq '--list-history')      { $LIST_HISTORY = 1; }

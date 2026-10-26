@@ -22,7 +22,11 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # バージョンは環境変数で上書きできる（Release 用ビルドは tag から渡す）。
 # 未指定なら従来通り 0.1 —— ローカルで手元ビルドするときの既定値。
-VERSION="${ADVISOR_VERSION:-0.1}"
+VERSION="${ADVISOR_VERSION:-$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d ' \t\r\n')}"
+if [ -z "$VERSION" ]; then
+  echo "VERSION ファイルが読めません（配布物にバージョンを入れられません）" >&2
+  exit 1
+fi
 OUT_DIR="$SCRIPT_DIR/dist"
 ICON_SRC="$SCRIPT_DIR/launcher/advisor.icns"
 
@@ -69,7 +73,7 @@ APP = ["advisor_gui.py"]
 # _bundled_resource_dir() がここを見に行く。
 DATA_FILES = [
     ("", ["$SCRIPT_DIR/agent/claude-agent.pl", "$SCRIPT_DIR/models.txt",
-          "$SCRIPT_DIR/providers.txt"]),
+          "$SCRIPT_DIR/providers.txt", "$SCRIPT_DIR/VERSION"]),
 ]
 OPTIONS = {
     "argv_emulation": False,

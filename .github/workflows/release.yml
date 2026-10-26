@@ -58,6 +58,23 @@ jobs:
             *) echo "::warning::tag '$TAG' 不是 vX.Y.Z 形态，仍继续（文件名会跟着它走）" ;;
           esac
 
+      - name: 校验 tag 与 VERSION 一致
+        run: |
+          set -euo pipefail
+          FILE_VER="$(tr -d ' \t\r\n' < VERSION)"
+          TAG_VER="${{ steps.ver.outputs.version }}"
+          echo "VERSION 文件: $FILE_VER"
+          echo "tag 版本号  : $TAG_VER"
+          # tag 触发的发布必须与仓库里的 VERSION 一致，否则产物名、plist、
+          # --version 三处会各说各话。
+          if [ "${{ github.event_name }}" = "push" ] && [ "$FILE_VER" != "$TAG_VER" ]; then
+            echo "::error::tag 版本 $TAG_VER 与 VERSION 文件 $FILE_VER 不一致"
+            exit 1
+          fi
+          if [ "$FILE_VER" != "$TAG_VER" ]; then
+            echo "::warning::手动演练：tag 版本与 VERSION 不一致（不阻断）"
+          fi
+
       - name: 检查发布说明是否存在
         run: |
           set -euo pipefail
