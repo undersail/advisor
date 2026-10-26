@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""命令可达性审计：每个厂商命令 / 别名是否真的切到了对应厂商。
+
+必须用 PTY：管道里一次喂多行会被读成一整块（项目已知坑），
+那样 `"/deepseek\\nexit\\n"` 会被当成一句普通发言，测出来全是默认厂商。
+
+    python3 scripts/audit-commands.py [-v]
+"""
+import os
+import pty
+import re
+import select
+import sys
+import tempfile
+import time
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+AGENT = os.path.join(ROOT, 'agent', 'claude-agent.pl')
+VERBOSE = '-v' in sys.argv
+
+# 命令 → 期望出现的密钥变量名（说明确实切到了那家）
+CASES = [
+    ('claude',  'ANTHROPIC_API_KEY'),
+    ('gemini',  'GEMINI_API_KEY'),
+    ('openai',  'OPENAI_API_KEY'),
+    ('deepseek', 'DEEPSEEK_API_KEY'),
+    ('qwen',    'DASHSCOPE_API_KEY'),
+    ('tongyi',  'DASHSCOPE_API_KEY'),      # 别名
+    ('kimi',    'MOONSHOT_API_KEY'),
+    ('glm',     'ZHIPU_API_KEY'),
+    # 直接厂商名也应可达（与别名并存）
+    ('anthropic', 'ANTHROPIC_API_KEY'),
+    ('dashscope', 'DASHSCOPE_API_KEY'),
+    ('moonshot',  'MOONSHOT_API_KEY'),
+    ('zhipu',     'ZHIPU_API_KEY'),
+]
+
+
+def run_command(cmd, home, with_key=False):
+    """在 PTY 里发一条 /cmd，等它的回显，再退出。返回命令之后的文本。"""
+    env = dict(os.environ)
+    env.update({'HOME': home, 'CLAUDE_LANG': 'zh', 'CLAUDE_NO_HISTORY': '1'})
+    for k in list(env):
+        if k.endswith('_API_KEY'):
+            env.pop(k)
+    # 默认厂商（anthropic）没有 key 时 agent 启动就退出，根本没有提示符 ——
+    # 给一个假 key 让它进交互循环。不会真的发请求：只切厂商不说话。
+    # 第一相（with_key=False）只给默认厂商，验「命令路由是否正确」；
+    # 第二相（with_key=True）给全部厂商假 key，验「是否真的切过去」。
+    env['ANTHROPIC_API_KEY'] = 'sk-audit-dummy'
+    if with_key:
+        for k in ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY',
+                  'DASHSCOPE_API_KEY', 'MOONSHOT_API_KEY', 'ZHIPU_API_KEY'):
+            env[k] = 'sk-audit-dummy'
+    pid, fd = pty.fork()
+    if pid == 0:                                  # child
+        os.execve('/usr/bin/perl', ['perl', AGENT], env)
+        os._exit(127)
+
+    buf = ''
+
+    def pump(seconds):
+        nonlocal buf
+        end = time.time() + seconds
+        while time.time() < end:
+            r, _, _ = select.select([fd], [], [], 0.3)
+            if not r:
+                continue
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                return False
+            if not chunk:
+                return False
+            buf += chunk.decode('utf-8', 'replace')
+        return True
+
+    try:
+        pump(6)                                    # 启动横幅 / 提示符
+        mark = len(buf)                            # ★ 记下命令之前的位置
+        os.write(fd, ('/%s\n' % cmd).encode())
+        pump(3)
+        # 缺 key 的厂商会插「粘贴 key」提示；随后可能再问「是否保存」。
+        # 一律用空行/不保存把它带过去（绝不写任何真 key）。
+        for _ in range(3):
+            seg = buf[mark:]
+            if '尚未设置' in seg and not re.search(r'已切换|已经', seg):
+                os.write(fd, b'\n')
+            elif '[y/N]' in seg and not re.search(r'已切换|已经', seg):
+                os.write(fd, b'n\n')
+            else:
+                break
+            pump(2)
+        os.write(fd, b'exit\n')
+        pump(3)
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.waitpid(pid, 0)
+        except ChildProcessError:
+            pass
+
+    text = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', buf)
+    # 只保留「发了命令之后」的部分：启动横幅里的默认厂商提示不算
+    return text[mark:]
+
+
+def main():
+    home = tempfile.mkdtemp(prefix='audit-cmd-')
+    bad = 0
+    print('第一相：命令路由（只给默认厂商 key，缺 key 时应显示对的那家的密钥页）')
+    for cmd, key_env in CASES:
+        out = run_command(cmd, home, with_key=False)
+        ok = key_env in out or ('已经是 [' in out)
+        if VERBOSE:
+            print('  %-8s → %s   [%s]' % (cmd, 'ok' if ok else 'FAIL',
+                                          ' '.join(out.split())[:80]))
+        else:
+            print('  %s /%s' % ('ok  ' if ok else 'FAIL', cmd))
+        if not ok:
+            bad += 1
+
+    print('\n第二相：真正切换（七家都给假 key，应出现切换确认）')
+    want_of = {'claude': 'anthropic', 'gemini': 'gemini', 'openai': 'openai',
+               'deepseek': 'deepseek', 'qwen': 'dashscope', 'tongyi': 'dashscope',
+               'kimi': 'moonshot', 'glm': 'zhipu',
+               'anthropic': 'anthropic', 'dashscope': 'dashscope',
+               'moonshot': 'moonshot', 'zhipu': 'zhipu'}
+    for cmd, _ in CASES:
+        want = want_of[cmd]
+        out = run_command(cmd, home, with_key=True)
+        ok = ('→ 已切换到 [%s' % want) in out or ('已经是 [%s' % want) in out
+        if VERBOSE:
+            print('  %-8s → %-10s %s   [%s]' % (cmd, want, 'ok' if ok else 'FAIL',
+                                                ' '.join(out.split())[:80]))
+        else:
+            print('  %s /%s → %s' % ('ok  ' if ok else 'FAIL', cmd, want if ok else '未切到'))
+        if not ok:
+            bad += 1
+
+    total = len(CASES) * 2
+    print('\n%d/%d 通过' % (total - bad, total))
+    return 1 if bad else 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
