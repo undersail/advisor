@@ -28,9 +28,14 @@ results = []
 
 
 def check(name, ok, detail=None):
-    results.append((name, bool(ok)))
-    print(('  ok   ' if ok else '  FAIL ') + name
-          + (('  ← ' + str(detail)) if (detail is not None and not ok) else ''))
+    results.append((name, ok))
+    print('  %s %s' % ('ok  ' if ok else 'FAIL', name))
+    if not ok:
+        if detail:
+            print('       细节: %s' % str(detail)[:400].replace('\n', ' / '))
+        # 变成 GitHub annotation：macOS runner 的 step 日志要鉴权才能读，
+        # annotation 不用（本机无 token 也能定位到底哪条断言红了）。
+        print('::error::%s | 细节: %s' % (name, str(detail or '')[:300].replace('\n', ' / ')))
 
 
 def steps_of(workflow_path):
@@ -92,6 +97,7 @@ def main():
         print('找不到 %s' % WF)
         return 1
 
+    print('环境: %s %s' % (sys.platform, sys.version.split()[0]))
     steps = steps_of(WF)
     if VERBOSE:
         print('workflow 里的步骤：')
