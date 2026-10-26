@@ -131,7 +131,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 57 条）
 - [x] `gui/advisor_gui.py`：硬编码文案扫一遍 —— 主题名原只有 `label`/`label_en`，zh 下会显示日文，已加 `label_zh` 并改 `theme_label()`
-- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 41 条（三语各 41）补中文，未命中落回原 en/ja
+- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 43 条（三语各 43）补中文，未命中落回原 en/ja
 - [x] `models.txt`：4 列格式 + 5 个模型补中文标签（Perl 解析同步改限 4 段选列）
 - [x] `README.zh.md` + 三份 README 互链 + 语言说明改三语
 - [x] `release/ReadMe_ZH.txt`（ASCII 文件名）+ `build_standalone_app.sh` 打包列表

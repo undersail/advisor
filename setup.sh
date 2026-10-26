@@ -83,7 +83,9 @@ msg() {
       added_path) fmt="已把 %s 加入 PATH。" ;;
       installed_completion) fmt="已安装 bash 补全（%s）。" ;;
       path_effective) fmt="（下次登录起生效。想马上使用，请执行 'source ~/.bash_profile'，或打开一个新终端）" ;;
-      no_python3) fmt="没找到 python3，跳过 Advisor.app 的生成。" ;;
+      no_python3) fmt="没找到可用的 python3，跳过 Advisor.app 的生成。" ;;
+      gui_no_tk) fmt="%s 缺少 Tk 图形库，跳过 Advisor.app 的生成。" ;;
+      gui_install_hint) fmt="  命令行版 advisor 不受影响，照常可用。想用图形界面请装 python.org 的 Python 3（自带 Tk），然后重跑 setup.sh。" ;;
       created_app) fmt="已创建 %s（双击即可启动 GUI，不会打开终端）。" ;;
       created_app_hint) fmt="  拖到 Dock 或桌面上，下次就能一键打开。" ;;
       building_app) fmt="正在构建 Advisor.app（首次需要一点时间）…" ;;
@@ -129,7 +131,9 @@ msg() {
       added_path) fmt="Added %s to PATH." ;;
       installed_completion) fmt="Installed bash completion (%s)." ;;
       path_effective) fmt="(Takes effect next login. To use it now, run 'source ~/.bash_profile' or open a new Terminal window.)" ;;
-      no_python3) fmt="python3 was not found, so skipping the Advisor.app build." ;;
+      no_python3) fmt="No usable python3 found, so skipping the Advisor.app build." ;;
+      gui_no_tk) fmt="%s is missing the Tk graphics library, so skipping the Advisor.app build." ;;
+      gui_install_hint) fmt="  The command-line 'advisor' is unaffected and still works. For the GUI, install Python 3 from python.org (it bundles Tk) and run setup.sh again." ;;
       created_app) fmt="Created %s (double-click to launch the GUI; no Terminal window opens)." ;;
       created_app_hint) fmt="  Drag it into the Dock or onto your Desktop for one-click access next time." ;;
       building_app) fmt="Building Advisor.app (first time may take a minute)..." ;;
@@ -174,7 +178,9 @@ msg() {
       added_path) fmt="PATHに %s を追加しました。" ;;
       installed_completion) fmt="bash補完を設置しました(%s)。" ;;
       path_effective) fmt="(次回ログインから有効。今すぐ使うには 'source ~/.bash_profile' を実行するか、新しいターミナルを開いてください)" ;;
-      no_python3) fmt="python3 が見つからないため Advisor.app の生成はスキップします。" ;;
+      no_python3) fmt="使える python3 が見つからないため Advisor.app の生成はスキップします。" ;;
+      gui_no_tk) fmt="%s に Tk が入っていないため Advisor.app の生成はスキップします。" ;;
+      gui_install_hint) fmt="  コマンド版 advisor は影響を受けず、そのまま使えます。GUI を使うには python.org の Python 3(Tk 同梱)を入れて setup.sh を再実行してください。" ;;
       created_app) fmt="%s を作成しました（ダブルクリックで GUI が起動。ターミナルは開きません）。" ;;
       created_app_hint) fmt="  Dock やデスクトップにドラッグしておくと次回から一発です。" ;;
       building_app) fmt="Advisor.app をビルドしています(初回は少し時間がかかります)..." ;;
@@ -661,17 +667,53 @@ echo ""
 # バンドル内に生成され、正しく「Advisor」と表示される。
 # ビルドに失敗した場合(ネットワーク不通など)は簡易版にフォールバックする
 # (動作は変わらず、メニューバー表示だけ「Python」のままになる)。
-PY3="$(command -v python3 || true)"
-[ -z "$PY3" ] && [ -x /Library/Frameworks/Python.framework/Versions/3.10/bin/python3 ] \
-  && PY3=/Library/Frameworks/Python.framework/Versions/3.10/bin/python3
-[ -z "$PY3" ] && PY3=/usr/bin/python3
+# python3 的查找：每个候选都必须**真能执行**才算数。
+# 以前的写法最后一路兜底写死 /usr/bin/python3 —— 但 macOS 12.3 起只有在装了
+# Xcode Command Line Tools 之后才有这个 stub，于是「兜底」兜到一个不存在的路径：
+# 装配上去的 app 双击必然失败（exec: /usr/bin/python3: No such file or directory），
+# 而且 setup.sh 还以为一切正常。现在逐个 -x 验过才用。
+find_python3() {
+  local cand
+  for cand in \
+    "$(command -v python3 2>/dev/null || true)" \
+    /Library/Frameworks/Python.framework/Versions/3.13/bin/python3 \
+    /Library/Frameworks/Python.framework/Versions/3.12/bin/python3 \
+    /Library/Frameworks/Python.framework/Versions/3.11/bin/python3 \
+    /Library/Frameworks/Python.framework/Versions/3.10/bin/python3 \
+    /opt/homebrew/bin/python3 \
+    /usr/local/bin/python3 \
+    /usr/bin/python3 ; do
+    [ -n "$cand" ] || continue
+    [ -x "$cand" ] || continue
+    printf '%s' "$cand"
+    return 0
+  done
+  return 1
+}
+PY3="$(find_python3 || true)"
+
+# 图形界面还要 Tk（python.org 的 python3 自带；Apple 自带的、部分 Homebrew 的没有）
+PY3_HAS_TK=0
+if [ -n "$PY3" ] && "$PY3" -c 'import tkinter' >/dev/null 2>&1; then
+  PY3_HAS_TK=1
+fi
 
 build_advisor_app_simple() {
   mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources"
   cat > "$APP_PATH/Contents/MacOS/Advisor" << APPEOF
 #!/bin/bash
+# 生成时已经验过这个解释器可用；但它后来可能被删/被卸载，源码目录也可能被清掉。
+# 那种情况下 Finder 双击只会「没反应」，所以这里主动弹一句人能看懂的话。
+GUI_PY="$PY3"
+GUI_SRC="\$HOME/claude-build/advisor_gui.py"
+if [ ! -x "\$GUI_PY" ] || ! "\$GUI_PY" -c 'import tkinter' >/dev/null 2>&1 || [ ! -f "\$GUI_SRC" ]; then
+  TIP="Advisor 需要的 Python 3（含 Tk）或程序文件不可用，请安装 python.org 的 Python 3 后重跑 setup.sh。命令行版 advisor 不受影响。"
+  osascript -e "display dialog \"\$TIP\" buttons {\"好\"} default button 1 with title \"Advisor\"" >/dev/null 2>&1
+  printf 'Advisor: %s\n  解释器: %s\n  程序: %s\n' "\$TIP" "\$GUI_PY" "\$GUI_SRC" >&2
+  exit 1
+fi
 export PATH="\$HOME/bin:/usr/local/bin:/usr/bin:/bin"
-exec "$PY3" "\$HOME/claude-build/advisor_gui.py"
+exec "\$GUI_PY" "\$GUI_SRC"
 APPEOF
   chmod +x "$APP_PATH/Contents/MacOS/Advisor"
   cat > "$APP_PATH/Contents/Info.plist" << PLISTEOF
@@ -742,7 +784,7 @@ PYEOF
   cp -R "$build_dir/dist/Advisor.app" "$APP_PATH"
 }
 
-if [ -n "$PY3" ]; then
+if [ -n "$PY3" ] && [ "$PY3_HAS_TK" = 1 ]; then
   mkdir -p "$HOME/Applications"
   rm -rf "$HOME/Applications/Claude.app"
   msg building_app
@@ -756,7 +798,14 @@ if [ -n "$PY3" ]; then
   msg created_app "$APP_PATH"
   msg created_app_hint
 else
-  msg no_python3
+  # 以前不管 python3 能不能用都照样生成 app，结果双击必然失败而且看不出原因。
+  # 现在宁可明确说清楚：命令行版照常可用，图形界面缺前置条件。
+  if [ -n "$PY3" ]; then
+    msg gui_no_tk "$PY3"
+  else
+    msg no_python3
+  fi
+  msg gui_install_hint
 fi
 echo ""
 

@@ -147,6 +147,13 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: setup.sh 的 python3 探测与 GUI 前置条件
+        run: |
+          set -o pipefail
+          # 回归防线：曾经把「不存在的 /usr/bin/python3」当兜底选中，
+          # 装出来的 Advisor.app 双击必然失败，而 setup.sh 还显示一切正常。
+          python3 scripts/test-setup-py3.py
+
       - name: 中继队列（Durable Object）逻辑测试
         run: |
           set -o pipefail

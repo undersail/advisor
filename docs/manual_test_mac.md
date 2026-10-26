@@ -217,3 +217,27 @@ perl remote/gateway.pl --poll         # 从队列拉取 → 处理 → 结果写
 
 确认点：消息在手机发出后**不会**在本机起 `gateway.pl --stdin`；`--poll` 取到消息并
 处理后，手机能收到结果。
+
+## 8. 双击 Advisor.app 打不开
+
+Finder 双击启动时 stderr 没有地方显示，失败表现为「弹一下就没了」或完全没反应。
+按这个顺序查：
+
+```bash
+# ① 直接跑包内可执行文件——Finder 里看不到的报错会全部打出来
+~/Applications/Advisor.app/Contents/MacOS/Advisor
+
+# ② 逐条体检（包结构 / python3 与 Tk / Gatekeeper / 真跑一次 / 崩溃日志）
+bash scripts/doctor-macos.sh
+```
+
+常见三种原因：
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `exec: /usr/bin/python3: No such file or directory` | macOS 12.3 起 `/usr/bin/python3` 只在装了 Xcode CLT 后才有；旧版 setup.sh 把它当兜底 | 现已修：查找时逐个 `-x` 验证。装 python.org 的 Python 3 后重跑 setup.sh |
+| 图标跳一下就消失 | python3 缺 Tk（Homebrew 版常见） | 装 python.org 的 Python 3（自带 Tk）；`setup.sh` 现在会直接告诉你缺 Tk 并跳过生成 |
+| 弹「无法验证开发者」 | 未签名 + 隔离属性 | 系统设置 → 隐私与安全性 → 「仍要打开」；或 `xattr -dr com.apple.quarantine ~/Applications/Advisor.app` |
+
+注意：本地 setup 用的是 `py2app -A`（alias 模式），产物依赖本机 python3 与
+`~/claude-build/` 源码目录，**不能拷到别的 Mac**；发布 zip 用的是独立构建，不受影响。

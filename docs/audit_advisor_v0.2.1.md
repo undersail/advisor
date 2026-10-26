@@ -40,6 +40,9 @@ scripts/check-i18n.py       → setup.sh msg() 三语各 41 条；占位符一�
 scripts/check-decoupling.py → 核心零远程逻辑；远程工具写死只读
 scripts/check-secrets.py --history → 泄漏检查通过（39 个已跟踪文件 + 全历史）
 scripts/check-version.py    → VERSION=0.2.1；--version 一致；Perl=102 GUI=57 msg=41 厂商=7 模型=12
+
+> 注：本报告里的数字是 **v0.2.1 当时**的实测值。之后新增了 GUI 前置条件相关的两条提示，
+> `msg()` 已变成三语各 43 条；以 `python3 scripts/check-version.py -v` 的输出为准。
 ```
 
 端到端（本地 mock，不碰真网络/真 key）：
