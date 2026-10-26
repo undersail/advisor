@@ -506,7 +506,7 @@ def _pointing_cursor():
     ここを直書きすると Linux で Tk が bad cursor spec で落ちる。
     macOS の見た目・挙動はそのまま（darwin では従来どおり pointinghand）。
     """
-    return _pointing_cursor() if sys.platform == "darwin" else "hand2"
+    return "pointinghand" if sys.platform == "darwin" else "hand2"
 
 
 def _providers_path():
