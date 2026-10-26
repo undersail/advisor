@@ -79,97 +79,314 @@ LANG = _detect_lang()
 
 # key: (日本語, English)。フォーマット文字列は L(key, **kwargs) で埋める。
 _S = {
-    "tab_chat": ("会話", "Chat"),
-    "tab_cmd": ("コマンド", "Cmd"),
-    "hist_btn": ("続きから", "Resume"),
-    "switch_btn": ("AIを切替 ▾", "Switch AI ▾"),
-    "stop_btn": ("中止", "Stop"),
-    "write_mark": ("▶ ここに書いてください（Enterで送信）",
-                   "▶ Type here (Enter to send)"),
-    "busy_running": ("(実行中です。中止 ボタンか Ctrl-C で止めてください)\n",
-                      "(Already running. Use Stop or Ctrl-C.)\n"),
-    "no_such_folder": ("cd: そのフォルダはありません: {path}\n",
-                        "cd: no such folder: {path}\n"),
-    "cannot_run": ("実行できません: {err}\n", "Could not run: {err}\n"),
-    "history_encrypted": ("暗号化保存", "encrypted"),
-    "history_off": ("保存しない", "off"),
-    "ready_status": ("準備完了（履歴: {hist}）", "Ready (history: {hist})"),
-    "using_tool": ("— {name} を使います —", "— using {name} —"),
-    "confirm_title": ("確認", "Confirm"),
-    "confirm_body": ("AIが次のことをしようとしています:\n\n{prompt}\n\n許可しますか？",
-                      "The AI wants to do the following:\n\n{prompt}\n\nAllow it?"),
-    "passphrase_default": ("パスフレーズ", "Passphrase"),
-    "turn_end": ("[終了 {code}]\n", "[exit {code}]\n"),
-    "bye_status": ("advisor を終了しました", "advisor has exited"),
-    "querying_status": ("問い合わせ中…", "Thinking…"),
-    "starting_status": ("起動中…", "Starting…"),
-    "currently_using": ("  ← 使用中", "  ← current"),
-    "passphrase_title": ("パスフレーズ", "Passphrase"),
-    "ok": ("OK", "OK"),
-    "recover_with_answer": ("合言葉で復旧", "Recover with answer"),
-    "secret_title": ("合言葉", "Recovery answer"),
-    "secret_new_body": ("パスフレーズを忘れたときの復旧用です(必須)。\n"
+    "tab_chat": {
+        "ja": "会話",
+        "en": "Chat",
+        "zh": "对话",
+    },
+    "tab_cmd": {
+        "ja": "コマンド",
+        "en": "Cmd",
+        "zh": "命令",
+    },
+    "hist_btn": {
+        "ja": "続きから",
+        "en": "Resume",
+        "zh": "继续上次",
+    },
+    "switch_btn": {
+        "ja": "AIを切替 ▾",
+        "en": "Switch AI ▾",
+        "zh": "切换 AI ▾",
+    },
+    "stop_btn": {
+        "ja": "中止",
+        "en": "Stop",
+        "zh": "中止",
+    },
+    "write_mark": {
+        "ja": "▶ ここに書いてください（Enterで送信）",
+        "en": "▶ Type here (Enter to send)",
+        "zh": "▶ 在此输入（回车发送）",
+    },
+    "busy_running": {
+        "ja": "(実行中です。中止 ボタンか Ctrl-C で止めてください)\n",
+        "en": "(Already running. Use Stop or Ctrl-C.)\n",
+        "zh": "（正在运行。请用「中止」按钮或 Ctrl-C 停止）\n",
+    },
+    "no_such_folder": {
+        "ja": "cd: そのフォルダはありません: {path}\n",
+        "en": "cd: no such folder: {path}\n",
+        "zh": "cd: 没有该文件夹：{path}\n",
+    },
+    "cannot_run": {
+        "ja": "実行できません: {err}\n",
+        "en": "Could not run: {err}\n",
+        "zh": "无法执行：{err}\n",
+    },
+    "history_encrypted": {
+        "ja": "暗号化保存",
+        "en": "encrypted",
+        "zh": "加密保存",
+    },
+    "history_off": {
+        "ja": "保存しない",
+        "en": "off",
+        "zh": "不保存",
+    },
+    "ready_status": {
+        "ja": "準備完了（履歴: {hist}）",
+        "en": "Ready (history: {hist})",
+        "zh": "就绪（历史：{hist}）",
+    },
+    "using_tool": {
+        "ja": "— {name} を使います —",
+        "en": "— using {name} —",
+        "zh": "— 正在使用 {name} —",
+    },
+    "confirm_title": {
+        "ja": "確認",
+        "en": "Confirm",
+        "zh": "确认",
+    },
+    "confirm_body": {
+        "ja": "AIが次のことをしようとしています:\n\n{prompt}\n\n許可しますか？",
+        "en": "The AI wants to do the following:\n\n{prompt}\n\nAllow it?",
+        "zh": "AI 即将执行以下操作：\n\n{prompt}\n\n允许吗？",
+    },
+    "passphrase_default": {
+        "ja": "パスフレーズ",
+        "en": "Passphrase",
+        "zh": "口令",
+    },
+    "turn_end": {
+        "ja": "[終了 {code}]\n",
+        "en": "[exit {code}]\n",
+        "zh": "[退出 {code}]\n",
+    },
+    "bye_status": {
+        "ja": "advisor を終了しました",
+        "en": "advisor has exited",
+        "zh": "advisor 已退出",
+    },
+    "querying_status": {
+        "ja": "問い合わせ中…",
+        "en": "Thinking…",
+        "zh": "思考中…",
+    },
+    "starting_status": {
+        "ja": "起動中…",
+        "en": "Starting…",
+        "zh": "启动中…",
+    },
+    "currently_using": {
+        "ja": "  ← 使用中",
+        "en": "  ← current",
+        "zh": "  ← 使用中",
+    },
+    "passphrase_title": {
+        "ja": "パスフレーズ",
+        "en": "Passphrase",
+        "zh": "口令",
+    },
+    "ok": {
+        "ja": "OK",
+        "en": "OK",
+        "zh": "确定",
+    },
+    "recover_with_answer": {
+        "ja": "合言葉で復旧",
+        "en": "Recover with answer",
+        "zh": "用密保恢复",
+    },
+    "secret_title": {
+        "ja": "合言葉",
+        "en": "Recovery answer",
+        "zh": "密保",
+    },
+    "secret_new_body": {
+        "ja": "パスフレーズを忘れたときの復旧用です(必須)。\n"
                          "あなたにしか答えられない質問にしてください。\n"
                          "例: 初めて買った車の名前は？",
-                         "Used to recover if you forget your passphrase "
+        "en": "Used to recover if you forget your passphrase "
                          "(required).\nPick a question only you can answer.\n"
-                         "Example: What was your first car?"),
-    "question_label": ("質問", "Question"),
-    "secret_unlock_body": ("合言葉で履歴を復旧します。", "Recover history with your answer."),
-    "question_prefix": ("質問: {q}", "Question: {q}"),
-    "answer_label": ("答え", "Answer"),
-    "resume_title": ("続きから", "Resume"),
-    "no_saved_history": ("保存された会話がありません。", "No saved conversations."),
-    "resume_pick": ("続きから始める会話を選んでください", "Choose a conversation to resume"),
-    "open": ("開く", "Open"),
-    "cancel": ("やめる", "Cancel"),
-    "resume_page": ("（{page}ページ目 / 全{total}ページ）", "(page {page} of {total})"),
-    "resume_loaded": ("（ここまで読み込みました。続きをどうぞ）",
-                       "(loaded up to here — continue below)"),
-    "cannot_start_title": ("起動できません", "Could not start"),
-    "cannot_start_body": ("advisor を起動できませんでした:\n{err}",
-                          "Could not start advisor:\n{err}"),
-    "internal_error": ("(内部エラー: {err})", "(internal error: {err})"),
+                         "Example: What was your first car?",
+        "zh": "用于忘记口令时恢复（必填）。\n请设置只有你能回答的问题。\n例：第一辆车的名字？",
+    },
+    "question_label": {
+        "ja": "質問",
+        "en": "Question",
+        "zh": "问题",
+    },
+    "secret_unlock_body": {
+        "ja": "合言葉で履歴を復旧します。",
+        "en": "Recover history with your answer.",
+        "zh": "用密保问题恢复历史记录。",
+    },
+    "question_prefix": {
+        "ja": "質問: {q}",
+        "en": "Question: {q}",
+        "zh": "问题：{q}",
+    },
+    "answer_label": {
+        "ja": "答え",
+        "en": "Answer",
+        "zh": "答案",
+    },
+    "resume_title": {
+        "ja": "続きから",
+        "en": "Resume",
+        "zh": "继续上次",
+    },
+    "no_saved_history": {
+        "ja": "保存された会話がありません。",
+        "en": "No saved conversations.",
+        "zh": "没有已保存的对话。",
+    },
+    "resume_pick": {
+        "ja": "続きから始める会話を選んでください",
+        "en": "Choose a conversation to resume",
+        "zh": "请选择要继续的对话",
+    },
+    "open": {
+        "ja": "開く",
+        "en": "Open",
+        "zh": "打开",
+    },
+    "cancel": {
+        "ja": "やめる",
+        "en": "Cancel",
+        "zh": "取消",
+    },
+    "resume_page": {
+        "ja": "（{page}ページ目 / 全{total}ページ）",
+        "en": "(page {page} of {total})",
+        "zh": "（第 {page} 页 / 共 {total} 页）",
+    },
+    "resume_loaded": {
+        "ja": "（ここまで読み込みました。続きをどうぞ）",
+        "en": "(loaded up to here — continue below)",
+        "zh": "（已加载到这里。请继续）",
+    },
+    "cannot_start_title": {
+        "ja": "起動できません",
+        "en": "Could not start",
+        "zh": "无法启动",
+    },
+    "cannot_start_body": {
+        "ja": "advisor を起動できませんでした:\n{err}",
+        "en": "Could not start advisor:\n{err}",
+        "zh": "无法启动 advisor：\n{err}",
+    },
+    "internal_error": {
+        "ja": "(内部エラー: {err})",
+        "en": "(internal error: {err})",
+        "zh": "（内部错误：{err}）",
+    },
     # macOS メニューバー(画面最上部のOSメニュー。アプリ内ヘッダーとは別物)
-    "menu_edit": ("編集", "Edit"),
-    "menu_cut": ("切り取り", "Cut"),
-    "menu_copy": ("コピー", "Copy"),
-    "menu_paste": ("貼り付け", "Paste"),
-    "menu_select_all": ("すべてを選択", "Select All"),
-    "menu_window": ("ウインドウ", "Window"),
-    "menu_minimize": ("しまう", "Minimize"),
+    "menu_edit": {
+        "ja": "編集",
+        "en": "Edit",
+        "zh": "编辑",
+    },
+    "menu_cut": {
+        "ja": "切り取り",
+        "en": "Cut",
+        "zh": "剪切",
+    },
+    "menu_copy": {
+        "ja": "コピー",
+        "en": "Copy",
+        "zh": "复制",
+    },
+    "menu_paste": {
+        "ja": "貼り付け",
+        "en": "Paste",
+        "zh": "粘贴",
+    },
+    "menu_select_all": {
+        "ja": "すべてを選択",
+        "en": "Select All",
+        "zh": "全选",
+    },
+    "menu_window": {
+        "ja": "ウインドウ",
+        "en": "Window",
+        "zh": "窗口",
+    },
+    "menu_minimize": {
+        "ja": "しまう",
+        "en": "Minimize",
+        "zh": "最小化",
+    },
     # 初回起動時、APIキー未登録のときに出す案内画面
-    "onboard_intro": (
-        "はじめまして。AdvisorはAIとやり取りするためのアプリです。使うには"
+    "onboard_intro": {
+        "ja": "はじめまして。AdvisorはAIとやり取りするためのアプリです。使うには"
         "「APIキー」というあなた専用の利用許可コード(パスワードのような"
         "もの)が必要です。下のGeminiなら無料で今すぐ発行できます。",
-        "Welcome. Advisor is an app for talking with AI. To use it, you'll "
+        "en": "Welcome. Advisor is an app for talking with AI. To use it, you'll "
         "need an \"API key\" — a personal permission code (think of it like "
         "a password). Gemini below lets you get one free, right now.",
-    ),
-    "onboard_gemini": ("Gemini(無料)", "Gemini (free)"),
-    "onboard_anthropic": ("Anthropic(有料)", "Anthropic (paid)"),
-    "onboard_key_get_here": (
-        "① まずAPIキー(利用許可コード)を取得してください:",
-        "① First, get your API key (permission code):",
-    ),
-    "onboard_open_key_page": ("🔑 APIキーを取得するページを開く", "🔑 Open the API key page"),
-    "onboard_key_label": ("② 取得したAPIキーをここに貼り付け:", "② Paste your API key here:"),
-    "onboard_start": ("はじめる", "Get Started"),
-    "onboard_checking": ("確認しています…", "Checking…"),
-    "onboard_err_empty": ("APIキーを入力してください。", "Please enter an API key."),
-    "onboard_err_api": (
-        "APIキーを確認できませんでした(HTTP {code})。キーが正しいかご確認ください。",
-        "Couldn't verify the API key (HTTP {code}). Please check that it's correct.",
-    ),
+        "zh": "你好。Advisor 是一个与 AI 对话的应用。使用时需要一个「API 密钥」——你专属的使用许可代码（类似密码）。下面的 Gemini 可以免费、马上申请。",
+    },
+    "onboard_gemini": {
+        "ja": "Gemini(無料)",
+        "en": "Gemini (free)",
+        "zh": "Gemini（免费）",
+    },
+    "onboard_anthropic": {
+        "ja": "Anthropic(有料)",
+        "en": "Anthropic (paid)",
+        "zh": "Anthropic（付费）",
+    },
+    "onboard_key_get_here": {
+        "ja": "① まずAPIキー(利用許可コード)を取得してください:",
+        "en": "① First, get your API key (permission code):",
+        "zh": "① 先获取 API 密钥（使用许可代码）：",
+    },
+    "onboard_open_key_page": {
+        "ja": "🔑 APIキーを取得するページを開く",
+        "en": "🔑 Open the API key page",
+        "zh": "🔑 打开获取 API 密钥的页面",
+    },
+    "onboard_key_label": {
+        "ja": "② 取得したAPIキーをここに貼り付け:",
+        "en": "② Paste your API key here:",
+        "zh": "② 把拿到的 API 密钥粘贴到这里：",
+    },
+    "onboard_start": {
+        "ja": "はじめる",
+        "en": "Get Started",
+        "zh": "开始",
+    },
+    "onboard_checking": {
+        "ja": "確認しています…",
+        "en": "Checking…",
+        "zh": "正在校验…",
+    },
+    "onboard_err_empty": {
+        "ja": "APIキーを入力してください。",
+        "en": "Please enter an API key.",
+        "zh": "请输入 API 密钥。",
+    },
+    "onboard_err_api": {
+        "ja": "APIキーを確認できませんでした(HTTP {code})。キーが正しいかご確認ください。",
+        "en": "Couldn't verify the API key (HTTP {code}). Please check that it's correct.",
+        "zh": "无法校验 API 密钥（HTTP {code}）。请确认密钥是否正确。",
+    },
     # 会話中に、まだキーを登録していないAIへ切り替えようとしたときの案内
-    "switch_key_title": ("APIキーの登録", "Register API Key"),
-    "switch_key_intro": (
-        "{provider}にはまだAPIキーが登録されていません。取得して貼り付ければ、"
+    "switch_key_title": {
+        "ja": "APIキーの登録",
+        "en": "Register API Key",
+        "zh": "登记 API 密钥",
+    },
+    "switch_key_intro": {
+        "ja": "{provider}にはまだAPIキーが登録されていません。取得して貼り付ければ、"
         "そのまま切り替えます。",
-        "There's no API key registered for {provider} yet. Get one and paste "
+        "en": "There's no API key registered for {provider} yet. Get one and paste "
         "it in, and we'll switch right over.",
-    ),
+        "zh": "{provider} 还没有登记 API 密钥。获取后粘贴进去，就会直接切换。",
+    },
 }
 
 
