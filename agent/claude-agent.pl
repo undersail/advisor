@@ -282,9 +282,21 @@ my %S = (
         zh => "\n已中断。\n",
     },
     key_missing_prompt   => {
-        ja => "\n%s が未設定です。貼り付けてEnter(空Enterでキャンセル): ",
-        en => "\n%s is not set. Paste it and press Enter (empty to cancel): ",
-        zh => "\n%s 尚未设置。粘贴后按回车（直接回车取消）：",
+        ja => "\n%s は未設定です。このメーカーを使うにはキーが必要です。貼り付けてEnter(空Enterでキャンセル): ",
+        en => "\n%s is not set. Using this vendor needs a key. Paste it and press Enter (empty to cancel): ",
+        zh => "\n未检测到 %s，使用这个厂商需要先填密钥。粘贴后按回车（直接回车取消）：",
+    },
+    # 一覧で「まだキーが無い」ことを先に示す。選んでから初めて分かる状態は
+    # 「動かないボタン」と同じで、ユーザーから見ると不具合に見える。
+    menu_no_key          => {
+        ja => "  [キー未設定]",
+        en => "  [no key yet]",
+        zh => "  [未配置密钥]",
+    },
+    menu_vendor_no_key   => {
+        ja => "  ※ %s はまだキーが未設定です（%s）。選ぶと貼り付けを求められます。\n",
+        en => "  Note: %s has no key yet (%s). Picking it will ask you to paste one.\n",
+        zh => "  注：%s 还没有配置密钥（%s）。选择后会提示你粘贴。\n",
     },
     switch_cancelled     => {
         ja => "キャンセルしました。[%s / %s] のままです。\n",
@@ -890,6 +902,16 @@ sub provider_info {
 }
 
 # 言語コードに応じた表示名
+# 这个厂商现在有没有可用的密钥（只看当前进程环境：~/.claude-agent-env 与
+# 手工 export 的都会在启动时进到 %ENV，所以这一个判断就是全量）。
+sub provider_has_key {
+    my ($p) = @_;
+    my $env = provider_info($p, 'key_env');
+    return 0 unless defined $env && $env ne '';
+    my $v = $ENV{$env};
+    return (defined $v && $v =~ /\S/) ? 1 : 0;
+}
+
 sub provider_label {
     my ($name) = @_;
     my $info = $PROVIDER_INFO{$name} or return $name;
@@ -1458,6 +1480,7 @@ sub show_model_menu {
         my @ms = _models_of($p);
         next unless @ms;
         my $mark = ($p eq $PROVIDER) ? L('currently_using_cli') : '';
+        $mark .= L('menu_no_key') unless provider_has_key($p);
         printf "  %d) %s%s\n", $i, provider_label($p), $mark;
         $MENU_VENDORS{$i} = $p;
         $i++;
@@ -1477,6 +1500,9 @@ sub show_vendor_models {
     }
     print "\n";
     printf "  [%s]\n", provider_label($p);
+    unless (provider_has_key($p)) {
+        print L('menu_vendor_no_key', provider_label($p), provider_info($p, 'key_env'));
+    }
     my $i = 1;
     %MENU_MODELS = ();
     for my $m (@ms) {

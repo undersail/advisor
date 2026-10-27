@@ -109,6 +109,64 @@ def run_command(cmd, home, with_key=False):
     return text[mark:]
 
 
+def menu_lines(home, steps, with_key=False, seconds=3):
+    """在 PTY 里按顺序喂 steps（如 ['/model', '2']），返回整段回显。
+
+    菜单要 models.txt 才知道有哪些模型：走 CLAUDE_MODELS_FILE 指到仓库里那份
+    （setup.sh 装好之后指的是 ~/.claude-agent/models.txt）。
+    """
+    env = dict(os.environ)
+    env.update({'HOME': home, 'CLAUDE_LANG': 'zh', 'CLAUDE_NO_HISTORY': '1',
+                'CLAUDE_MODELS_FILE': os.path.join(ROOT, 'models.txt'),
+                'CLAUDE_PROVIDERS_FILE': os.path.join(ROOT, 'providers.txt')})
+    for k in list(env):
+        if k.endswith('_API_KEY'):
+            env.pop(k)
+    env['ANTHROPIC_API_KEY'] = '\u00abredacted:sk-\u2026\u00bb'
+    if with_key:
+        for k in ('GEMINI_API_KEY', 'OPENAI_API_KEY', 'DEEPSEEK_API_KEY',
+                  'DASHSCOPE_API_KEY', 'MOONSHOT_API_KEY', 'ZHIPU_API_KEY'):
+            env[k] = '\u00abredacted:sk-\u2026\u00bb'
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execve('/usr/bin/perl', ['perl', AGENT], env)
+        os._exit(127)
+    buf = ''
+
+    def pump(sec):
+        nonlocal buf
+        end = time.time() + sec
+        while time.time() < end:
+            r, _, _ = select.select([fd], [], [], 0.3)
+            if not r:
+                continue
+            try:
+                chunk = os.read(fd, 65536)
+            except OSError:
+                return
+            if not chunk:
+                return
+            buf += chunk.decode('utf-8', 'replace')
+
+    try:
+        pump(6)
+        for st in steps:
+            os.write(fd, (st + '\n').encode())
+            pump(seconds)
+        os.write(fd, b'exit\n')
+        pump(2)
+    finally:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        try:
+            os.waitpid(pid, 0)
+        except ChildProcessError:
+            pass
+    return re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', buf)
+
+
 def main():
     home = tempfile.mkdtemp(prefix='audit-cmd-')
     bad = 0
@@ -143,6 +201,39 @@ def main():
             bad += 1
 
     total = len(CASES) * 2
+
+    # ---------------- 第三相：菜单要先把「没有密钥」说出来 ----------------
+    # 真实反馈：连续对话里 /model 列出 7 个厂商，选了 Anthropic 才弹
+    # 「ANTHROPIC_API_KEY 尚未设置」，看着像报错。列表不标注就等于挖坑。
+    print('\n第三相：菜单标注（没配密钥的厂商要事先标出来）')
+    menu = menu_lines(home, ['/model'], with_key=False)
+    ok = True
+    for name, has_key in (('Anthropic (Claude)', True), ('Google (Gemini)', False),
+                          ('OpenAI', False), ('通义千问', False)):
+        line = next((l for l in menu.splitlines() if name in l), '')
+        marked = '[未配置密钥]' in line
+        good = (not marked) if has_key else marked
+        if not good:
+            ok = False
+            if VERBOSE:
+                print('    %s 应有 key=%s 实际=%r' % (name, has_key, line.strip()))
+    print('  %s 厂商列表标注未配密钥' % ('ok  ' if ok else 'FAIL'))
+    bad += 0 if ok else 1
+    total += 1
+
+    ok2 = '← 使用中' in menu
+    print('  %s 列表仍标出当前厂商' % ('ok  ' if ok2 else 'FAIL'))
+    bad += 0 if ok2 else 1
+    total += 1
+
+    deep = menu_lines(home, ['/model', '2'], with_key=False)   # 2 = 第二家（gemini）
+    ok3 = '还没有配置密钥' in deep and 'GEMINI_API_KEY' in deep
+    if VERBOSE:
+        print('    [%s]' % ' '.join(deep.split())[-160:])
+    print('  %s 进到没密钥的厂商会先说明（含环境变量名）' % ('ok  ' if ok3 else 'FAIL'))
+    bad += 0 if ok3 else 1
+    total += 1
+
     print('\n%d/%d 通过' % (total - bad, total))
     return 1 if bad else 0
 
