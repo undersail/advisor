@@ -33,7 +33,7 @@ def check(name, ok, detail=None):
 
 
 def run(cmd, cwd, env=None):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, env=env)
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env)
 
 
 def git(cwd, *args):
@@ -116,6 +116,22 @@ def main():
         r = guard(local, mirror)
         check('反拉回来后恢复放行', r.returncode == 0,
               '退出 %d: %s' % (r.returncode, (r.stdout + r.stderr)[-160:]))
+
+        # ---- C2) cherry-pick 回来之后：补丁等价 → 放行（不能永久卡住）
+        local6, mirror6, base6 = new_pair(work, 'c2')
+        side6 = side_clone(work, base6, mirror6)
+        write_commit(side6, 'fix.txt', '修好的内容\n', 'fix on gitee')
+        git(side6, 'push', '-q', 'origin', 'main')
+        r = guard(local6, mirror6)
+        check('cherry-pick 之前：镜像提交未进入本地 → 拦住', r.returncode == 2,
+              '退出 %d' % r.returncode)
+        git(local6, 'fetch', '-q', 'mirror', 'main')
+        git(local6, 'cherry-pick', 'FETCH_HEAD')
+        r = guard(local6, mirror6)
+        out = r.stdout + r.stderr
+        check('cherry-pick 之后：等价补丁存在 → 放行（不会永久卡住同步）',
+              r.returncode == 0, '退出 %d: %s' % (r.returncode, out[-200:]))
+        check('并说明是按等价补丁收敛的', '等价' in out, out[-160:])
 
         # ---- D) 镜像同名 tag 指向本地历史之外的提交 → 拦住
         local2, mirror2, base2 = new_pair(work, 'd')

@@ -79,7 +79,7 @@ jobs:
           [ "$code" = 0 ] && exit 0
           sed -i "s|${GITEE_TOKEN}|***|g" /tmp/advisor-mirror-fetch.log 2>/dev/null || true
           if [ "$code" = 2 ]; then
-            echo "::error::Gitee 镜像上有 GitHub 没有的提交/tag，强推会覆盖它们。已中止同步。先反拉回来（见上方步骤），或确认可丢弃后手动触发并勾选 force。"
+            echo "::error::Gitee 镜像上有 GitHub 没有的提交/tag，强推会覆盖它们。已中止同步。按上方提示反拉回 main（cherry-pick 或 merge）后再推；补丁等价时守卫会自动放行。确认可丢弃则手动触发并勾选 force。"
           else
             echo "::error::读不到 Gitee 镜像（网络或凭据），为避免盲目强推已中止。"
           fi

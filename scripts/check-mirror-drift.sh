@@ -77,10 +77,22 @@ for mb in $MIRROR_BRANCHES; do
     # 同名分支：镜像上是否有我们没有的提交？
     extra="$(git rev-list --count "refs/heads/$mb..$mref" 2>/dev/null || echo 0)"
     if [ "${extra:-0}" -gt 0 ]; then
-      BLOCKED=1
-      say "✗ 镜像分支 '$mb' 上有 $extra 个提交不在本地 '$mb' 里 —— 强推会把它们覆盖掉："
-      git log --oneline "refs/heads/$mb..$mref" 2>/dev/null | head -5 | sed 's/^/    /'
-      MIRROR_DRIFT_BRANCH="$mb"
+      # ★ 关键：反拉回来通常走 cherry-pick，补丁内容一样但 SHA 不同。
+      #   只比 SHA 的话，反拉之后依然被判定为漂移，同步就永远卡住
+      #   —— 而「先反拉再同步」正是本脚本自己建议的恢复路径。
+      #   所以用 `git cherry` 比 patch-id：镜像上的提交若已有等价补丁在本地，
+      #   就算已收敛（这类提交强推覆盖掉不会丢任何改动）。
+      unapplied="$(git cherry "refs/heads/$mb" "$mref" 2>/dev/null | grep -c '^+')"
+      applied="$(git cherry "refs/heads/$mb" "$mref" 2>/dev/null | grep -c '^-')"
+      if [ "${unapplied:-0}" -gt 0 ]; then
+        BLOCKED=1
+        say "✗ 镜像分支 '$mb' 上有 $unapplied 个提交未以任何形式进入本地 '$mb' —— 强推会把它们覆盖掉："
+        git cherry "refs/heads/$mb" "$mref" 2>/dev/null | grep '^+' | head -5 | sed 's/^/    /'
+        MIRROR_DRIFT_BRANCH="$mb"
+      elif [ "${applied:-0}" -gt 0 ]; then
+        NOTES="$NOTES
+    · 镜像分支 '$mb' 上的 $applied 个提交已有等价补丁在本地（cherry-pick 过），同步会收敛"
+      fi
     fi
   else
     # 镜像独有的分支：强推不会删除它，只提示
