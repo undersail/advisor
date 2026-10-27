@@ -740,8 +740,12 @@ GUI_PY="$PY3"
 GUI_SRC="\$HOME/claude-build/advisor_gui.py"
 if [ ! -x "\$GUI_PY" ] || ! "\$GUI_PY" -c 'import tkinter' >/dev/null 2>&1 || [ ! -f "\$GUI_SRC" ]; then
   TIP="Advisor 需要的 Python 3（含 Tk）或程序文件不可用，请安装 python.org 的 Python 3 后重跑 setup.sh。命令行版 advisor 不受影响。"
-  osascript -e "display dialog \"\$TIP\" buttons {\"好\"} default button 1 with title \"Advisor\"" >/dev/null 2>&1
+  # 先写文字提示再弹窗：无人值守环境（CI / 远程登录）弹窗可能没人点，
+  # 不能让「能看到的信息」排在弹窗后面。
   printf 'Advisor: %s\n  解释器: %s\n  程序: %s\n' "\$TIP" "\$GUI_PY" "\$GUI_SRC" >&2
+  # `giving up after` 必须有：没有它 display dialog 会一直等人点「好」，
+  # 在没有人操作的机器上就是永久挂住（macOS CI 上实测卡死过）。
+  osascript -e "display dialog \"\$TIP\" buttons {\"好\"} default button 1 with title \"Advisor\" giving up after 10" >/dev/null 2>&1
   exit 1
 fi
 export PATH="\$HOME/bin:/usr/local/bin:/usr/bin:/bin"

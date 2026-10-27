@@ -171,6 +171,12 @@ def main():
               'python.org' in r.stderr, r.stderr.strip()[:160])
         check('提示里写清是哪个解释器找不到',
               '/nonexistent/python3' in r.stderr, r.stderr.strip()[:160])
+        check('弹窗带超时（giving up after），无人值守环境不会永久挂住',
+              'giving up after' in wrapper, 'wrapper 里没有 giving up after')
+        check('文字提示写在弹窗之前（弹窗没人点时也能看到原因）',
+              wrapper.index('printf') < wrapper.index('osascript')
+              if 'osascript' in wrapper and 'printf' in wrapper else False,
+              'printf/osascript 顺序不对')
         check('不再出现裸 exec「No such file or directory」那种噪音',
               'No such file or directory' not in r.stderr, r.stderr.strip()[:160])
     finally:
