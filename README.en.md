@@ -2,8 +2,9 @@
 
 > **About cloud services**: this is a purely local desktop tool. No hosted service is
 > provided. The optional remote relay (`remote/relay/`) must be deployed with **your own**
-> Cloudflare account; the repository contains no account IDs, tokens, KV namespace IDs
-> or workers.dev subdomains belonging to anyone.
+> Cloudflare account; the repository contains no account IDs, tokens, cloud resource IDs
+> or workers.dev subdomains belonging to anyone. The queue is a Durable Object, so there is
+> **no ID to create and none to fill in**.
 
 ## 🇯🇵 [日本語版はこちらから読めます →](README.md) · 🇨🇳 [中文版请读这里 →](README.zh.md)
 
@@ -94,7 +95,7 @@ faces depending on your mood.
 - **Tier A: Snow Leopard through Mountain Lion (10.6–10.8)** — the system
   `curl` doesn't even reach TLS 1.0, so OpenSSL/curl need to be built
   (fetch source on a modern machine → transfer to the target → build
-  locally on the target). Not started yet — next step.
+  locally on the target). **Not implemented** — the maintainer decided to skip this tier for now.
 
 ## Setup (Tier B: High Sierra and similar)
 

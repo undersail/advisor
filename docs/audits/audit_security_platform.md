@@ -84,8 +84,8 @@ KV 仍然适合「通知类、允许延迟、不需要取走即删」的场景�
 ## 六、复现方式
 
 ```bash
-python3 scripts/test-platform.py      # 31 项，含全部安全断言；不需要任何真凭据
+python3 scripts/test-platform.py      # 42 项，含全部安全断言；不需要任何真凭据
 python3 scripts/check-secrets.py --history
 python3 scripts/check-decoupling.py
-python3 scripts/ci-local.py           # 真跑 ci.yml 全部步骤
+python3 scripts/ci-local.py           # 真跑 ci.yml 全部步骤（25 步 × 2 平台）
 ```

@@ -3,7 +3,8 @@
 
 > **关于云服务**：本项目是纯本地的桌面软件，不提供任何托管服务。
 > 可选的远程接入中继（`remote/relay/`）要你自己用自己的 Cloudflare 账号部署；
-> 仓库里不含任何人的账号、令牌、KV 命名空间 id 或 workers.dev 子域。
+> 仓库里不含任何人的账号、令牌、云资源 id 或 workers.dev 子域。
+> 队列用的是 Durable Object，**连 id 都不需要手建、不需要填**。
 
 ## 🇯🇵 [日本語版はこちら →](README.md) ・ 🇺🇸 [Read this README in English →](README.en.md)
 
@@ -70,7 +71,7 @@ Gemini（Google）。
   已支持 TLS 1.2，不需要额外编译。目前实现的正是这一层。
 - **Tier A：Snow Leopard ～ Mountain Lion（10.6–10.8）** —— 系统 `curl` 连 TLS 1.0
   都够不着，需要自行编译 OpenSSL/curl（在新机器上取源码 → 传到目标机 → 在目标机上
-  本地编译）。尚未开工，是下一步。
+  本地编译）。**暂未实现**（维护者已决定先不做这一层）。
 
 ## 安装（Tier B：High Sierra 等）
 

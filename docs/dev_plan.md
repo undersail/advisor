@@ -23,6 +23,8 @@
 | **发布链路**（tag → macOS 打包 → Release） | ✅ 本 fork 已实现（M7）|
 | standalone zip 分发 | ✅ 已实现（未签名，首次启动需右键打开）|
 | CI / Gitee 镜像 / 文档骨架 | ✅ 本仓已落位（§1）|
+| **Gitee 反拉保护**（会覆盖对方提交就中止 + 反拉流程） | ✅ 本仓已实现（§8.2）|
+| **macOS 兼容卡口**（bash 3.2 两类坑 + GUI 自递归 + .app 弹窗） | ✅ 已实现（`check-shell-var-glue.py` / `test-gui-recursion.py` / `test-setup-py3.py`）|
 | **Tier A（10.6 ~ 10.8）** | ❌ 未开工 |
 | ~~微信接入~~ | 已排除（认证主体 + 公网回调 + 5 秒硬超时）|
 
@@ -30,15 +32,30 @@
 > Info.plist、发布 zip 名、Release 的 tag 全部跟它走；`scripts/check-version.py`
 > 在 CI 里守着这条，写死版本号会红。
 
+### 0.1 质量门现状（本机实际执行，2026-10-27）
+
+| 项 | 现状 |
+|---|---|
+| 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
+| 测试脚本 | 10 个，合计 **199 项**（platform 42 · release-workflow 26 · audit-commands 24 · setup-py3 22 · relay-do 21 · remote 20 · mirror-drift 19 · hooks 10 · gui-recursion 8 · relay 7） |
+| CI | `ci.yml` **25 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
+| 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
+| 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
+| 文案/注册表 | Perl `%S` 102 · GUI `_S` 57 · `setup.sh msg()` 44 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
+| 泄漏 | 59 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
+
+审计记录：`docs/audits/audit_advisor_v0.2.1.md`（v0.2.1 快照）、`docs/audits/audit_advisor_v0.2.1_r2.md`（之后的第二轮）。
+
 ## 1. 本仓已铺好的工程骨架
 
 | 文件 | 作用 |
 |---|---|
 | `.editorconfig` | utf-8 / LF / 2 空格（`.pl` `.py` 为 4） |
-| `.github/workflows/ci.yml` | perl -c、`--version` 冒烟、py_compile、bash -n、`models.txt` 格式卡口、CRLF 检查；矩阵 ubuntu + macos |
-| `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；凭据 `oauth2:`→`undersail:` 自动回退 |
+| `.github/workflows/ci.yml` | 25 个步骤：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、6 个卡口脚本、10 个测试脚本、泄漏 + 换行检查；矩阵 ubuntu + macos |
+| `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；**推之前先跑反拉保护**（会覆盖对方提交就中止，见 §8.2）；凭据 `oauth2:`→`undersail:` 自动回退 |
 | `docs/design_doc_advisor.md` | 架构、JSON 行协议、加密密钥层级、已知限制、改动规则 |
 | `docs/releases/` | 发布说明，文件名 = tag 名 |
+| `docs/audits/` | 审计记录，按轮次编号（`_r2` = 第二轮），当前状态见最新那份 |
 
 **CI 刻意不做什么**：不调真实 API（要密钥且计费）、不跑 GUI（无显示器）、
 不打包 `.app`（需 macOS + py2app）。
@@ -135,7 +152,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 - [x] `models.txt`：4 列格式 + 5 个模型补中文标签（Perl 解析同步改限 4 段选列）
 - [x] `README.zh.md` + 三份 README 互链 + 语言说明改三语
 - [x] `release/ReadMe_ZH.txt`（ASCII 文件名）+ `build_standalone_app.sh` 打包列表
-- [x] **CI 卡口**：`scripts/check-i18n.py` —— 抽出 `%S` / `_S` 的全部 key，比较同一 key 的 `ja`/`en`/`zh` 占位符个数是否一致（不一致时 sprintf/format 会崩或错位）；未译条目只报告不判死，收尾阶段可加 `--strict`。已接入 CI 第 5 步
+- [x] **CI 卡口**：`scripts/check-i18n.py` —— 抽出 `%S` / `_S` 的全部 key，比较同一 key 的 `ja`/`en`/`zh` 占位符个数是否一致（不一致时 sprintf/format 会崩或错位）；未译条目只报告不判死，收尾阶段可加 `--strict`。已接入 CI（步骤名「三语文案占位符卡口」）
 
 ### 3.4 陷阱
 
@@ -267,7 +284,7 @@ provider 分开存（例如 `CLAUDE_API_KEY_OPENAI` / `_DEEPSEEK`），
 - [x] 两级模型菜单（终端 + GUI）——终端 `/model` 先厂商后模型；GUI 用 cascade 子菜单，点击发 `/model <id>` 而不是编号。bash 补全只补命令行参数与模型 ID，与菜单无关，无需同步
 - [x] GUI onboarding 支持新 provider：首启改成 7 家下拉，密钥页链接/校验方式/默认模型全部从 `providers.txt` + `models.txt` 推导；`validate_api_key` 增加 OpenAI 兼容分支；保存 key 时不清掉别家的 key
 - [x] `unknown_provider` 报错文案改为按注册表生成（M3 遗留已清）
-- [x] **CI 卡口**：`scripts/check-models.py` —— provider 必须在注册表里、base_url 型必须有 base_url、ID 不重复、flags 词合法（已接入 CI 第 4b 步）
+- [x] **CI 卡口**：`scripts/check-models.py` —— provider 必须在注册表里、base_url 型必须有 base_url、ID 不重复、flags 词合法（已接入 CI，步骤名「models.txt 与注册表一致性」）
 - [ ] 真实连通性手测（需各厂商 key，本地做，不进 CI）—— **未做**：已在本地用 mock 的 OpenAI 兼容服务验证完整链路，真 key 需你提供
 
 **规模**：注册表重构 1~2 人日；openai 适配器 + 双向转换 2~3 人日；
@@ -467,8 +484,14 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
    真实 OS 兼容性、各家 API 真实往返、平台回调与审核。
 7. 动 `agent/claude-agent.pl` 核心逻辑前，先确认改动落在哪个里程碑并已开工，
    不要顺手重构。
+8. **Linux 绿、macOS 红一律先当成本仓库的真 bug**（哪怕看起来像测试问题）。
+   已经踩出来的有：bash 3.2 把全角字符算进变量名、`case … continue ;;` 语法错误
+   （放进 hook 等于 hook 从不执行）、`osascript display dialog` 无超时永久挂住、
+   测试子进程不给 stdin 导致 `read` 阻塞。卡口见 `scripts/check-shell-var-glue.py`。
+9. **新增脚本必须同时进 CI**，否则它只是"本地手工跑过一次"。审计方法：把
+   `scripts/` 清单与 `ci.yml` 的引用做差集，差集里的每个文件都要有理由。
 
-## 提交前卡口（git hook）
+### 8.1 提交前卡口（git hook）
 
 ```bash
 bash scripts/install-git-hooks.sh     # 每个克隆做一次（core.hooksPath → scripts/hooks）
@@ -478,7 +501,7 @@ bash scripts/install-git-hooks.sh     # 每个克隆做一次（core.hooksPath �
 确需跳过用 `git commit --no-verify`。hook 自身有测试（`scripts/test-hooks.py`
 在临时仓库里真提交一次），CI 会跑，避免「装了等于没装」。
 
-## Gitee 镜像的写入约定（反拉保护）
+### 8.2 Gitee 镜像的写入约定（反拉保护）
 
 GitHub 是唯一写入源，Gitee 是**只读镜像**（`--all --force` + `--tags --force`）。
 
@@ -498,5 +521,15 @@ git push origin main                      # 再同步回去
 
 确认那些改动可以丢弃时，在 Actions 里手动触发 Sync to Gitee Mirror 并勾选 `force`。
 
-只拦「真的会丢东西」的情况：镜像独有的分支（`--all` 不删除）和不同名 tag
-（不会被覆盖）只提示、不拦，避免把同步卡死。测试见 `scripts/test-mirror-drift.py`。
+判定表：
+
+| 情况 | 行为 |
+|---|---|
+| 镜像同名分支有未进入本地的提交 | 中止同步，打印反拉步骤 |
+| 镜像同名 tag 指向本地历史之外 | 中止同步 |
+| 已 cherry-pick（补丁等价，按 patch-id 判） | 放行 —— 否则按上面这套流程修完，同步反而永久卡住 |
+| 镜像独有的分支（`--all` 不会删除）/ 不同名 tag / 镜像滞后 | 只提示或放行，不卡死 |
+| 读不到镜像 | 中止，不盲目强推 |
+
+测试 `scripts/test-mirror-drift.py`（19 项，本地裸仓模拟 Gitee）。
+诊断开关：`ADVISOR_MIRROR_DEBUG=1` 会把探测到的分支/tag 名单打到 stderr。

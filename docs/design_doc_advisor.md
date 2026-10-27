@@ -375,7 +375,7 @@ read_file / list_dir"和"工具集不可配置"变成 CI 卡口。
 | Tier | OS | 状态 | 关键点 |
 |---|---|---|---|
 | **B** | 10.9 Mavericks ~ 10.13 High Sierra+ | ✅ 已实现 | 标准 curl 已支持 TLS1.2，开箱可用 |
-| **A** | 10.6 Snow Leopard ~ 10.8 Mountain Lion | ❌ 未开工 | 需在别的机器上编译 OpenSSL/curl 再传过去 |
+| **A** | 10.6 Snow Leopard ~ 10.8 Mountain Lion | ❌ 未实现（维护者已决定先不做） | 需在别的机器上编译 OpenSSL/curl 再传过去 |
 
 Tier A 的接口已经预留：`CLAUDE_CURL` / `CLAUDE_CACERT` 可指向自建 toolchain；
 `setup.sh` 若发现 `~/claude-toolchain` 会优先使用它。
@@ -402,12 +402,18 @@ CI 里有格式卡口，改格式必须同步改 CI。
 
 ## 9. 已知限制 / 技术债
 
-1. **Tier A 完全未实现** —— 上游明确列为下一步，但需要交叉编译 toolchain。
+1. **Tier A 完全未实现** —— 需要交叉编译 toolchain；维护者已决定暂不做（保留接口，不算待办）。
 2. **CI 覆盖不到真实 API** —— 无密钥、要计费，只做语法/一致性/启动冒烟。
 3. **GUI 无法在无显示器环境验证** —— 本仓的 Linux 开发机只能静态审代码。
 4. **`Advisor.app` 打包只能在 macOS 上验证** —— py2app + Gatekeeper 流程跑不了。
 5. **MD5 键派生偏弱** —— 受 High Sierra 的 LibreSSL 限制，短期无解。
 6. **单文件 2172 行** —— 与"零依赖单文件"的约束绑死，拆分需谨慎（见 §1）。
+7. **macOS 自带 bash 3.2 与 Linux 的 bash 5 行为不同** —— 两类都踩过真故障：
+   `$var` 紧跟中文/全角字符时 3.2 把该字符的首字节算进变量名（名字凭空消失）；
+   `case … in x) continue ;; esac` 在 3.2 上是语法错误（放进 pre-commit hook 等于 hook 从不执行）。
+   写 shell 时变量一律 `${var}`、分支一律 `if/else`，卡口 `scripts/check-shell-var-glue.py`。
+8. **`.app` 启动器的弹窗必须有超时** —— `osascript display dialog` 不带 `giving up after`
+   会一直等人点击，在无人值守环境（CI / 远程登录）就是永久挂住；且文字提示要先写 stderr。
 
 ---
 
@@ -419,5 +425,8 @@ CI 里有格式卡口，改格式必须同步改 CI。
 - 改 `agent/claude-agent.pl` 前必须确认：**没引入 CPAN 依赖**、**没用到 perl 5.8.6
   之后的语法**、`perl -c` 通过。
 - 改 GUI↔后端协议时，同步更新本文 §3 的两张表。
+- 改 shell 脚本（`setup.sh` / `scripts/*.sh` / hooks）后跑 `python3 scripts/check-shell-var-glue.py`：
+  macOS 的 bash 3.2 有两类只在它上面出现的坑（见 §9.7）。
+- 新增任何脚本都要同时加进 `ci.yml`，否则它只是"本地手工跑过一次"。
 - 版本号 / tag 由维护者决定，不自动打。
 - 发布说明写进 `docs/releases/<tag>.md`。

@@ -141,11 +141,11 @@ python3 scripts/live-check.py deepseek
 （`openai` / `dashscope` / `moonshot` / `zhipu`；`anthropic` / `gemini` 走另外两种
 请求形状，脚本目前只覆盖 OpenAI 兼容那五家）。
 
-## 6. 远程接入（可选，M5）
+## 8. 远程接入（可选，M5）
 
 远程和本地是两套东西，先确认本地能跑再做这一步。
 
-### 6.1 只验通知（最快，1 分钟）
+### 8.1 只验通知（最快，1 分钟）
 
 1. 建 `~/.claude-agent/remote.conf`，写一行（企微群 → 群机器人 → 复制 webhook 地址）：
    ```
@@ -157,7 +157,7 @@ python3 scripts/live-check.py deepseek
 4. 不对时看：`通知发送失败：WECOM_WEBHOOK（errcode 93000: ...）` —— 93000 是
    key 无效或地址抄错；报 `url must start with https` 说明粘成了 http。
 
-### 6.2 验网关（远程只读）
+### 8.2 验网关（远程只读）
 
 1. 同目录加白名单（先随便写你自己的 ID，随便什么串都行，这里只验证拦截逻辑）：
    ```
@@ -171,17 +171,19 @@ python3 scripts/live-check.py deepseek
 5. 试让它写文件：「在 /tmp 建个文件」 —— 应被拒绝，且 `/tmp` 下不会出现文件。
    拒绝理由会回给模型，模型会转述给你。
 
-### 6.3 验收要点（对着看，别只看"跑通了"）
+### 8.3 验收要点（对着看，别只看"跑通了"）
 
 - [ ] `~/.claude-agent/audit.log` 存在且权限 `-rw-------`
 - [ ] 白名单外的人：无输出、有审计
 - [ ] 让写文件：没写成，且回答里说明了不能写
 - [ ] `remote.conf` 里没有 `HIST_PASS` 时，`~/.claude-agent/history/` 不该多出东西
 
-## 7. 平台端收发（真机 + 真平台）
+## 9. 平台端收发（真机 + 真平台）
 
-本地已用自造凭据验过验签/解密/白名单/回推（`scripts/test-platform.py` 25 项），
+本地已用自造凭据验过验签/解密/白名单/回推（`scripts/test-platform.py` 42 项），
 真机要验的是「平台真的能连上你」：
+
+### 9.1 回调接入（企微 / 飞书，需要真凭据）
 
 - [ ] `perl remote/platform.pl --init` 录入凭据，`--check` 显示配置齐全
 - [ ] 企微：管理后台填回调 URL（`https://<域名>/wecom`），点保存能通过验证
@@ -192,7 +194,7 @@ python3 scripts/live-check.py deepseek
 - [ ] `--test-push "测试" --to <你的ID>` 能收到
 - [ ] 飞书：事件订阅里填回调地址，能通过 challenge 验证；发消息有回复
 
-### 7.4 中继模式（家里 Mac 在 NAT 后面时）
+### 9.2 中继模式（家里 Mac 在 NAT 后面时）
 
 不需要真实平台凭据也能验：
 
@@ -218,7 +220,7 @@ perl remote/gateway.pl --poll         # 从队列拉取 → 处理 → 结果写
 确认点：消息在手机发出后**不会**在本机起 `gateway.pl --stdin`；`--poll` 取到消息并
 处理后，手机能收到结果。
 
-## 8. 双击 Advisor.app 打不开
+## 10. 双击 Advisor.app 打不开
 
 Finder 双击启动时 stderr 没有地方显示，失败表现为「弹一下就没了」或完全没反应。
 按这个顺序查：
@@ -231,6 +233,21 @@ Finder 双击启动时 stderr 没有地方显示，失败表现为「弹一下�
 bash scripts/doctor-macos.sh
 ```
 
+先看这两条**这一轮刚修过**的行为，确认真的生效（别只看「能打开了」）：
+
+| 检查 | 应该看到 |
+|---|---|
+| 解释器/源码不可用时 | stderr **先**打出 `Advisor: …`、`解释器: …`、`程序: …` 三行，之后才可能出现弹窗 |
+| 弹窗行为 | 弹窗最多停留 **10 秒**自动消失（`giving up after 10`），不需要你点「好」 |
+| 为什么重要 | 没有 `giving up after` 时，弹窗会一直等人点 —— 在远程登录/无人值守的机器上就是永久挂住（CI 上实测吃掉 45 分钟） |
+
+验法（把解释器路径故意指错，模拟「装完 python3 又被卸载」）：
+
+```bash
+# 直接跑包内可执行文件即可，不需要真的卸载 python3
+~/Applications/Advisor.app/Contents/MacOS/Advisor
+```
+
 常见三种原因：
 
 | 现象 | 原因 | 处理 |
@@ -238,6 +255,14 @@ bash scripts/doctor-macos.sh
 | `exec: /usr/bin/python3: No such file or directory` | macOS 12.3 起 `/usr/bin/python3` 只在装了 Xcode CLT 后才有；旧版 setup.sh 把它当兜底 | 现已修：查找时逐个 `-x` 验证。装 python.org 的 Python 3 后重跑 setup.sh |
 | 图标跳一下就消失 | python3 缺 Tk（Homebrew 版常见） | 装 python.org 的 Python 3（自带 Tk）；`setup.sh` 现在会直接告诉你缺 Tk 并跳过生成 |
 | 弹「无法验证开发者」 | 未签名 + 隔离属性 | 系统设置 → 隐私与安全性 → 「仍要打开」；或 `xattr -dr com.apple.quarantine ~/Applications/Advisor.app` |
+
+装 Python 3 的两条路（GUI 需要 Tk，只装 Xcode CLT 不够）：
+
+```bash
+open https://www.python.org/downloads/macos/     # 推荐：安装包自带 Tk
+python3 -c "import tkinter; print('tkinter ok')" # 装完自验，必须打印 tkinter ok
+brew install python python-tk                    # 或者用 Homebrew（两件都要装）
+```
 
 注意：本地 setup 用的是 `py2app -A`（alias 模式），产物依赖本机 python3 与
 `~/claude-build/` 源码目录，**不能拷到别的 Mac**；发布 zip 用的是独立构建，不受影响。

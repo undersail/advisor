@@ -1,5 +1,9 @@
 # Advisor v0.2.1 全面审计报告
 
+> **快照说明**：这是 tag `v0.2.1` 时的审计记录，文中的步数/项数是当时的真实数字，
+> 之后 CI 与测试都增补过（现为 25 步 × 2 平台、199 项）。当前状态见
+> `docs/audits/audit_advisor_v0.2.1_r2.md` 与 `docs/dev_plan.md` §0.1。
+
 - 审计对象：`undersail/advisor`（公开 fork），审计提交 `e72262f` 及其后续修复
 - 上一版 tag：`v0.2.0`（`964d577`）
 - 本次审计的产出：本报告 + `docs/releases/v0.2.1.md` + 若干修复提交 + 新卡口 `scripts/check-version.py`、`scripts/audit-commands.py`

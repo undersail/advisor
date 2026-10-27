@@ -70,18 +70,26 @@ jobs:
       - name: Python 语法检查（gui/advisor_gui.py）
         run: |
           set -o pipefail
-          # 只编译不执行：CI 无显示器，且 tkinter 在 macOS runner 上不一定带
+          # 只编译不执行：CI 无显示器，且 tkinter 在 macOS runner 上不一定带。
+          # 除了 GUI，scripts/ 下的脚本也要过一遍 —— 不在 CI 里跑的脚本
+          # （live-check.py）平时没有任何机会暴露语法错误。
           python3 -m py_compile gui/advisor_gui.py && echo "GUI 语法 OK"
+          python3 -m py_compile scripts/*.py && echo "scripts/*.py 语法 OK"
 
       # ---------- 3. Shell 脚本 ----------
       - name: Shell 语法检查
         run: |
           set -o pipefail
-          for f in setup.sh completion/advisor-completion.bash release/build_standalone_app.sh; do
+          # 覆盖全仓 shell：漏掉一个就等于那个脚本的语法问题要等真跑起来才发现
+          # （scripts/hooks/pre-commit 是 git 每次提交都会执行的，最不能漏）
+          FILES="setup.sh completion/advisor-completion.bash release/build_standalone_app.sh scripts/hooks/pre-commit"
+          for f in scripts/*.sh; do FILES="$FILES $f"; done
+          for f in $FILES; do
+            [ -f "$f" ] || { echo "::error::找不到 $f（清单写错了？）"; exit 1; }
             echo "--- $f ---"
             bash -n "$f" || { echo "::error::$f 语法错误"; exit 1; }
           done
-          echo "全部 shell 脚本语法 OK"
+          echo "全部 shell 脚本语法 OK（$FILES）"
 
       # ---------- 4. models.txt 格式卡口 ----------
       - name: models.txt 格式校验
@@ -130,8 +138,10 @@ jobs:
       - name: Perl 语法检查（remote/）
         run: |
           set -o pipefail
-          perl -c remote/gateway.pl
-          perl -c remote/notify.pl
+          for f in remote/gateway.pl remote/notify.pl remote/platform.pl; do
+            echo "--- $f ---"
+            perl -c "$f" || { echo "::error::$f 语法错误"; exit 1; }
+          done
 
       - name: 远程与本地解耦卡口
         run: |
@@ -197,6 +207,13 @@ jobs:
           # 不需要任何真实 token：EncodingAESKey、回调 Token、Encrypt Key 全是现场生成的。
           python3 scripts/test-platform.py
 
+      - name: 命令可达性审计（12 条命令 × 路由/真切换 两相）
+        run: |
+          set -o pipefail
+          # 用 PTY 真喂命令（管道会把多行读成一整块，测出来全是默认厂商）。
+          # 这条以前只在本地手工跑，等于没有防线：别名被删/改坏没人会发现。
+          python3 scripts/audit-commands.py
+
       - name: 版本与文档数字防漂移
         run: |
           set -o pipefail
@@ -223,6 +240,9 @@ jobs:
           # 用 perl 而不是 grep -U：macOS 上是 BSD grep，不认 -U
           BAD=0
           for f in $(git ls-files | grep -vE '\.(png|icns)$'); do
+            # 先判存在：打不开文件时原来会被报成「含 CRLF」，那是假原因
+            # （文件被 mv 掉、索引没同步时就会这样，会让人去查换行符）
+            [ -f "$f" ] || { echo "::error::$f 在索引里但工作区不存在 —— 先 git add -A 同步索引"; BAD=1; continue; }
             if perl -e 'exit((do { local $/; open my $h, "<:raw", $ARGV[0] or exit 2; my $c = <$h>; $c =~ /\r/ }) ? 1 : 0)' "$f"; then
               : # 无 CR
             else

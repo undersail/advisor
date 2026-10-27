@@ -4,7 +4,8 @@
 > **クラウドサービスについて**：本ソフトは完全にローカルで動くデスクトップツールです。
 > ホスティングサービスは提供していません。任意機能の遠隔リレー（`remote/relay/`）は
 > **ご自身の Cloudflare アカウント**でデプロイしてください。リポジトリには誰の
-> アカウント ID・トークン・KV ネームスペース ID・workers.dev サブドメインも含まれません。
+> アカウント ID・トークン・クラウドリソースの ID・workers.dev サブドメインも含まれません。
+> キューは Durable Object なので、**ID を作る必要も書く必要もありません**。
 
 ## 🇺🇸 [Read this README in English →](README.en.md) ・ 🇨🇳 [中文版请读这里 →](README.zh.md)
 
@@ -76,7 +77,7 @@ Claude(Anthropic)とGemini(Google)、両方のAPIに対応しています。
   対応しているため、追加のビルドなしでそのまま動きます。今のところ実装済みなのはこちら。
 - **Tier A: Snow Leopard〜Mountain Lion(10.6-10.8)** — 標準curlがTLS1.0にも届かない
   ため、モダンな機器でソース取得→対象機へ転送→対象機でローカルビルド、という手順で
-  OpenSSL/curlを用意する必要があります。未着手(次のステップ)。
+  OpenSSL/curlを用意する必要があります。**未実装**(メンテナの判断で当面やらない)。
 
 ## セットアップ (Tier B: High Sierra など)
 

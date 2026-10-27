@@ -18,6 +18,7 @@ import random
 import shutil
 import socket
 import stat
+import signal
 import subprocess
 import sys
 import tempfile
@@ -266,24 +267,49 @@ def start_platform(home, api_base, gateway_cmd):
     # 输出写文件而不是 PIPE：请求一多，没人读的管道写满 64KB 就会把服务端卡死
     # （这件事真的发生过：后面几条断言全变成连接失败，看起来像代码 bug）。
     logf = os.path.join(home, 'platform-serve.log')
+    # start_new_session=True：platform.pl 会 fork 出常驻网关子进程。
+    # 只 terminate 父进程会留下孤儿 gateway.pl --stdin（实测残留过好几个，
+    # 它们还占着队列与端口），所以整组一起收。
     p = subprocess.Popen(['/usr/bin/perl', PLATFORM, '--serve'], cwd=ROOT, env=env,
                          stdout=open(logf, 'w', encoding='utf-8'),
-                         stderr=subprocess.STDOUT)
+                         stderr=subprocess.STDOUT,
+                         start_new_session=True)
     p._logf = logf
     return p
 
 
 def stop(p):
-    p.terminate()
+    """停掉服务**及其 fork 出来的网关子进程**（整组收）。"""
+    def killpg(sig):
+        try:
+            os.killpg(os.getpgid(p.pid), sig)
+        except (ProcessLookupError, PermissionError):
+            pass
+
+    killpg(signal.SIGTERM)
     try:
         p.wait(timeout=8)
     except subprocess.TimeoutExpired:
-        p.kill()
+        killpg(signal.SIGKILL)
         p.wait(timeout=5)
+    killpg(signal.SIGKILL)   # 父进程退了子进程可能还在
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
     logf = getattr(p, '_logf', '')
+    text = ''
     if logf and os.path.exists(logf):
-        return open(logf, encoding='utf-8').read()
-    return ''
+        text = open(logf, encoding='utf-8').read()
+    # 整组收干净了吗？平台端会 fork 常驻网关，只 terminate 父进程会留孤儿
+    # —— 本机实测累积过 37 对（最长跑了 12 小时），它们还占着端口。
+    try:
+        os.killpg(os.getpgid(p.pid), 0)
+        leaked = True
+    except (ProcessLookupError, PermissionError):
+        leaked = False
+    p._leaked = leaked
+    return text
 
 
 # ----------------------------------------------------------------- 主流程
@@ -439,6 +465,8 @@ def main():
     check('企微消息：密文损坏 → 4xx（不是 200，也不崩）', 400 <= st < 500, 'status=%s' % st)
 
     out = stop(proc)
+    check('停服务后整组进程都收干净了（不留孤儿网关）', not getattr(proc, '_leaked', False),
+          '进程组仍然存在，会累积占端口')
     check('企业微信：全程没有把 Secret/AESKey 打到日志里',
           'mock-corp-secret-xyz' not in out and aes not in out and token not in out,
           out[-300:])
