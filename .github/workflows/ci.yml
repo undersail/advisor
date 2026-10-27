@@ -226,6 +226,13 @@ jobs:
           # 不需要任何真实 token：EncodingAESKey、回调 Token、Encrypt Key 全是现场生成的。
           python3 scripts/test-platform.py
 
+      - name: 出站通知（档① notify.pl，假 webhook）
+        run: |
+          set -o pipefail
+          # 断言的是"发出去的报文对不对"：企微 markdown / 飞书 text 的字段形态、
+          # 中文与转义、平台报错时的退出码、以及 http:// 明文地址必须被拒。
+          python3 scripts/test-remote-notify.py
+
       - name: 命令可达性审计（12 条命令 × 路由/真切换 两相）
         run: |
           set -o pipefail

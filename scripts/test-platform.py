@@ -168,12 +168,14 @@ class FakeRelay:
     """最小中继：POST /push 收消息，GET /outbox?to= 吐结果。"""
     def __init__(self):
         self.pushed = []
+        self.auth_headers = []
         self.replies_for = {}
         outer = self
         class H(BaseHTTPRequestHandler):
             def do_POST(self):
                 n = int(self.headers.get('content-length') or 0)
                 body = json.loads(self.rfile.read(n) or b'{}')
+                outer.auth_headers.append(self.headers.get('authorization') or '')
                 if not (self.headers.get('authorization') or '').startswith('Bearer '):
                     self.send_response(401); self.end_headers(); return
                 outer.pushed.append(body)
@@ -461,6 +463,32 @@ def main():
     bad_enc = enc[:-6] + ('AAAA' + enc[-2:])
     sig2 = wecom_sig(token, ts, nonce, bad_enc)
     outer2 = '<xml><Encrypt><![CDATA[%s]]></Encrypt></xml>' % bad_enc
+    # --- ReceiveId 完整性校验：密文不是发给本企业的就别收 ---
+    bad_rid = wecom_encrypt(aes, xml, receiveid='some-other-corp')
+    ts_r, nc_r = str(int(time.time())), 'ncR'
+    st, body = http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s'
+                         % (base, wecom_sig(token, ts_r, nc_r, bad_rid), ts_r, nc_r),
+                         '<xml><Encrypt><![CDATA[%s]]></Encrypt></xml>' % bad_rid)
+    check('企微消息：ReceiveId 不是本企业 → 400（防密文被换）', st == 400, 'status=%s' % st)
+
+    # --- 非文本消息：收下（平台要求 5 秒内 200）但不派活 ---
+    PUSHES.clear()
+    n_gw_before = len(open(os.path.join(home, 'gw_in.txt')).readlines()) \
+        if os.path.exists(os.path.join(home, 'gw_in.txt')) else 0
+    xml_img = ('<xml><FromUserName><![CDATA[zhangsan]]></FromUserName>'
+               '<MsgType><![CDATA[image]]></MsgType><MsgId>990011</MsgId></xml>')
+    enc_img = wecom_encrypt(aes, xml_img)
+    ts_i = str(int(time.time()))
+    st, body = http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s'
+                         % (base, wecom_sig(token, ts_i, 'ncI', enc_img), ts_i, 'ncI'),
+                         '<xml><Encrypt><![CDATA[%s]]></Encrypt></xml>' % enc_img)
+    time.sleep(1.5)
+    n_gw_after = len(open(os.path.join(home, 'gw_in.txt')).readlines()) \
+        if os.path.exists(os.path.join(home, 'gw_in.txt')) else 0
+    check('企微消息：非文本（image）收了但不派给 agent',
+          st == 200 and n_gw_after == n_gw_before and not PUSHES,
+          'status=%s gw=%d->%d pushes=%d' % (st, n_gw_before, n_gw_after, len(PUSHES)))
+
     st, body = http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base, sig2, ts, nonce), outer2)
     check('企微消息：密文损坏 → 4xx（不是 200，也不崩）', 400 <= st < 500, 'status=%s' % st)
 
@@ -523,6 +551,12 @@ def main():
           bool(queued) and '帮我看看这个报错' in queued[0]['text'],
           'pushed=%s' % (relay.pushed[:1],))
     check('中继模式：投递时没在本地起网关', not os.path.exists(os.path.join(home_rl, 'gw_in.txt')))
+    # 中继端只认 Bearer <token>；头里没有 token（或写错）时 /push 会 401，
+    # 消息就沉在平台侧 —— 这类错在真机上表现为「手机上永远没反应」，很难查。
+    bad_auth = [h for h in getattr(relay, 'auth_headers', []) if h != 'Bearer tk']
+    check('中继：投递带的是 Bearer <token>（不是占位）',
+          bool(getattr(relay, 'auth_headers', [])) and not bad_auth,
+          'auth=%s' % (getattr(relay, 'auth_headers', [])[:3],))
 
     # 模拟 NAT 后面的 Mac：从队列取走，处理，把结果写回
     relay.replies_for['zhangsan'] = ['这是 agent 处理后的结果']
@@ -593,6 +627,16 @@ def main():
     })
     check('飞书 URL 验证：解密后原样回 challenge',
           st == 200 and 'chal-777' in body, 'status=%s body=%s' % (st, body[:120]))
+
+    # --- 时间戳过期（防重放）---
+    old_ts = str(int(time.time()) - 1000)
+    old_sig = hashlib.sha256((old_ts + 'n0nce' + ek + enc_body).encode()).hexdigest()
+    st, body = http_post(base3, enc_body, {
+        'X-Lark-Request-Timestamp': old_ts,
+        'X-Lark-Request-Nonce': 'n0nce',
+        'X-Lark-Signature': old_sig,
+    })
+    check('飞书：时间戳过期 → 403（挡住旧请求重放）', st == 403, 'status=%s' % st)
 
     # --- 签名错 ---
     st, body = http_post(base3, enc_body, {

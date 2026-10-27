@@ -38,12 +38,12 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 10 个，合计 **199 项**（platform 42 · release-workflow 26 · audit-commands 24 · setup-py3 22 · relay-do 21 · remote 20 · mirror-drift 19 · hooks 10 · gui-recursion 8 · relay 7） |
-| CI | `ci.yml` **27 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
+| 测试脚本 | 13 个，合计 **299 项**（modes 60 · **platform 46** · release-workflow 26 · audit-commands 24 · setup-py3 22 · **remote-notify 22** · relay-do 21 · remote 20 · mirror-drift 19 · gui-modes 14 · hooks 10 · gui-recursion 8 · relay 7） |
+| CI | `ci.yml` **28 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
 | 文案/注册表 | Perl `%S` 133 · GUI `_S` 64 · `setup.sh msg()` 44 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
-| 泄漏 | 59 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
+| 泄漏 | 65 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
 
 审计记录：`docs/audits/audit_advisor_v0.2.1.md`（v0.2.1 快照）、`docs/audits/audit_advisor_v0.2.1_r2.md`（之后的第二轮）。
 
@@ -52,7 +52,7 @@
 | 文件 | 作用 |
 |---|---|
 | `.editorconfig` | utf-8 / LF / 2 空格（`.pl` `.py` 为 4） |
-| `.github/workflows/ci.yml` | 27 个步骤：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、6 个卡口脚本、12 个测试脚本、泄漏 + 换行检查；矩阵 ubuntu + macos |
+| `.github/workflows/ci.yml` | 28 个步骤：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、6 个卡口脚本、13 个测试脚本、泄漏 + 换行检查；矩阵 ubuntu + macos |
 | `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；**推之前先跑反拉保护**（会覆盖对方提交就中止，见 §8.2）；凭据 `oauth2:`→`undersail:` 自动回退 |
 | `docs/design_doc_advisor.md` | 架构、JSON 行协议、加密密钥层级、已知限制、改动规则 |
 | `docs/releases/` | 发布说明，文件名 = tag 名 |

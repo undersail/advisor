@@ -180,45 +180,119 @@ python3 scripts/live-check.py deepseek
 
 ## 9. 平台端收发（真机 + 真平台）
 
-本地已用自造凭据验过验签/解密/白名单/回推（`scripts/test-platform.py` 42 项），
-真机要验的是「平台真的能连上你」：
+本地已经把**确定性部分**验干净了，不需要你重复：
 
-### 9.1 回调接入（企微 / 飞书，需要真凭据）
+| 脚本 | 项数 | 覆盖 |
+|---|---|---|
+| `scripts/test-platform.py` | 46 | 验签、AES 解密、ReceiveId、防重放、去重、超长切分、报文形态、0600、只听 127.0.0.1、中继投递 |
+| `scripts/test-remote-notify.py` | 22 | 企微 markdown / 飞书 text 报文、转义、平台报错退出码、`http://` 明文被拒 |
+| `scripts/test-remote.py` / `test-relay.py` / `test-relay-do.mjs` | 20 / 7 / 21 | 网关白名单与只读、中继契约、DO 队列语义 |
 
-- [ ] `perl remote/platform.pl --init` 录入凭据，`--check` 显示配置齐全
-- [ ] 企微：管理后台填回调 URL（`https://<域名>/wecom`），点保存能通过验证
-      （会打到你的 `--serve` 上，走 GET + echostr 解密）
-- [ ] 手机上给应用发一条消息，几秒内收到回复
-- [ ] 把 `ALLOW` 里删掉自己，再发一条 —— 应该**没有回复**，
-      但 `~/.claude-agent/audit.log` 里出现 `drop_sender`
-- [ ] `--test-push "测试" --to <你的ID>` 能收到
-- [ ] 飞书：事件订阅里填回调地址，能通过 challenge 验证；发消息有回复
+所以要你验的是**自动化覆盖不到的那一层**：凭据真不真、回调地址通不通、白名单里的
+ID 对不对、你 CF 账号上的真实部署、以及手机上真实的观感。按下面顺序做，每步都有
+「期望」和「不对时先看哪里」。
 
-### 9.2 中继模式（家里 Mac 在 NAT 后面时）
+### 9.0 先备齐三样（缺一样后面都走不通）
 
-不需要真实平台凭据也能验：
+- [ ] **凭据**：企微 = CorpID + 应用 AgentId + 应用 Secret + 回调 Token + EncodingAESKey（43 位）；
+      飞书 = App ID + App Secret +（加密时）Encrypt Key + Verification Token
+- [ ] **公网可达的回调地址**：任何能给你一个公网 `https://` 地址的穿透/反代都行
+      （本机默认只听 `127.0.0.1:8099`，这是故意的：回调正文是明文消息）
+- [ ] **你自己的平台 ID**：企微填 UserID（不是昵称），飞书填 `open_id`（`ou_` 开头）
 
-```bash
-# 1) 本地起一个真 DO（不登录、不花钱）
-cd remote/relay && npx wrangler dev --local --port 8811 --var RELAY_TOKEN:devtoken
-#    /health 应返回 {"ok":true,...,"backend":"durable-object"}
+### 9.1 回调接入（企微）
 
-# 2) 不用 wrangler 的队列逻辑测试
-node scripts/test-relay-do.mjs        # 21 项，含取走即删 / 先进先出 / 并发不重号
+- [ ] `perl remote/platform.pl --init` 录入凭据 → `perl remote/platform.pl --check`
+      期望：`配置齐全：platform=wecom port=8099`
+- [ ] `perl remote/platform.pl --serve`
+      期望：`监听 127.0.0.1:8099（platform=wecom）` + 那句「默认只监听本机」的提醒
+- [ ] `~/.claude-agent/remote.conf` 里写 `ALLOW = <你的 UserID>`（白名单只有这一处）
+- [ ] 穿透把 `https://<你的地址>/wecom` 转到 `127.0.0.1:8099`
+- [ ] 企微后台「应用 → 接收消息 → API 接收」填 URL / Token / EncodingAESKey，点保存
+      期望：**保存能通过**（平台会打 GET + echostr，服务端解密后原样回明文）
+      不对时：`~/.claude-agent/audit.log` 里会是 `wecom_verify_fail`（签名或 Token 不对）
+      或 `wecom_receiveid_fail`（EncodingAESKey 抄错 / 不是这个企业的）
+- [ ] 手机上给这个应用发一条「列一下当前目录」
+      期望：3 秒内先收到「收到，正在处理…（完成后把结果发给你）」，随后收到真正的结果
+- [ ] 预期之外的：`--serve` 前台窗口里应能看到请求进来；关掉窗口后手机再发就不通了
+      （没有做开机自启/守护，这是现状，不是 bug）
 
-# 3) 平台端切到中继模式：在 ~/.claude-agent/platform.conf 里加
-#    RELAY_URL = http://127.0.0.1:8811
-#    RELAY_TOKEN = devtoken
-#    RELAY_POLL = 3
-perl remote/platform.pl --check       # 应提示「中继模式」
-perl remote/platform.pl --serve       # 启动后不再本地起网关
+### 9.2 回调接入（飞书）
 
-# 4) 家里 Mac 那头取消息
-perl remote/gateway.pl --poll         # 从队列拉取 → 处理 → 结果写回
-```
+- [ ] `--init` 选飞书 → `--check` 显示 `platform=feishu`
+- [ ] `--serve` 后，飞书开放平台「事件订阅」填 `https://<你的地址>/feishu`
+      期望：challenge 校验通过（明文与加密两种都要能过；填了 Encrypt Key 就走加密）
+- [ ] 把应用权限加上「接收消息」与「以应用身份发消息」，然后手机上私聊这个应用
+      期望：和企微一样，先「处理中」再结果
+- [ ] 白名单里填你的 `open_id`（不是手机号/邮箱）
 
-确认点：消息在手机发出后**不会**在本机起 `gateway.pl --stdin`；`--poll` 取到消息并
-处理后，手机能收到结果。
+### 9.3 边界与安全（这几条最容易被忽略，但正是远程的风险面）
+
+- [ ] **白名单外的人**：换一个不在 `ALLOW` 里的账号发消息
+      期望：手机上**没有任何回复**（不回「无权限」，避免暴露机器人存在），
+      `audit.log` 里出现 `drop_sender from=<那个人>`
+- [ ] **远程不能写、不能执行**：让它「在 /tmp 建个文件」「跑一下 rm -rf 测试目录」
+      期望：被拒绝（远程工具只有 `read_file` / `list_dir`），并且 `/tmp` 下没有新文件
+- [ ] **重投不会跑两遍**：手机发一条后立刻断网再恢复（平台会重投）
+      期望：agent 只跑一次；`audit.log` 里有 `duplicate_drop`
+- [ ] **超长回答**：让它输出 3000 字以上
+      期望：拆成多条发到手机，每条开头有「（1/3）」这样的编号，内容不丢字
+- [ ] **凭据不落地到日志**：`grep -c "你的 Secret\|你的 AESKey" ~/.claude-agent/audit.log`
+      期望：0（`audit.log` 只有事件名与长度）
+- [ ] **凭据文件权限**：`ls -l ~/.claude-agent/platform.conf`
+      期望：`-rw-------`（0600）
+
+### 9.4 中继模式（家里 Mac 在 NAT 后面，不在本机验）
+
+先把**真的 CF Worker 部署一次**（这是自动化完全没碰过的一段）：
+
+- [ ] `cd remote/relay && npx wrangler login`（用你自己的 Cloudflare 账号）
+- [ ] `npx wrangler deploy`
+      期望：输出里有 `https://advisor-relay.<你的子域>.workers.dev`
+      （Durable Object 不用手建、不用填 id：`wrangler.toml` 里只有绑定名）
+- [ ] `npx wrangler secret put RELAY_TOKEN`（随便一串长随机）
+- [ ] `curl https://<你的 workers.dev>/health`
+      期望：`{"ok":true,...,"backend":"durable-object"}`
+- [ ] `curl -X POST https://<你的>/push -H "authorization: Bearer <刚才的 RELAY_TOKEN>" ...`
+      不带这个头时**必须是 401**（说明鉴权没被绕过）
+
+再接起来（平台端在公网机器 / Mac 端在家里）：
+
+- [ ] 平台端 `platform.conf` 加 `RELAY_URL = https://<你的>/ push 前缀` + `RELAY_TOKEN = <同一串>` + `RELAY_POLL = 3`
+- [ ] `platform.pl --check` 提示「中继模式」，`--serve` 后**不再本地起网关**
+- [ ] 家里 Mac：`perl remote/gateway.pl --poll`（白名单、审计、只读仍在这一侧）
+- [ ] 手机发一条
+      期望：平台端不出现 `gateway.pl --stdin`；Mac 侧 `--poll` 取到并处理后，手机收到结果
+
+本机可以先不花钱预演一遍（`npx wrangler dev --local` + `node scripts/test-relay-do.mjs`），
+但那**证明不了**你账号上的部署与 secret 配置对不对。
+
+### 9.5 出站通知（档①，1 分钟，随时可验）
+
+- [ ] `~/.claude-agent/remote.conf` 写 `WECOM_WEBHOOK = https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...`
+- [ ] `perl remote/notify.pl --test`
+      期望：`通知已发送：WECOM_WEBHOOK`，群里收到「advisor 通知连通性测试 —— 收到即成功。」
+- [ ] 长任务收尾：`echo "构建完成" | perl remote/notify.pl -`
+      期望：群里收到 markdown 消息，中文与换行正常
+
+### 9.6 不对时先看哪里（按症状查，别乱改配置）
+
+| 症状 | 先看 | 常见原因 |
+|---|---|---|
+| 平台后台保存回调 URL 失败 | `audit.log` 的 `wecom_verify_fail` | Token 不一致 |
+| 同上 | `audit.log` 的 `wecom_receiveid_fail` | EncodingAESKey 抄错/不是这个企业的 |
+| 手机发了没反应、日志里没有 `inbound` | 穿透/反代 | 回调没真正打到本机 8099 |
+| 日志有 `inbound` 但没有 `gateway_done` | 本机 agent | 本机 key 失效或模型不通（先本地跑一次 `advisor`） |
+| 有 `gateway_done` 但手机没收到 | `audit.log` 的 `wecom_send_fail` / `feishu_send_fail` | 发送权限没开（飞书要「以应用身份发消息」）、`--to` 的 ID 不是 UserID/open_id |
+| 中继 `/push` 一直 401 | Worker 的 `RELAY_TOKEN` | 两端的 token 不一致 |
+| 手机收到的字是 `\u4f60\u597d` 这样的转义 | 中继侧 | 中继返回的 JSON 必须是 UTF-8 原文，不能 `\u` 转义 |
+
+### 9.7 这一轮新增的两处加固（顺手记一下，不必单独验）
+
+- `platform.pl` 的测试从 42 项加到 46 项：补了「ReceiveId 不是本企业 → 400」
+  「非文本消息不派活」「飞书时间戳过期 → 403」「中继投递的 Authorization 头必须是
+  `Bearer <token>`（不是占位）」。
+- 新增 `scripts/test-remote-notify.py`（22 项）——`notify.pl` 之前只有语法检查。
 
 ## 10. 双击 Advisor.app 打不开
 

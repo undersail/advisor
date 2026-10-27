@@ -70,27 +70,21 @@ perl remote/gateway.pl --poll --max-msgs 5     # 处理 5 条就退出（测试�
 
 ## 验证到什么程度（诚实版）
 
-| 部件 | 自动化测试 | 真机/真实平台 |
+| 部件 | 自动化测试 | 真机 / 真实平台 |
 |---|---|---|
-| `gateway.pl`（白名单 / 审计 / 只读） | `scripts/test-remote.py` 20 项 | 本地 mock 验过 |
-| `relay/worker.js`（Worker + DO 队列） | `test-relay.py` 7 项 + `test-relay-do.mjs` 21 项 | 只跑过 `wrangler dev --local`，**没在你自己的 CF 账号上部署过** |
-| `platform.pl`（企微/飞书回调收 + 发） | **只有 `perl -c` 与分层卡口** | **一次都没连过真实平台** |
+| `gateway.pl`（白名单 / 审计 / 只读） | `scripts/test-remote.py` 20 项 | 本地假模型 + 假 webhook 全过 |
+| `platform.pl`（企微 / 飞书回调收 + 发） | `scripts/test-platform.py` **46 项** | **一次都没连过真实平台** |
+| `notify.pl`（档① 出站通知） | `scripts/test-remote-notify.py` **22 项** | 同上：只对假 webhook 发过 |
+| `relay/worker.js`（Worker + DO 队列） | `test-relay.py` 7 项 + `test-relay-do.mjs` 21 项 | 只跑过 `wrangler dev --local`，**没在你的 CF 账号上部署过** |
 
-`platform.pl` 里最需要真凭据才能验的几段——AES-256-CBC 解密、`sha1(sort(token,timestamp,nonce,encrypt))`
-验签、企微明文尾部 ReceiveId 校验、`access_token` / `tenant_access_token` 取用、发送接口的
-错误码处理——目前**只有实现、没有自动化覆盖**。第一次真正跑通必须在有凭据的环境里联调，
-mock 验不出这类问题。
+自动化覆盖到的是**确定性部分**：验签（企微 `sha1(sort(token,ts,nonce,encrypt))`、飞书
+`sha256(ts+nonce+key+body)`）、AES-256-CBC 解密、PKCS#7 去填充、企微 ReceiveId 完整性、
+时间戳防重放、按 MsgId 去重、超长回复按字节切分、报文形态、凭据 0600、默认只听 127.0.0.1、
+以及"密钥不外泄到日志"。
 
-要真连一次，需要你在平台侧准备：
-
-1. **真实凭据**：企微 corp id + secret + agentid + EncodingAESKey + Token，或飞书 app id/secret；
-2. **公网可达的回调地址**（`https://<域名或穿透地址>/wecom` 或 `/feishu`），本机 NAT 后
-   需要内网穿透；
-3. **白名单填真实 UserID / open_id**（`~/.claude-agent/remote.conf` 的 `ALLOW`）。
-
-这三样我这边都没有，也不该替你申请。所以当前能用的形态是两种：**平台端收发**（手机 →
-回调 → `platform.pl` → `gateway.pl` → 回复推回手机，需要上面三样）和**中继拉取**
-（Mac 主动 `/pull` → 处理 → 结果进 `/outbox`，不依赖公网回调）。
+**覆盖不到、必须真连的**：平台侧凭据是否真的有效、回调地址是否真的公网可达、白名单里的
+UserID / open_id 是否真的对、平台错误码在实际配额/权限下的表现、以及 CF 账号上的真实部署。
+这几项的准备与逐条验收步骤写在 `docs/manual_test_mac.md` §12。
 
 ## 平台端收发（`platform.pl`）
 
