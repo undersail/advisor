@@ -25,6 +25,7 @@
 | CI / Gitee 镜像 / 文档骨架 | ✅ 本仓已落位（§1）|
 | **Gitee 反拉保护**（会覆盖对方提交就中止 + 反拉流程） | ✅ 本仓已实现（§8.2）|
 | **macOS 兼容卡口**（bash 3.2 两类坑 + GUI 自递归 + .app 弹窗） | ✅ 已实现（`check-shell-var-glue.py` / `test-gui-recursion.py` / `test-setup-py3.py`）|
+| **交互模式：bypass（减少确认）** | 📝 方案讨论中（未开发），设计见 `docs/design_doc_advisor.md` §10 |
 | **Tier A（10.6 ~ 10.8）** | ❌ 未开工 |
 | ~~微信接入~~ | 已排除（认证主体 + 公网回调 + 5 秒硬超时）|
 
