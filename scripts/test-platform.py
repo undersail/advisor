@@ -297,8 +297,8 @@ def main():
 
     print('环境: %s %s | openssl: %s | perl: %s' % (
         sys.platform, sys.version.split()[0],
-        subprocess.run(['openssl', 'version'], capture_output=True, text=True).stdout.strip(),
-        subprocess.run(['/usr/bin/perl', '-e', 'print $]'], capture_output=True, text=True).stdout.strip()))
+        subprocess.run(['openssl', 'version'], capture_output=True, stdin=subprocess.DEVNULL, timeout=180, text=True).stdout.strip(),
+        subprocess.run(['/usr/bin/perl', '-e', 'print $]'], capture_output=True, stdin=subprocess.DEVNULL, timeout=180, text=True).stdout.strip()))
     mock, api_port = start_mock_api()
     api_base = 'http://127.0.0.1:%d' % api_port
 
@@ -614,12 +614,12 @@ def main():
     # =============================== 配置与权限 ===============================
     p = subprocess.run(['/usr/bin/perl', PLATFORM, '--check'], cwd=ROOT,
                        env={**os.environ, 'HOME': home, 'PLATFORM_CONF': os.path.join(home, '.claude-agent', 'platform.conf')},
-                       capture_output=True, text=True, encoding='utf-8')
+                       capture_output=True, stdin=subprocess.DEVNULL, timeout=180, text=True, encoding='utf-8')
     check('--check 在配置齐全时报 OK', p.returncode == 0 and '配置齐全' in p.stdout, p.stdout + p.stderr)
 
     p = subprocess.run(['/usr/bin/perl', PLATFORM, '--check'], cwd=ROOT,
                        env={**os.environ, 'HOME': tempfile.mkdtemp(), 'PLATFORM_CONF': '/nonexistent/x.conf'},
-                       capture_output=True, text=True, encoding='utf-8')
+                       capture_output=True, stdin=subprocess.DEVNULL, timeout=180, text=True, encoding='utf-8')
     check('--check 在缺配置时报失败并指出缺什么', p.returncode != 0 and '缺少' in p.stdout,
           p.stdout + p.stderr)
 

@@ -33,7 +33,8 @@ def check(name, ok, detail=None):
 
 
 def run(cmd, cwd, env=None):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env)
+    return subprocess.run(cmd, cwd=cwd, capture_output=True, stdin=subprocess.DEVNULL, timeout=180,
+                          text=True, encoding='utf-8', errors='replace', env=env)
 
 
 def git(cwd, *args):

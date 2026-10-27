@@ -31,6 +31,33 @@ SETUP = os.path.join(HERE, '..', 'setup.sh')
 results = []
 
 
+
+def srun(cmd, **kw):
+    """跑子进程的统一入口。
+
+    两条硬约定，都是被 macOS 上的挂死教育过的：
+      · stdin=DEVNULL —— 生成的 wrapper 里有交互式 `read`（选模型），
+        CI 的 stdin 是条不关闭的管道，不给 DEVNULL 就会永久阻塞；
+      · timeout —— 挂住时要快速失败并报出原因，而不是耗掉整个 job 的超时预算。
+    """
+    kw.setdefault('stdin', subprocess.DEVNULL)
+    kw.setdefault('capture_output', True)
+    kw.setdefault('text', True)
+    kw.setdefault('encoding', 'utf-8')
+    kw.setdefault('errors', 'replace')
+    kw.setdefault('timeout', 120)
+    try:
+        return subprocess.run(cmd, **kw)
+    except subprocess.TimeoutExpired:
+        class _T:
+            returncode = -1
+            stdout = ''
+            stderr = '[超时] 命令 %d 秒未退出（大概率在等输入）: %s' % (
+                kw['timeout'], ' '.join(cmd)[:120])
+        print('::error::子进程超时，几乎一定是卡在等输入：%s' % ' '.join(cmd)[:160])
+        return _T()
+
+
 def check(name, ok, detail=None):
     results.append((name, ok))
     print(('  ok    ' if ok else '  FAIL  ') + name + ((' | ' + str(detail)) if detail and not ok else ''))
@@ -90,8 +117,8 @@ def main():
         empty = os.path.join(work, 'empty')
         os.makedirs(empty)
         func_empty = redirect(func, empty)
-        r = subprocess.run(['/bin/bash', '-c', 'PATH=%s; %s; PY3="$(find_python3 || true)"; printf "%%s" "$PY3"'
-                            % (empty, func_empty)], capture_output=True, text=True)
+        r = srun(['/bin/bash', '-c', 'PATH=%s; %s; PY3="$(find_python3 || true)"; printf "%%s" "$PY3"'
+                            % (empty, func_empty)], )
         check('没有任何可用 python3 时不选中任何路径', r.stdout.strip() == '',
               '选中了 %r' % r.stdout.strip())
 
@@ -103,8 +130,8 @@ def main():
             f.write('#!/bin/bash\nexit 0\n')
         os.chmod(fake, 0o755)
         func_ok = redirect(func, okdir)
-        r = subprocess.run(['/bin/bash', '-c', 'PATH=%s; %s; PY3="$(find_python3 || true)"; printf "%%s" "$PY3"'
-                            % (okdir, func_ok)], capture_output=True, text=True)
+        r = srun(['/bin/bash', '-c', 'PATH=%s; %s; PY3="$(find_python3 || true)"; printf "%%s" "$PY3"'
+                            % (okdir, func_ok)], )
         check('找到可执行的 python3 时选中它', r.stdout.strip() == fake, '得到 %r' % r.stdout.strip())
 
         # c) 同名但不可执行 → 不能被选中（这正是「看着有、其实用不了」的那类坑）
@@ -115,8 +142,8 @@ def main():
             f.write('#!/bin/bash\nexit 0\n')
         os.chmod(dead, 0o644)
         func_no = redirect(func, nodir)
-        r = subprocess.run(['/bin/bash', '-c', 'PATH=%s; %s; PY3="$(find_python3 || true)"; printf "%%s" "$PY3"'
-                            % (nodir, func_no)], capture_output=True, text=True)
+        r = srun(['/bin/bash', '-c', 'PATH=%s; %s; PY3="$(find_python3 || true)"; printf "%%s" "$PY3"'
+                            % (nodir, func_no)], )
         check('不可执行的 python3 不被选中（这正是线上那次故障的形态）', r.stdout.strip() == '',
               '选中了 %r' % r.stdout.strip())
     finally:
@@ -138,7 +165,7 @@ def main():
         with open(path, 'w', encoding='utf-8') as f:
             f.write(wrapper + '\n')
         os.chmod(path, 0o755)
-        r = subprocess.run(['/bin/bash', path], capture_output=True, text=True)
+        r = srun(['/bin/bash', path])
         check('解释器不存在时 wrapper 以非 0 退出', r.returncode != 0, '退出码 %s' % r.returncode)
         check('解释器不存在时给出人能看懂的提示（提到 python.org）',
               'python.org' in r.stderr, r.stderr.strip()[:160])
@@ -163,9 +190,8 @@ def main():
             def run_path_ensure(profile, shell='/bin/bash'):
                 script = 'msg() { :; }\n' + pfunc + \
                          '\nPATH_WROTE_TO=""\npath_ensure "$1"\nprintf "%%s" "$PATH_WROTE_TO"\n'
-                return subprocess.run(['/bin/bash', '-c', script, 'bash', profile],
-                                      capture_output=True, text=True,
-                                      env=dict(os.environ, SHELL=shell))
+                return srun(['/bin/bash', '-c', script, 'bash', profile],
+                                                                            env=dict(os.environ, SHELL=shell))
 
             # a) 文件不存在 → 创建并写入
             missing = os.path.join(pwork, 'new_profile')
@@ -201,9 +227,8 @@ def main():
             with open(os.path.join(home, 'bin', 'advisor'), 'w') as f:
                 f.write('#!/bin/bash\necho ok\n')
             os.chmod(os.path.join(home, 'bin', 'advisor'), 0o755)
-            r = subprocess.run(['/bin/bash', '-lc', 'command -v advisor'],
-                               capture_output=True, text=True,
-                               env=dict(os.environ, HOME=home))
+            r = srun(['/bin/bash', '-lc', 'command -v advisor'],
+                                                              env=dict(os.environ, HOME=home))
             check('写完后登录 shell 能解析到 advisor（端到端）',
                   home in r.stdout, r.stdout.strip()[:120] or r.stderr.strip()[:120])
         finally:

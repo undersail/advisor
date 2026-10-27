@@ -30,7 +30,8 @@ def check(name, ok, detail=None):
 
 
 def git(cwd, *args, env=None):
-    return subprocess.run(['git'] + list(args), cwd=cwd, capture_output=True, text=True, encoding='utf-8', errors='replace', env=env)
+    return subprocess.run(['git'] + list(args), cwd=cwd, capture_output=True, stdin=subprocess.DEVNULL, timeout=180,
+                          text=True, encoding='utf-8', errors='replace', env=env)
 
 
 def make_repo(tmp):
