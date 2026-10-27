@@ -726,6 +726,21 @@ my %S = (
         en => "no channel to ask on (neither terminal nor GUI)",
         zh => "没有可以确认的通道（既无终端也无界面）",
     },
+    confirm_cmd_write_outside => {
+        ja => "このコマンドは許可範囲の外に書き込みます: %s\n  %s",
+        en => "This command writes outside the writable roots: %s\n  %s",
+        zh => "这条命令会写到可写范围之外：%s\n  %s",
+    },
+    cmd_write_refused     => {
+        ja => "コマンドの書き込み先が許可範囲外のため実行しません: %s（%s）\n",
+        en => "Not running it: the command writes outside the writable roots: %s (%s)\n",
+        zh => "命令的写入目标在可写范围外，已拒绝执行：%s（%s）\n",
+    },
+    cmd_write_always_denied => {
+        ja => "コマンドの書き込み先が永久禁止の場所です: %s\n",
+        en => "The command writes to a location that is never allowed: %s\n",
+        zh => "命令的写入目标是永久禁止的位置：%s\n",
+    },
     write_out_of_scope   => {
         ja => "書き込み先が許可範囲の外です: %s\n  /allow-write <dir> で追加できます（/allow-write で一覧）\n",
         en => "That path is outside the writable roots: %s\n  add it with /allow-write <dir> (list them with /allow-write)\n",
@@ -2697,7 +2712,10 @@ if ($TOOLS_ALLOW ne '') {
 sub confirm {
     my ($msg, $opts) = @_;
     my $danger = ($opts && ref $opts eq 'HASH' && $opts->{danger}) ? 1 : 0;
-    my $wait   = $danger ? confirm_timeout_secs() : 0;
+    # strict: 「人が居なければ拒否」で閉じたい確認（危険コマンド、可写範囲外への
+    # 書き込み）。danger は文言（★危険）のため、strict は待ち時間のため。
+    my $strict = ($opts && ref $opts eq 'HASH' && $opts->{strict}) ? 1 : $danger;
+    my $wait   = $strict ? confirm_timeout_secs() : 0;
     $CONFIRM_REASON = '';
 
     # GUI モード: 確認イベントを送って、返ってくる reply を待つ。
@@ -2733,7 +2751,7 @@ sub confirm {
 
     # 端末が無い（パイプ実行など）なら、危険な操作は聞かずに拒否する。
     # 聞く相手が居ないのに待つのは、固まるだけで何も安全にしない。
-    if ($danger && !(-t STDIN)) {
+    if ($strict && !(-t STDIN)) {
         $CONFIRM_REASON = 'nochannel';
         return 0;
     }
@@ -3208,6 +3226,87 @@ sub is_dangerous {
     return '';
 }
 
+
+# ------------------------------------------------------------------
+# コマンド文字列の「書き込み先らしきもの」を拾う（保守的・best effort）
+#
+# shell の文法を完全に解析はしない。拾えるものだけ拾い、拾えなかったものは
+# 従来どおり「危険コマンドの確認」に任せる。狙いは『write_file だけが範囲の
+# 対象』という穴を塞ぐこと。cp/mv/rm/tee/リダイレクトくらいは実務上ほぼ全て。
+# ------------------------------------------------------------------
+sub _split_shell_words {
+    my ($seg) = @_;
+    my @w;
+    my $cur = '';
+    my $q   = '';
+    for my $c (split(//, $seg)) {
+        if ($q ne '') {
+            if ($c eq $q) { $q = ''; next; }
+            $cur .= $c;
+            next;
+        }
+        if ($c eq '"' || $c eq "'") { $q = $c; next; }
+        if ($c eq ' ' || $c eq "\t") { push @w, $cur if $cur ne ''; $cur = ''; next; }
+        $cur .= $c;
+    }
+    push @w, $cur if $cur ne '';
+    return @w;
+}
+
+sub shell_write_targets {
+    my ($cmd) = @_;
+    return () unless defined $cmd && $cmd ne '';
+    my @targets;
+
+    # 1) リダイレクト（> / >> / 2> / &>）
+    while ($cmd =~ /(?:^|[^0-9&>])>>?\s*([^\s;|&>()]+)/g) {
+        my $t = $1;
+        $t =~ s/^['"]//;
+        $t =~ s/['"]$//;
+        push @targets, $t;
+    }
+
+    # 2) 代表的なコマンドの書き込み先
+    for my $seg (split(/\|\||&&|;|\|/, $cmd)) {
+        my @w = _split_shell_words($seg);
+        next unless @w;
+        my $c = $w[0];
+        $c =~ s{.*/}{};
+        my @args = grep { !m{^-} } @w[ 1 .. $#w ];
+        if ($c eq 'tee') {
+            push @targets, @args;
+        }
+        elsif ($c eq 'cp' || $c eq 'mv' || $c eq 'ln' || $c eq 'install') {
+            push @targets, $args[-1] if @args;
+        }
+        elsif ($c eq 'rm' || $c eq 'touch' || $c eq 'mkdir') {
+            push @targets, @args;
+        }
+    }
+
+    my (@out, %seen);
+    for my $t (@targets) {
+        next if $t eq '' || $t eq '-';
+        next if $t =~ m{^/dev/(?:null|stdout|stderr|tty|zero|fd/)};   # 無害
+        next if $t =~ m{^&};
+        next if $seen{$t}++;
+        push @out, $t;
+    }
+    return @out;
+}
+
+# ('hard'|'scope', path) を返す。'' 相当（該当なし）なら空リスト。
+sub shell_scope_violation {
+    my ($cmd) = @_;
+    for my $t (shell_write_targets($cmd)) {
+        my $abs = resolve_path($t);
+        next if $abs eq '';
+        return ('hard', $t) if write_hard_denied($abs);
+        unless (write_allowed($t)) { return ('scope', $t); }
+    }
+    return ();
+}
+
 sub shell_timeout_secs {
     my $v = defined $ENV{CLAUDE_SHELL_TIMEOUT} ? $ENV{CLAUDE_SHELL_TIMEOUT} : '';
     return 120 unless $v =~ /^\d+$/;
@@ -3486,22 +3585,48 @@ sub run_tool {
     elsif ($name eq 'run_shell') {
         my $command = $input->{command};
         my $danger  = is_dangerous($command);
+        # コマンド経由の書き込みも可写範囲の対象にする（write_file だけが
+        # 対象という穴を塞ぐ）。識別できたものだけ見る保守的な実装。
+        my ($vkind, $vpath) = shell_scope_violation($command);
+        $vkind = '' unless defined $vkind;
+        $vpath = '' unless defined $vpath;
+
+        # 永久禁止の場所への書き込みは、bypass では確認すらせず拒否する
+        # （write_file 側と同じ扱い。聞いても「許可できない」のだから）。
+        if ($MODE eq 'bypass' && $danger eq '' && $vkind eq 'hard') {
+            approvals_log('run_shell', $command, 'refused_cmd_write_hard');
+            emit_note(L('cmd_write_always_denied', $vpath));
+            return L('cmd_write_always_denied', $vpath);
+        }
+
         # 危険なコマンドはどのモードでも確認する（bypass でも例外にしない）。
         # モードが変えるのは「普通のコマンドを聞くかどうか」だけ。
-        my $need_confirm = ($MODE eq 'bypass' && $danger eq '') ? 0 : 1;
+        my $scope_ask = ($vkind eq 'scope') ? 1 : 0;
+        my $need_confirm = ($MODE eq 'bypass' && $danger eq '' && !$scope_ask) ? 0 : 1;
         if ($need_confirm) {
             my $prompt = $danger ne ''
                 ? L('confirm_run_shell_danger', $command)
-                : L('confirm_run_shell', $command);
-            unless (confirm($prompt, { danger => ($danger ne '' ? 1 : 0) })) {
+                : $scope_ask
+                    ? L('confirm_cmd_write_outside', $vpath, $command)
+                    : L('confirm_run_shell', $command);
+            my %opt = (danger => ($danger ne '' ? 1 : 0),
+                       strict => (($danger ne '' || $scope_ask) ? 1 : 0));
+            unless (confirm($prompt, \%opt)) {
                 if ($danger ne '') {
                     approvals_log('run_shell', $command, 'refused_danger');
                     emit_note(L('danger_refused', danger_reason_text()));
                     return L('danger_refused', danger_reason_text());
                 }
+                if ($scope_ask) {
+                    approvals_log('run_shell', $command, 'refused_cmd_write_scope');
+                    emit_note(L('cmd_write_refused', $vpath, danger_reason_text()));
+                    return L('cmd_write_refused', $vpath, danger_reason_text());
+                }
                 return L('run_cancelled');
             }
             approvals_log('run_shell', $command, 'confirmed_danger') if $danger ne '';
+            approvals_log('run_shell', $command, 'confirmed_cmd_write_scope')
+                if $scope_ask && $danger eq '';
         }
         else {
             approvals_log('run_shell', $command, 'auto');

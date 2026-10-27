@@ -11,7 +11,7 @@
 | Tier B（10.9 ~ 10.13+）终端 + GUI | ✅ 上游已实现 |
 | 双提供商（Claude / Gemini） | ✅ 上游已实现 |
 | **7 提供商（+ OpenAI / DeepSeek / 通义千问 / Kimi / GLM）** | ✅ 本 fork 已实现（M4）|
-| **中文化（跟随系统语言，三语 130 + 64 条）** | ✅ 本 fork 已实现（M2）|
+| **中文化（跟随系统语言，三语 133 + 64 条）** | ✅ 本 fork 已实现（M2）|
 | 加密历史 + 口令/合言葉双恢复 | ✅ 已实现 |
 | 日英双语（自动跟随系统语言） | ✅ 已实现 |
 | 内嵌 GUI key 注册（7 家下拉） | ✅ 已实现（M4-GUI）|
@@ -42,7 +42,7 @@
 | CI | `ci.yml` **27 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
-| 文案/注册表 | Perl `%S` 130 · GUI `_S` 64 · `setup.sh msg()` 44 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
+| 文案/注册表 | Perl `%S` 133 · GUI `_S` 64 · `setup.sh msg()` 44 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
 | 泄漏 | 59 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
 
 审计记录：`docs/audits/audit_advisor_v0.2.1.md`（v0.2.1 快照）、`docs/audits/audit_advisor_v0.2.1_r2.md`（之后的第二轮）。
@@ -85,7 +85,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **130**（交互模式新增 28 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `agent/claude-agent.pl` → `my %S` | **133**（交互模式新增 31 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
 | `gui/advisor_gui.py` → `_S` | **64** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|日本語ラベル|English label` |
@@ -108,7 +108,7 @@ need_key => { ja => '%s を設定してください', en => 'Please set %s', zh 
 ```
 
 理由：加语言不用改索引、不会错位。改动面其实很小 —— **读取点各自只有 1 处**
-（`L()` 函数），剩下 130 + 64 条是纯数据替换。
+（`L()` 函数），剩下 133 + 64 条是纯数据替换。
 
 **B. 语言解析改成三分支 + 回退链**
 
@@ -144,7 +144,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 补中文（现 130 条，随功能增长）
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 133 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 64 条）
@@ -161,7 +161,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 - `setup.sh` 的 heredoc 里嵌了给 `~/bin/advisor` 生成的代码，**那段是生成给
   bash 3.2 用的**，中文字面量在里面要留意引号嵌套
 - 别翻译 `run_shell` 类工具名、`--flag` 名、环境变量名 —— 只翻人类可读文案
-- 上游日后同步会在这 130+64 条上冲突，**同步时要整段手动合并**，不要盲信
+- 上游日后同步会在这 133+64 条上冲突，**同步时要整段手动合并**，不要盲信
   `git merge` 的自动结果
 
 **规模**：约 242 条文案 + 6 处逻辑分派。**风险低**（纯数据 + 一处读取逻辑），

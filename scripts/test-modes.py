@@ -41,7 +41,12 @@ def check(cond, name, detail=''):
         print('  ok   %s' % name)
     else:
         FAIL += 1
-        print('  FAIL %s%s' % (name, ('  ← %s' % detail) if detail else ''))
+        msg = '  FAIL %s%s' % (name, ('  ← %s' % detail) if detail else '')
+        print(msg)
+        # GitHub の注釈は ::error:: しか拾わない。stdout にだけ出すと
+        # 「赤いのに理由が分からない」になる（実際に一度そうなった）。
+        print('::error::test-modes: %s%s'
+              % (name, (' | ' + detail.replace('\n', ' / ')[:400]) if detail else ''))
 
 
 # --------------------------------------------------------------- 假端点
@@ -149,9 +154,9 @@ class Agent:
             return None
 
     def _read_hello(self):
-        deadline = time.time() + 20
+        deadline = time.time() + 45
         while time.time() < deadline:
-            line = self._readline(2)
+            line = self._readline(5)
             if line is None:
                 continue
             line = line.strip()
@@ -164,13 +169,25 @@ class Agent:
             self.events.append(obj)
             if obj.get('t') == 'init' or ('provider' in obj and 'model' in obj):
                 self.hello = obj
+                print('::notice::agent 握手 OK（mode=%s model=%s）'
+                      % (obj.get('mode'), obj.get('model')))
                 return
+        # 握手が来ない = agent が起動していない。理由を出さないと CI では
+        # ただ「赤い」だけになる。
+        rc = self.p.poll()
+        err = ''
+        try:
+            err = (self.p.stderr.read() or '')[-1200:]
+        except Exception:
+            pass
+        print('::error::agent 没有完成握手（pid 状态 %r）stderr=%s'
+              % (rc, err.replace('\n', ' / ')[:900]))
 
     def send(self, obj):
         self.p.stdin.write(json.dumps(obj) + '\n')
         self.p.stdin.flush()
 
-    def collect(self, timeout=25, stop_on=None, answer=None):
+    def collect(self, timeout=45, stop_on=None, answer=None):
         """读到 turn_done（或 stop_on 条件满足）为止；answer 用来应答 confirm。"""
         deadline = time.time() + timeout
         events = []
@@ -197,9 +214,17 @@ class Agent:
                 break
         return events
 
-    def turn(self, text, answer=None, timeout=25):
+    def turn(self, text, answer=None, timeout=45):
         self.send({'t': 'user', 'text': text})
         return self.collect(timeout=timeout, answer=answer)
+
+    def stderr_text(self):
+        try:
+            if self.p.poll() is not None:
+                return (self.p.stderr.read() or '')[-1500:]
+        except Exception:
+            pass
+        return ''
 
     def stop(self):
         try:
@@ -263,6 +288,7 @@ def confirms(events):
 # ------------------------------------------------------------------ 用例
 def case_default_asks(tmp, base):
     print('[default] 写文件与命令都要确认')
+    print('::notice::[default] 写文件与命令都要确认')
     a = Agent(tmp, 'default', base)
     try:
         SCRIPT.push_tool('write_file', {'path': os.path.join(tmp, 'd.txt'), 'content': 'x'})
@@ -282,6 +308,7 @@ def case_default_asks(tmp, base):
 
 def case_default_declines(tmp, base):
     print('[default] 拒绝就不执行')
+    print('::notice::[default] 拒绝就不执行')
     a = Agent(tmp, 'default', base)
     try:
         target = os.path.join(tmp, 'no.txt')
@@ -295,6 +322,7 @@ def case_default_declines(tmp, base):
 
 def case_accept_edits(tmp, base):
     print('[accept-edits] 范围内自动、范围外仍问、命令仍问')
+    print('::notice::[accept-edits] 范围内自动、范围外仍问、命令仍问')
     a = Agent(tmp, 'accept-edits', base)
     try:
         inside = os.path.join(tmp, 'auto.txt')
@@ -322,6 +350,7 @@ def case_accept_edits(tmp, base):
 
 def case_bypass(tmp, base):
     print('[bypass] 普通操作不问、危险命令必问、超时拒绝')
+    print('::notice::[bypass] 普通操作不问、危险命令必问、超时拒绝')
     a = Agent(tmp, 'bypass', base)
     try:
         p1 = os.path.join(tmp, 'b1.txt')
@@ -357,6 +386,7 @@ def case_bypass(tmp, base):
 
 def case_bypass_timeout(tmp, base):
     print('[bypass] 无人应答时 fail-closed（不是挂住，也不是放行）')
+    print('::notice::[bypass] 无人应答时 fail-closed（不是挂住，也不是放行）')
     a = Agent(tmp, 'bypass', base, {'CLAUDE_CONFIRM_TIMEOUT': '1'})
     try:
         SCRIPT.push_tool('run_shell', {'command': 'echo sudo timeout-case'})
@@ -377,6 +407,7 @@ def case_bypass_timeout(tmp, base):
 
 def case_write_scope(tmp, base):
     print('[bypass] 可写范围：永远拒绝目录、/allow-write 追加、clear')
+    print('::notice::[bypass] 可写范围：永远拒绝目录、/allow-write 追加、clear')
     a = Agent(tmp, 'bypass', base)
     try:
         secret = os.path.join(tmp, '.claude-agent', 'evil.txt')
@@ -417,6 +448,7 @@ def case_write_scope(tmp, base):
 
 def case_shell_limits(tmp, base):
     print('[bypass] 命令超时与输出上限')
+    print('::notice::[bypass] 命令超时与输出上限')
     a = Agent(tmp, 'bypass', base, {'CLAUDE_SHELL_TIMEOUT': '2'})
     try:
         SCRIPT.push_tool('run_shell', {'command': 'sleep 30; echo late'})
@@ -442,6 +474,7 @@ def case_shell_limits(tmp, base):
 
 def case_mode_switch(tmp, base):
     print('[任意] /mode 切换：切到 bypass 需要再输一次 yes')
+    print('::notice::[任意] /mode 切换：切到 bypass 需要再输一次 yes')
     a = Agent(tmp, 'default', base)
     try:
         ev = a.turn('/mode')
@@ -469,6 +502,7 @@ def case_mode_switch(tmp, base):
 
 def case_bad_mode(tmp, base):
     print('[启动] 非法模式值直接报错，不静默回落')
+    print('::notice::[启动] 非法模式值直接报错，不静默回落')
     env = dict(os.environ)
     env.update({'HOME': tmp, 'CLAUDE_PROVIDER': 'deepseek', 'DEEPSEEK_API_KEY': 'dummy',
                 'CLAUDE_MODEL': 'deepseek-chat', 'CLAUDE_BASE_URL': base,
@@ -480,8 +514,59 @@ def case_bad_mode(tmp, base):
     check('nonsense' in (p.stderr or ''), '错误里带上了非法值', p.stderr)
 
 
+def case_cmd_write_scope(tmp, base):
+    print('[bypass] 命令里的写入目标也受可写范围约束')
+    print('::notice::[bypass] 命令里的写入目标也受可写范围约束')
+    a = Agent(tmp, 'bypass', base)
+    outside = tempfile.mkdtemp(prefix='advisor-cmd-outside-')
+    try:
+        target = os.path.join(outside, 'via-cmd.txt')
+
+        SCRIPT.push_tool('run_shell', {'command': 'echo hi > "%s"' % target})
+        SCRIPT.push_text()
+        ev = a.turn('重定向到范围外', answer='n')
+        check(len(confirms(ev)) == 1, '重定向到范围外会弹确认', texts(ev))
+        check(not os.path.exists(target), '按 n 后没有写出去')
+
+        SCRIPT.push_tool('run_shell', {'command': 'echo hi > "%s"' % target})
+        SCRIPT.push_text()
+        a.turn('同样的重定向，这次同意', answer='y')
+        check(os.path.exists(target), '同意后写成功了')
+
+        SCRIPT.push_tool('run_shell', {'command': 'cp "%s" "%s"' % (target, os.path.join(outside, 'cp.txt'))})
+        SCRIPT.push_text()
+        ev = a.turn('cp 到范围外', answer='n')
+        check(len(confirms(ev)) == 1, 'cp 的目标在范围外也会问')
+
+        a.turn('/allow-write ' + outside)
+        SCRIPT.push_tool('run_shell', {'command': 'echo hi > "%s"' % os.path.join(outside, 'after-allow.txt')})
+        SCRIPT.push_text()
+        ev = a.turn('加了白名单后同样的命令')
+        check(len(confirms(ev)) == 0, '加了白名单后不再问', texts(ev))
+
+        # 永久禁止：连确认都不给，直接拒
+        SCRIPT.push_tool('run_shell', {'command': 'echo hi > /etc/advisor-probe-should-not-exist'})
+        SCRIPT.push_text()
+        ev = a.turn('写到 /etc')
+        check(len(confirms(ev)) == 0, '写到 /etc 不弹确认（直接拒）')
+        check('永久禁止' in texts(ev), '说明是永久禁止的位置', texts(ev))
+        check(not os.path.exists('/etc/advisor-probe-should-not-exist'), '/etc 下确实没写出去')
+
+        # 范围外的普通命令仍然照跑（不要因为识别写目标就误伤所有命令）
+        SCRIPT.push_tool('run_shell', {'command': 'echo plain-no-write'})
+        SCRIPT.push_text()
+        ev = a.turn('没有写目标的命令')
+        check(len(confirms(ev)) == 0, '不涉及写入的命令照旧不问')
+        tr = last_tool_results()
+        check('plain-no-write' in tr, '并且真的执行了', tr[:200])
+    finally:
+        a.stop()
+        shutil.rmtree(outside, ignore_errors=True)
+
+
 def case_approvals_log(tmp, base):
     print('[审计] 自动批准写进 approvals.log（0600，不含密钥）')
+    print('::notice::[审计] 自动批准写进 approvals.log（0600，不含密钥）')
     log = os.path.join(tmp, '.claude-agent', 'approvals.log')
     check(os.path.exists(log), 'approvals.log 存在')
     if os.path.exists(log):
@@ -516,6 +601,7 @@ def main():
         case_bypass(tmp, base)
         case_bypass_timeout(tmp, base)
         case_write_scope(tmp, base)
+        case_cmd_write_scope(tmp, base)
         case_shell_limits(tmp, base)
         case_mode_switch(tmp, base)
         case_bad_mode(tmp, base)
