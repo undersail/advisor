@@ -641,6 +641,146 @@ my %S = (
         en => "(no message)",
         zh => "（无发言）",
     },
+    mode_bad             => {
+        ja => "モード名が正しくありません: %s（%s のいずれか）\n",
+        en => "Unknown mode: %s (use one of: %s)\n",
+        zh => "模式名不正确：%s（可选：%s）\n",
+    },
+    mode_banner          => {
+        ja => "モード: %s\n",
+        en => "Mode: %s\n",
+        zh => "模式：%s\n",
+    },
+    mode_now             => {
+        ja => "いまのモード: %s\n",
+        en => "Current mode: %s\n",
+        zh => "当前模式：%s\n",
+    },
+    mode_now_writable    => {
+        ja => "書き込み可: %s\n",
+        en => "Writable: %s\n",
+        zh => "可写目录：%s\n",
+    },
+    temp_dir_label       => {
+        ja => "一時ディレクトリ",
+        en => "temp dir",
+        zh => "临时目录",
+    },
+    mode_now_log         => {
+        ja => "自動承認の記録: %s（/approvals で直近 10 件）\n",
+        en => "Auto-approval log: %s (/approvals shows the last 10)\n",
+        zh => "自动批准记录：%s（/approvals 查看最近 10 条）\n",
+    },
+    mode_switched        => {
+        ja => "モードを %s にしました。\n",
+        en => "Mode is now %s.\n",
+        zh => "模式已切换为 %s。\n",
+    },
+    mode_bypass_warn     => {
+        ja => "\nbypass モードにすると、通常の書き込みとコマンド実行は確認なしで走ります。\n危険なコマンド（削除・権限変更・システム操作など）と、書き込み範囲の外側だけは\nこれまで通り確認します。応答が無い場合は自動的に拒否します。\n切り替えるには yes と入力してください（やめるなら Enter）: ",
+        en => "\nIn bypass mode, ordinary writes and commands run without asking.\nDangerous commands (deletes, permission changes, system actions) and anything\noutside the writable roots still ask, and an unanswered prompt is treated as\nrefused. Type yes to switch (Enter cancels): ",
+        zh => "\n切到 bypass 模式后，普通写文件和执行命令都不再询问。\n危险命令（删除、改权限、系统操作等）以及可写范围之外仍会询问；\n没人应答时按拒绝处理。请输入 yes 切换（直接回车取消）：",
+    },
+    mode_bypass_cancelled => {
+        ja => "切り替えをやめました。\n",
+        en => "Switch cancelled.\n",
+        zh => "已取消切换。\n",
+    },
+    mode_auto_approved   => {
+        ja => "・自動承認: %s  %s\n",
+        en => "- auto-approved: %s  %s\n",
+        zh => "· 已自动批准：%s  %s\n",
+    },
+    confirm_run_shell_danger => {
+        ja => "危険な操作に該当します: %s",
+        en => "This looks dangerous: %s",
+        zh => "这属于危险操作：%s",
+    },
+    danger_banner        => {
+        ja => "★ 危険な操作です。内容を確認してください。\n",
+        en => "* This is a dangerous operation. Please read it carefully.\n",
+        zh => "★ 这是危险操作，请仔细确认。\n",
+    },
+    danger_timeout_note  => {
+        ja => "（%d 秒応答が無かったため拒否しました）\n",
+        en => "(%d seconds with no answer, so it was refused)\n",
+        zh => "（%d 秒无人应答，已按拒绝处理）\n",
+    },
+    danger_refused       => {
+        ja => "危険な操作のため実行しません: %s\n",
+        en => "Not running it because it is a dangerous operation: %s\n",
+        zh => "因为是危险操作，已拒绝执行：%s\n",
+    },
+    danger_declined      => {
+        ja => "確認で拒否されました",
+        en => "declined at the prompt",
+        zh => "在确认时被拒绝",
+    },
+    danger_no_answer     => {
+        ja => "確認に応答がありませんでした（待ち続けると固まるだけなので拒否）",
+        en => "nobody answered the confirmation (refused rather than hanging)",
+        zh => "确认无人应答（继续等待只会把会话卡住，因此拒绝）",
+    },
+    danger_no_channel    => {
+        ja => "確認できる画面がありません（端末もGUIも無い）",
+        en => "no channel to ask on (neither terminal nor GUI)",
+        zh => "没有可以确认的通道（既无终端也无界面）",
+    },
+    write_out_of_scope   => {
+        ja => "書き込み先が許可範囲の外です: %s\n  /allow-write <dir> で追加できます（/allow-write で一覧）\n",
+        en => "That path is outside the writable roots: %s\n  add it with /allow-write <dir> (list them with /allow-write)\n",
+        zh => "该路径不在可写范围内：%s\n  可用 /allow-write <dir> 添加（/allow-write 查看列表）\n",
+    },
+    write_always_denied  => {
+        ja => "この場所への書き込みは許可できません（明示的に追加しても不可）: %s\n",
+        en => "Writes here are never allowed, even if added explicitly: %s\n",
+        zh => "该位置永远不允许写入（即使显式加入也不行）：%s\n",
+    },
+    allow_write_usage    => {
+        ja => "使い方: /allow-write <dir> [<dir>...]  追加 / /allow-write  一覧 / /allow-write clear  追加分を消す\n",
+        en => "Usage: /allow-write <dir> [<dir>...]  add / /allow-write  list / /allow-write clear  remove the added ones\n",
+        zh => "用法：/allow-write <dir> [<dir>...] 添加 / /allow-write 查看 / /allow-write clear 清空追加项\n",
+    },
+    allow_write_added    => {
+        ja => "書き込みを許可しました: %s\n",
+        en => "Now writable: %s\n",
+        zh => "已允许写入：%s\n",
+    },
+    allow_write_cleared  => {
+        ja => "追加した書き込み先をすべて外しました。\n",
+        en => "Removed all additional writable roots.\n",
+        zh => "已清空所有额外可写目录。\n",
+    },
+    allow_write_bad      => {
+        ja => "使えないパスでした: %s\n",
+        en => "Unusable path: %s\n",
+        zh => "路径不可用：%s\n",
+    },
+    shell_timed_out      => {
+        ja => "\n[タイムアウト: %d 秒を超えたので中断しました]\n",
+        en => "\n[timed out after %d seconds and was stopped]\n",
+        zh => "\n[超时：超过 %d 秒，已中断]\n",
+    },
+    shell_truncated      => {
+        ja => "\n[出力が大きいので先頭 %d KB だけ返します（全体 %s）]\n",
+        en => "\n[output was large, so only the first %d KB is shown (total %s)]\n",
+        zh => "\n[输出较大，只返回前 %d KB（共 %s）]\n",
+    },
+    shell_fork_failed    => {
+        ja => "[コマンドを起動できませんでした]",
+        en => "[could not start the command]",
+        zh => "[无法启动命令]",
+    },
+    approvals_none       => {
+        ja => "自動承認の記録はまだありません。\n",
+        en => "No auto-approvals recorded yet.\n",
+        zh => "还没有自动批准记录。\n",
+    },
+    approvals_head       => {
+        ja => "直近の自動承認（%s）:\n",
+        en => "Recent auto-approvals (%s):\n",
+        zh => "最近的自动批准（%s）：\n",
+    },
 );
 
 sub L {
@@ -758,6 +898,29 @@ my $GUI            = 0;   # --gui: 端末用の表示をやめ、1行1件のJSON
 # 呼び出し側の都合で決まる。本体は「ツールを絞れる」以上のことを知らない。
 my $TOOLS_ALLOW    = '';
 my @TOOLS_ALLOWED;   # 空 = 制限なし
+
+# ------------------------------------------------------------------
+# 交互モード（--mode=default|accept-edits|bypass）
+#
+# 「確認を出すかどうか」だけを切り替える。能力（ツール）は --tools の担当で、
+# この 2 つは直交する —— モードで新しいことは出来ない。
+#
+#   default      : write_file / run_shell とも毎回確認（従来通り）
+#   accept-edits : 可写範囲内の write_file だけ自動。run_shell は毎回確認
+#   bypass       : 通常操作は自動。危険なコマンドだけ確認する
+#
+# 危険なコマンドの確認は「応答が無ければ拒否」で閉じる（fail-closed）。
+# 人が居ないときに待ち続けても何も安全にならず、セッションが固まるだけ。
+# ------------------------------------------------------------------
+my @MODE_ORDER = ('default', 'accept-edits', 'bypass');
+my %MODE_VALID = map { $_ => 1 } @MODE_ORDER;
+my $MODE = 'default';
+my $MODE_ARG = '';
+my @WRITE_ROOTS_RAW;      # --allow-write / CLAUDE_ALLOW_WRITE の生値
+my @WRITE_ROOTS;          # 解決済みの追加可写ディレクトリ
+my @WRITE_ROOTS_DENY;     # 明示的に足しても許可しない場所
+my $CONFIRM_REASON = '';  # 直前の confirm() が拒否した理由
+my $PENDING_MODE = '';    # /mode bypass の「yes 待ち」状態
                           #        (Python/tkinter のGUIから裏で駆動するため)
 
 # --tools は「--tools=a,b」と「--tools a,b」の両方を受ける。
@@ -768,6 +931,17 @@ for my $i (0 .. $#ARGV) {
     if ($ARGV[$i] eq '--tools' && defined $ARGV[$i + 1]) {
         $ARGV[$i] = "--tools=$ARGV[$i + 1]";
         splice(@ARGV, $i + 1, 1);
+    }
+}
+
+# --mode / --allow-write も「--mode x」の形を受ける。値の側が「未知の引数」と
+# して黙って捨てられると、指定したつもりで効かない（--tools で実際に起きた）。
+for my $i (0 .. $#ARGV) {
+    for my $opt ('--mode', '--allow-write') {
+        if ($ARGV[$i] eq $opt && defined $ARGV[$i + 1]) {
+            $ARGV[$i] = "$opt=$ARGV[$i + 1]";
+            splice(@ARGV, $i + 1, 1);
+        }
     }
 }
 
@@ -789,7 +963,36 @@ for my $arg (@ARGV) {
     # (GUI は画面が相手、rpc はプログラムが相手)。
     if ($arg eq '--rpc')               { $GUI = 1; }
     if ($arg =~ /^--tools=(.*)$/)      { $TOOLS_ALLOW = $1; }
+    if ($arg =~ /^--mode=(.*)$/)       { $MODE_ARG = $1; }
+    if ($arg =~ /^--allow-write=(.*)$/) { push @WRITE_ROOTS_RAW, $1; }
 }
+
+# --- モードと可写範囲の確定（引数 > 環境変数 > 既定） ------------------
+{
+    my $raw = $MODE_ARG;
+    $raw = $ENV{CLAUDE_MODE} if $raw eq '' && defined $ENV{CLAUDE_MODE};
+    $raw = '' unless defined $raw;
+    $raw =~ s/^\s+//; $raw =~ s/\s+$//;
+    $raw = 'default' if $raw eq '';
+    unless ($MODE_VALID{$raw}) {
+        # 既定へ黙って落とさない。落とすと「bypass のつもりが実は default」に
+        # なる（安全側に見えて、実際はユーザーの意図を無言で書き換えている）。
+        print STDERR L('mode_bad', $raw, join(' / ', @MODE_ORDER));
+        exit 2;
+    }
+    $MODE = $raw;
+}
+if (!@WRITE_ROOTS_RAW && defined $ENV{CLAUDE_ALLOW_WRITE} && $ENV{CLAUDE_ALLOW_WRITE} ne '') {
+    push @WRITE_ROOTS_RAW, split(/:/, $ENV{CLAUDE_ALLOW_WRITE});
+}
+@WRITE_ROOTS = grep { $_ ne '' } map { resolve_path($_) } @WRITE_ROOTS_RAW;
+@WRITE_ROOTS_DENY = grep { $_ ne '' } map { resolve_path($_) } (
+    '/etc', '/private/etc', '/usr', '/bin', '/sbin', '/System', '/Library',
+    '/dev', '/private/var/db', '/var/db',
+    ($ENV{HOME} || '') . '/.ssh',
+    ($ENV{HOME} || '') . '/.claude-agent',
+    ($ENV{HOME} || '') . '/.claude-agent-env',
+);
 
 # --help に出す「どの環境変数に何を入れるか」の表。providers.txt から生成する
 # (ここにベンダー名やキー変数名を書き足さない)。
@@ -828,6 +1031,8 @@ sub print_help {
       --change-passphrase 修改历史记录口令并退出
       --set-recovery    设置密保问题（找回口令用）并退出
       --tools=<a,b>     只用列出的工具（能力收窄；名字写错会报错退出）
+      --mode=<名字>     交互模式：default / accept-edits / bypass（默认 default）
+      --allow-write=<目录> 追加可写目录（可重复；默认只有当前目录与临时目录）
       --rpc             与 --gui 相同的 JSON 行协议（给程序化前端用）
 
 环境变量:
@@ -840,8 +1045,13 @@ sub print_help {
   CLAUDE_HISTORY_DIR 历史记录目录（默认 ~/.claude-agent/history）
   CLAUDE_NO_HISTORY  设为 1 则不保存对话（也不询问口令）
   CLAUDE_OPENSSL     openssl 命令路径（默认: openssl）
+  CLAUDE_MODE        交互模式 default / accept-edits / bypass（等同 --mode）
+  CLAUDE_ALLOW_WRITE 追加可写目录，冒号分隔（等同 --allow-write）
+  CLAUDE_SHELL_TIMEOUT 命令超时秒数（默认 120，0=不限）
+  CLAUDE_CONFIRM_TIMEOUT 危险操作确认等待秒数（默认 60，超时按拒绝处理）
 
 对话中可用 /claude・/gemini 切换 AI（对话内容会保留）。
+/mode 查看或切换交互模式；/allow-write 管理可写目录；/approvals 看最近自动批准。
 模型选择用 `advisor --select-model` / `advisor -m <ID>`（由 shell 包装脚本处理）。
 EOH
         $h =~ s{%s}{join(" / ", @PROVIDER_ORDER)}e;
@@ -859,6 +1069,8 @@ EOH
       --change-passphrase 履歴パスフレーズを変更して終了
       --set-recovery    合言葉(復旧用の秘密の質問)を設定して終了
       --tools=<a,b>     指定したツールだけ使う (絞る方向のみ。名前を間違えると終了)
+      --mode=<名前>     対話モード: default / accept-edits / bypass (既定 default)
+      --allow-write=<dir> 書き込みを許すディレクトリを追加 (複数可。既定は現在地と一時領域)
       --rpc             --gui と同じ JSON 行プロトコル (プログラム向け)
 
 環境変数:
@@ -871,8 +1083,13 @@ EOH
   CLAUDE_HISTORY_DIR 履歴ディレクトリ (既定 ~/.claude-agent/history)
   CLAUDE_NO_HISTORY  1にすると会話を保存しない(パスフレーズも尋ねない)
   CLAUDE_OPENSSL     opensslコマンドのパス (既定: openssl)
+  CLAUDE_MODE        対話モード default / accept-edits / bypass (--mode と同じ)
+  CLAUDE_ALLOW_WRITE 書き込みを許すディレクトリを追加 (コロン区切り)
+  CLAUDE_SHELL_TIMEOUT コマンドのタイムアウト秒 (既定 120、0=無制限)
+  CLAUDE_CONFIRM_TIMEOUT 危険な操作の確認待ち秒 (既定 60、超過は拒否)
 
 会話中に /claude・/gemini でAIを切り替えられる(会話は引き継がれる)。
+/mode で対話モードの表示・切り替え、/allow-write で書き込み先の管理、/approvals で自動承認の履歴。
 モデルの選択は `advisor --select-model` / `advisor -m <ID>` (シェルラッパー側)。
 EOH
     $hj =~ s{%s}{join(" / ", @PROVIDER_ORDER)}e;
@@ -1377,13 +1594,7 @@ write_file, list_dir, and run_shell. Use them to read/write files and
 run commands in the user's working directory. Keep replies concise, and
 always reply in the same language the user wrote in.
 
-write_file and run_shell each ask the user for a y/n confirmation before
-running. If a call comes back cancelled, it only means the user declined
-THAT ONE action right then (often they were still typing a thought, or
-want a change first) — it does NOT mean the environment blocks tools.
-Never conclude that file writes or commands are disabled. Instead, stop,
-say plainly what you were about to do, ask what they want to adjust, and
-try again once they're ready. Do not silently retry the same write.
+__MODE_CONFIRM_NOTE__
 
 Before a multi-step build, tell the user in one or two lines what files
 you'll create and what you'll run, so the confirmation prompts make sense.
@@ -1393,6 +1604,47 @@ Environment: `python3` is Python 3.10 (in the user's PATH via
 is available. For extra libraries use `python3 -m pip install --user
 <pkg>`. Prefer the standard library when it's enough.
 EOS
+
+# 確認の説明はモードで変わる。bypass では「毎回聞かれる」と書いてあると
+# モデルが「まず聞きますね」と無駄に断って進まなくなる。
+my %MODE_NOTE = (
+    'default' => <<'EON',
+write_file and run_shell each ask the user for a y/n confirmation before
+running. If a call comes back cancelled, it only means the user declined
+THAT ONE action right then (often they were still typing a thought, or
+want a change first) - it does NOT mean the environment blocks tools.
+Never conclude that file writes or commands are disabled. Instead, stop,
+say plainly what you were about to do, ask what they want to adjust, and
+try again once they're ready. Do not silently retry the same write.
+EON
+    'accept-edits' => <<'EON',
+File writes inside the allowed writable roots are approved automatically
+in the current mode (accept-edits), so do not ask before writing inside
+them; a write outside those roots still asks the user. run_shell always
+asks before running. If something comes back cancelled or refused, say
+plainly what you were about to do and what you need, instead of silently
+retrying the same call.
+EON
+    'bypass' => <<'EON',
+In the current mode (bypass) ordinary file writes inside the writable
+roots and ordinary commands are approved automatically - do not ask
+beforehand and do not wait for a confirmation that will not come. Two
+things still stop you: dangerous commands (recursive deletes, sudo,
+permission changes, power/system actions, download-and-run, interactive
+programs) always ask the user, and writes outside the writable roots are
+refused outright. Before a multi-step job, state in one or two lines what
+you are about to create and run; if a call is refused, explain the reason
+to the user rather than retrying the same thing.
+EON
+);
+
+sub system_prompt {
+    my $note = $MODE_NOTE{$MODE};
+    $note = $MODE_NOTE{'default'} unless defined $note;
+    my $p = $SYSTEM_PROMPT;
+    $p =~ s/__MODE_CONFIRM_NOTE__/$note/;
+    return $p;
+}
 
 # ------------------------------------------------------------------
 # 最小限のJSONエンコーダ/デコーダ (依存ゼロ、Claude APIのメッセージ
@@ -2443,39 +2695,86 @@ if ($TOOLS_ALLOW ne '') {
 }
 
 sub confirm {
-    my ($msg) = @_;
+    my ($msg, $opts) = @_;
+    my $danger = ($opts && ref $opts eq 'HASH' && $opts->{danger}) ? 1 : 0;
+    my $wait   = $danger ? confirm_timeout_secs() : 0;
+    $CONFIRM_REASON = '';
 
     # GUI モード: 確認イベントを送って、返ってくる reply を待つ。
+    # 危険な操作のときだけ待ち時間を切る（人が居ないまま固まらないように）。
     if ($GUI) {
-        gui_send({ t => 'confirm', prompt => $msg });
-        while (1) {
-            my $r = gui_read();
-            return 0 unless defined $r;                  # GUIが閉じた
-            next unless $r->{t} && $r->{t} eq 'reply';
-            return ($r->{value} && $r->{value} =~ /^(y|yes|1|true)$/i) ? 1 : 0;
+        gui_send({ t => 'confirm', prompt => $msg, danger => $danger });
+        my $value;
+        my $got = 0;
+        eval {
+            local $SIG{ALRM} = sub { die "ALARM_CONFIRM\n" };
+            alarm($wait) if $wait > 0;
+            while (1) {
+                my $r = gui_read();
+                last unless defined $r;                  # GUIが閉じた
+                next unless $r->{t} && $r->{t} eq 'reply';
+                $value = $r->{value};
+                $got = 1;
+                last;
+            }
+            alarm(0);
+        };
+        alarm(0);
+        if (!$got) {
+            $CONFIRM_REASON = ($@ && $@ =~ /ALARM_CONFIRM/) ? 'timeout' : 'nochannel';
+            return 0;
         }
+        unless (defined $value && $value =~ /^(y|yes|1|true)$/i) {
+            $CONFIRM_REASON = 'no';
+            return 0;
+        }
+        return 1;
+    }
+
+    # 端末が無い（パイプ実行など）なら、危険な操作は聞かずに拒否する。
+    # 聞く相手が居ないのに待つのは、固まるだけで何も安全にしない。
+    if ($danger && !(-t STDIN)) {
+        $CONFIRM_REASON = 'nochannel';
+        return 0;
     }
 
     print "\n";
     print L('confirm_banner');
+    print L('danger_banner') if $danger;
     print L('confirm_about_to');
     print "  $msg\n";
     print L('confirm_yn_hint');
     print L('confirm_not_instruct');
     print "─────────────────────\n";
+
     # y/n 以外(指示文を打ってしまった等)ではキャンセルせず、聞き直す。
     # 誤って打ち込んだ一言で書き込みが飛んでしまうのを防ぐ。
-    while (1) {
-        print "y / n : ";
-        my $ans = read_line_interactive('', 0);
-        return 0 unless defined $ans;                       # Ctrl-D
-        my $a = $ans;
-        $a =~ s/^\s+//; $a =~ s/\s+$//;
-        return 1 if $a =~ /^(y|yes|はい)$/i;
-        return 0 if $a =~ /^(n|no|いいえ)$/i;
-        return 0 if $a eq '';                               # Ctrl-C / 空Enter → 中止
-        print L('confirm_yn_only');
+    my $answer;
+    eval {
+        local $SIG{ALRM} = sub { die "ALARM_CONFIRM\n" };
+        alarm($wait) if $wait > 0;
+        while (1) {
+            print "y / n : ";
+            my $ans = read_line_interactive('', 0);
+            unless (defined $ans) { $answer = 0; last; }      # Ctrl-D
+            my $a = $ans;
+            $a =~ s/^\s+//; $a =~ s/\s+$//;
+            if ($a =~ /^(y|yes|はい)$/i) { $answer = 1; last; }
+            if ($a =~ /^(n|no|いいえ)$/i) { $answer = 0; last; }
+            if ($a eq '') { $answer = 0; last; }               # 空Enter → 中止
+            print L('confirm_yn_only');
+        }
+        alarm(0);
+    };
+    alarm(0);
+    if (!defined $answer) {
+        restore_tty();
+        $CONFIRM_REASON = 'timeout';
+        print L('danger_timeout_note', $wait) if $danger;
+        return 0;
     }
+    unless ($answer) { $CONFIRM_REASON = 'no'; return 0; }
+    return 1;
 }
 
 # ------------------------------------------------------------------
@@ -2804,6 +3103,325 @@ sub confirm {
     }
 }
 
+# ------------------------------------------------------------------
+# 模式・可写範囲・危険コマンド・シェル実行の共通部品
+#
+# ここは「安全側に倒す」ための判定だけを置く。判定に失敗したら危険側
+# （＝許可）に倒さず、必ず確認か拒否に倒すこと。
+# ------------------------------------------------------------------
+
+# パスを実体に寄せる（~ 展開 + シンボリックリンク解決。未作成なら親で解決）。
+sub resolve_path {
+    my ($p) = @_;
+    return '' unless defined $p;
+    $p =~ s/^\s+//; $p =~ s/\s+$//;
+    return '' if $p eq '';
+    if ($p =~ m{^~(/|$)}) {
+        my $h = $ENV{HOME} || '';
+        $p =~ s{^~}{$h};
+    }
+    my $abs = Cwd::abs_path($p);
+    return $abs if defined $abs && $abs ne '';
+    my $parent = dirname($p);
+    my $pabs = Cwd::abs_path($parent);
+    if (defined $pabs && $pabs ne '') {
+        (my $base = $p) =~ s{.*/}{};
+        return "$pabs/$base";
+    }
+    return '';
+}
+
+sub write_roots_all {
+    my @r = @WRITE_ROOTS;
+    push @r, resolve_path(Cwd::getcwd());
+    push @r, resolve_path($ENV{TMPDIR} || '/tmp');
+    push @r, resolve_path('/tmp');
+    my %seen;
+    return grep { !$seen{$_}++ } grep { defined $_ && $_ ne '' } @r;
+}
+
+sub write_hard_denied {
+    my ($abs) = @_;
+    return 0 unless defined $abs && $abs ne '';
+    for my $d (@WRITE_ROOTS_DENY) {
+        next if $d eq '';
+        return 1 if $abs eq $d || index($abs, "$d/") == 0;
+    }
+    return 0;
+}
+
+sub is_hard_denied_path {
+    my ($path) = @_;
+    my $abs = resolve_path($path);
+    return 0 if $abs eq '';
+    return write_hard_denied($abs) ? 1 : 0;
+}
+
+# 書き込みが許可範囲に入っているか（default モードでは判定に使わない）。
+sub write_allowed {
+    my ($path) = @_;
+    my $abs = resolve_path($path);
+    return 0 if $abs eq '';
+    return 0 if write_hard_denied($abs);
+    for my $r (write_roots_all()) {
+        return 1 if $abs eq $r || index($abs, "$r/") == 0;
+    }
+    return 0;
+}
+
+# 危険コマンド。当たったら理由の identifier を返す（'' = 危険ではない）。
+# 誤検知は「確認が 1 回増える」だけで済むが、見逃しは取り返せない。
+# そのため少し広めに取る。
+my @DANGER_RULES = (
+    [ qr{\brm\s+(?:-[A-Za-z]+\s+)*(?:-[A-Za-z]*[rf][A-Za-z]*\s+)+['"]?(?:/|~|/\*|\$HOME|\$home)}, 'rm_root' ],
+    [ qr{\bmkfs(?:\.|[\s&|;])}, 'mkfs' ],
+    [ qr{\bdd\b[^\n]*\bof=/dev/}, 'dd_device' ],
+    [ qr{>\s*/dev/(?:sd|disk|rdisk)}, 'redirect_device' ],
+    [ qr{\b(?:shutdown|reboot|halt|poweroff)\b}, 'system_power' ],
+    [ qr{\b(?:systemsetup|csrutil)\b}, 'system_setup' ],
+    [ qr{\blaunchctl\s+unload\b}, 'launchctl' ],
+    [ qr{\bsudo\b}, 'sudo' ],
+    [ qr{(?:^|[|;&]\s*)su\s+-}, 'su' ],
+    [ qr{\bchown\s+-R\s+\S+\s+root\b}, 'chown_root' ],
+    [ qr{\b(?:curl|wget)\b[^\n|]*\|\s*(?:sudo\s+)?(?:sh|bash|zsh)\b}, 'pipe_to_shell' ],
+    [ qr{\bchmod\s+-R\s+777\s+/}, 'chmod_root' ],
+    [ qr{:\(\)\s*\{.*:\s*\|\s*:.*\}}, 'fork_bomb' ],
+    [ qr{\bkill\s+-9\s+-1\b}, 'kill_all' ],
+    [ qr{\bshred\b}, 'shred' ],
+);
+my @DANGER_INTERACTIVE = qw(vi vim nano emacs less more top htop man ssh telnet ftp sftp);
+
+sub is_dangerous {
+    my ($cmd) = @_;
+    return '' unless defined $cmd && $cmd ne '';
+    for my $rule (@DANGER_RULES) {
+        return $rule->[1] if $cmd =~ $rule->[0];
+    }
+    # パイプや区切りの先頭トークンも見る（`cat x | less` は固まる）
+    for my $seg (split(/\|\||&&|;|\|/, $cmd)) {
+        $seg =~ s/^\s+//;
+        next if $seg eq '';
+        my ($first) = $seg =~ /^([A-Za-z_][A-Za-z0-9_.-]*)/;
+        next unless defined $first;
+        return "interactive_$first" if grep { $_ eq $first } @DANGER_INTERACTIVE;
+    }
+    return '';
+}
+
+sub shell_timeout_secs {
+    my $v = defined $ENV{CLAUDE_SHELL_TIMEOUT} ? $ENV{CLAUDE_SHELL_TIMEOUT} : '';
+    return 120 unless $v =~ /^\d+$/;
+    return $v;
+}
+
+sub confirm_timeout_secs {
+    my $v = defined $ENV{CLAUDE_CONFIRM_TIMEOUT} ? $ENV{CLAUDE_CONFIRM_TIMEOUT} : '';
+    return 60 unless $v =~ /^\d+$/;
+    return $v;
+}
+
+sub _tmp_path {
+    my ($tag) = @_;
+    my $dir = $ENV{TMPDIR} || '/tmp';
+    $dir =~ s{/+$}{};
+    return sprintf('%s/advisor-%s-%d-%d', $dir, $tag, $$, int(rand(1_000_000_000)));
+}
+
+sub _human_bytes {
+    my ($n) = @_;
+    return '0 B' unless defined $n && $n > 0;
+    return sprintf('%d B', $n) if $n < 1024;
+    return sprintf('%.1f KB', $n / 1024) if $n < 1024 * 1024;
+    return sprintf('%.1f MB', $n / (1024 * 1024));
+}
+
+# run_shell の実行。タイムアウトと出力上限つき。
+#   * 出力はファイルへ落としてから読む（メモリに溜めない）
+#   * 子は独立したプロセスグループにする（npm などの孫まで確実に止める）
+#   * 打ち切り時は TERM → 0.5 秒 → KILL
+sub run_shell_capture {
+    my ($command) = @_;
+    my $limit = shell_timeout_secs();
+    my $cap   = 64 * 1024;
+    my $out   = _tmp_path('shell-out');
+
+    my $pid = fork();
+    unless (defined $pid) {
+        return (L('shell_fork_failed'), 127);
+    }
+    if ($pid == 0) {
+        eval { setpgrp(0, 0); };
+        open(STDOUT, '>', $out) or exit 127;
+        open(STDERR, '>&', STDOUT) or exit 127;
+        exec('/bin/sh', '-c', $command);
+        exit 127;
+    }
+
+    my $timed_out = 0;
+    if ($limit > 0) {
+        eval {
+            local $SIG{ALRM} = sub { die "ALARM_SHELL_TIMEOUT\n" };
+            alarm($limit);
+            waitpid($pid, 0);
+            alarm(0);
+        };
+        $timed_out = 1 if $@ && $@ =~ /ALARM_SHELL_TIMEOUT/;
+    }
+    else {
+        waitpid($pid, 0);
+    }
+    my $status = $?;
+
+    if ($timed_out) {
+        alarm(0);
+        my $k = kill('TERM', -$pid);
+        kill('TERM', $pid) unless $k;
+        select(undef, undef, undef, 0.5);
+        $k = kill('KILL', -$pid);
+        kill('KILL', $pid) unless $k;
+        waitpid($pid, 0);
+    }
+
+    my $size = -s $out;
+    $size = 0 unless defined $size && $size > 0;
+    my $text = '';
+    if (open(my $fh, '<', $out)) {
+        binmode $fh;
+        my $take = $size > $cap ? $cap : $size;
+        if ($take > 0) { read($fh, $text, $take); }
+        close $fh;
+    }
+    unlink($out);
+    $text = '' unless defined $text;
+
+    my $res = decode('UTF-8', $text, FB_DEFAULT);
+    $res = '' unless defined $res;
+    $res =~ s/\r\n/\n/g;
+
+    $res .= L('shell_timed_out', $limit) if $timed_out;
+    $res .= L('shell_truncated', int($cap / 1024), _human_bytes($size)) if $size > $cap;
+    $res = L('no_output') if $res eq '';
+    return ($res, (defined $status ? $status : 0));
+}
+
+# ------------------------------------------------------------------
+# 自動承認の記録（~/.claude-agent/approvals.log）
+#
+# 遠隔用の audit.log とは別ファイルにする。片方は「外から誰が何を聞いたか」、
+# こちらは「ローカルで勝手にやったこと」。混ぜるとどちらも読みにくくなる。
+# ------------------------------------------------------------------
+sub approvals_path { return ($ENV{HOME} || '.') . '/.claude-agent/approvals.log'; }
+
+sub approvals_log {
+    my ($tool, $target, $result) = @_;
+    my $path = approvals_path();
+    my $dir  = dirname($path);
+    mkdir($dir, 0700) unless -d $dir;
+    $target = '' unless defined $target;
+    $target =~ s/\s+/ /g;
+    $target = substr($target, 0, 300);
+    if (open(my $fh, '>>:encoding(UTF-8)', $path)) {
+        print $fh sprintf("%s\t%s\t%s\t%s\t%s\n", _timestamp(), $MODE, $tool, $result, $target);
+        close $fh;
+        chmod 0600, $path;
+    }
+}
+
+sub approvals_tail {
+    my ($n) = @_;
+    my $path = approvals_path();
+    return () unless -f $path;
+    open(my $fh, '<:encoding(UTF-8)', $path) or return ();
+    my @lines = <$fh>;
+    close $fh;
+    chomp @lines;
+    @lines = @lines[-$n .. -1] if @lines > $n;
+    return @lines;
+}
+
+sub emit_auto_approved {
+    my ($tool, $target) = @_;
+    $target = '' unless defined $target;
+    $target =~ s/\s+/ /g;
+    $target = substr($target, 0, 160);
+    emit_note(L('mode_auto_approved', $tool, $target));
+}
+
+sub danger_reason_text {
+    return L('danger_no_answer')  if $CONFIRM_REASON eq 'timeout';
+    return L('danger_no_channel') if $CONFIRM_REASON eq 'nochannel';
+    return L('danger_declined');
+}
+
+# 可写ディレクトリの表示。$TMPDIR は環境ごとに長い内部パス（macOS だと
+# /var/folders/xx/.../T）で、そのまま出すと意味が伝わらないだけだった。
+sub writable_display {
+    my $tmp = resolve_path($ENV{TMPDIR} || '/tmp');
+    my $slash_tmp = resolve_path('/tmp');
+    my @out;
+    for my $r (write_roots_all()) {
+        if (($tmp ne '' && $r eq $tmp) || ($slash_tmp ne '' && $r eq $slash_tmp)) {
+            push @out, L('temp_dir_label');
+            next;
+        }
+        push @out, $r;
+    }
+    my %seen;
+    return join(' / ', grep { !$seen{$_}++ } @out);
+}
+
+sub mode_summary {
+    my $w = writable_display();
+    return L('mode_now', $MODE) . L('mode_now_writable', $w);
+}
+
+sub apply_mode {
+    my ($m) = @_;
+    return unless $MODE_VALID{$m};
+    $MODE = $m;
+    persist_env('CLAUDE_MODE', $MODE);
+    emit_note(L('mode_switched', $MODE));
+    gui_send({ t => 'mode', mode => $MODE, writable => [ write_roots_all() ] }) if $GUI;
+}
+
+sub allow_write_command {
+    my ($args) = @_;
+    my $a = $args;
+    $a =~ s/^\s+//; $a =~ s/\s+$//;
+    if ($a =~ /^clear$/i) {
+        @WRITE_ROOTS = ();
+        persist_env('CLAUDE_ALLOW_WRITE', "''");
+        approvals_log('allow-write', '(clear)', 'ok');
+        emit_note(L('allow_write_cleared'));
+        emit_note(L('mode_now_writable', writable_display()));
+        return;
+    }
+    my (@added, @bad);
+    for my $raw (split(/\s+/, $a)) {
+        next if $raw eq '';
+        my $abs = resolve_path($raw);
+        if ($abs eq '') { push @bad, $raw; next; }
+        if (write_hard_denied($abs)) { push @bad, $raw; next; }
+        unless (grep { $_ eq $abs } @WRITE_ROOTS) { push @WRITE_ROOTS, $abs; }
+        push @added, $abs;
+    }
+    if (@added) {
+        # 記録は必ず残す。「いつ誰が可写範囲を広げたか」は後から効いてくる。
+        approvals_log('allow-write', join(' ', @added), 'ok');
+        persist_env('CLAUDE_ALLOW_WRITE', "'" . join(':', @WRITE_ROOTS) . "'");
+        emit_note(L('allow_write_added', join(' ', @added)));
+    }
+    emit_note(L('allow_write_bad', join(' ', @bad))) if @bad;
+    emit_note(L('mode_now_writable', writable_display()));
+}
+
+sub print_approvals {
+    my @lines = approvals_tail(10);
+    unless (@lines) { emit_note(L('approvals_none')); return; }
+    emit_note(L('approvals_head', approvals_path()));
+    for my $l (@lines) { emit_note("  $l\n"); }
+}
+
 sub run_tool {
     my ($name, $input) = @_;
 
@@ -2826,8 +3444,32 @@ sub run_tool {
     }
     elsif ($name eq 'write_file') {
         my $path = $input->{path};
-        unless (confirm(L('confirm_write_file', $path))) {
+        # モードごとの扱い:
+        #   default      : 毎回確認
+        #   accept-edits : 可写範囲内だけ自動。範囲外は確認（拒否にしない）
+        #   bypass       : 可写範囲内だけ自動。範囲外は拒否（人が居ない前提）
+        my $auto = 0;
+        if ($MODE ne 'default') {
+            if (is_hard_denied_path($path)) {
+                approvals_log('write_file', $path, 'denied_always');
+                emit_note(L('write_always_denied', $path));
+                return L('write_always_denied', $path);
+            }
+            if (write_allowed($path)) {
+                $auto = 1;
+            }
+            elsif ($MODE eq 'bypass') {
+                approvals_log('write_file', $path, 'refused_scope');
+                emit_note(L('write_out_of_scope', $path));
+                return L('write_out_of_scope', $path);
+            }
+        }
+        unless ($auto || confirm(L('confirm_write_file', $path))) {
             return L('write_cancelled');
+        }
+        if ($auto) {
+            approvals_log('write_file', $path, 'auto');
+            emit_auto_approved('write_file', $path);
         }
         open(my $fh, '>:encoding(UTF-8)', $path) or return L('cannot_open_write', $path, $!);
         print $fh $input->{content};
@@ -2843,11 +3485,30 @@ sub run_tool {
     }
     elsif ($name eq 'run_shell') {
         my $command = $input->{command};
-        unless (confirm(L('confirm_run_shell', $command))) {
-            return L('run_cancelled');
+        my $danger  = is_dangerous($command);
+        # 危険なコマンドはどのモードでも確認する（bypass でも例外にしない）。
+        # モードが変えるのは「普通のコマンドを聞くかどうか」だけ。
+        my $need_confirm = ($MODE eq 'bypass' && $danger eq '') ? 0 : 1;
+        if ($need_confirm) {
+            my $prompt = $danger ne ''
+                ? L('confirm_run_shell_danger', $command)
+                : L('confirm_run_shell', $command);
+            unless (confirm($prompt, { danger => ($danger ne '' ? 1 : 0) })) {
+                if ($danger ne '') {
+                    approvals_log('run_shell', $command, 'refused_danger');
+                    emit_note(L('danger_refused', danger_reason_text()));
+                    return L('danger_refused', danger_reason_text());
+                }
+                return L('run_cancelled');
+            }
+            approvals_log('run_shell', $command, 'confirmed_danger') if $danger ne '';
         }
-        my $output = `$command 2>&1`;
-        return $output eq '' ? L('no_output') : $output;
+        else {
+            approvals_log('run_shell', $command, 'auto');
+            emit_auto_approved('run_shell', $command);
+        }
+        my ($output) = run_shell_capture($command);
+        return $output;
     }
     else {
         return L('unknown_tool', $name);
@@ -2943,6 +3604,9 @@ if ($GUI) {
                                            grep { defined $_->[2] && $_->[2] eq $pv } @MODEL_CHOICES ] } }
                        @PROVIDER_ORDER ],
         messages  => scalar(@messages),
+        mode      => $MODE,
+        writable  => [ write_roots_all() ],
+        mode_list => [ @MODE_ORDER ],
     });
     while (1) {
         my $req = gui_read();
@@ -2953,6 +3617,31 @@ if ($GUI) {
             # GUI のコマンドパネルで cd した先を、AI のツールにも反映する。
             my $p = $req->{path};
             if (defined $p && $p ne '' && -d $p) { chdir($p); dbg("cwd -> $p"); }
+            next;
+        }
+        if ($type eq 'set_mode') {
+            my $m = defined $req->{mode} ? $req->{mode} : '';
+            unless ($MODE_VALID{$m}) {
+                emit_note(L('mode_bad', $m, join(' / ', @MODE_ORDER)));
+                gui_send({ t => 'mode', mode => $MODE, writable => [ write_roots_all() ] });
+                next;
+            }
+            if ($m eq 'bypass' && $MODE ne 'bypass') {
+                # GUI でも 1 回だけ確認する。メニューの項目は取り消せないので、
+                # 押し間違いで無確認実行に入るのを防ぐ。
+                unless (confirm(L('mode_bypass_warn'))) {
+                    emit_note(L('mode_bypass_cancelled'));
+                    gui_send({ t => 'mode', mode => $MODE, writable => [ write_roots_all() ] });
+                    next;
+                }
+            }
+            apply_mode($m);
+            next;
+        }
+        if ($type eq 'allow_write') {
+            my $dirs = defined $req->{dirs} ? $req->{dirs} : '';
+            allow_write_command($dirs);
+            gui_send({ t => 'mode', mode => $MODE, writable => [ write_roots_all() ] });
             next;
         }
         if ($type eq 'list_history') {
@@ -3005,6 +3694,11 @@ if ($GUI) {
 }
 
 print "=== high_sierra Advisor ===\n";
+print L('mode_banner', $MODE);
+if ($MODE ne 'default') {
+    print L('mode_now_writable', writable_display());
+    print L('mode_now_log', approvals_path());
+}
 print $HISTORY_ENABLED ? L('hist_will_encrypt') : L('hist_will_not_save');
 if (@MODEL_CHOICES) {
     show_model_menu();
@@ -3020,6 +3714,57 @@ sub handle_turn {
     dbg("turn start: msgs=" . scalar(@messages) . " input=" . substr($input, 0, 80));
 
     return 'quit' if $input eq 'exit';
+
+    # bypass へ切り替える前の「yes と打ってもらう」待ち。
+    # /mode bypass 1 回で即座に切り替わると、指が滑っただけで無確認実行が
+    # 始まってしまう。ここだけは 2 回入力してもらう。
+    if ($PENDING_MODE ne '') {
+        my $want = $PENDING_MODE;
+        $PENDING_MODE = '';
+        my $a = $input;
+        $a =~ s/^\s+//; $a =~ s/\s+$//;
+        if ($a =~ /^(yes|はい|是)$/i) { apply_mode($want); }
+        else { emit_note(L('mode_bypass_cancelled')); }
+        return;
+    }
+
+    # /mode・/allow-write・/approvals はモデルに渡さず、ここで完結させる。
+    if ($input =~ m{^/mode\s*$}) {
+        emit_note(mode_summary());
+        emit_note(L('mode_now_log', approvals_path())) if $MODE ne 'default';
+        return;
+    }
+    if ($input =~ m{^/mode\s+(\S+)\s*$}) {
+        my $want = $1;
+        unless ($MODE_VALID{$want}) {
+            emit_note(L('mode_bad', $want, join(' / ', @MODE_ORDER)));
+            return;
+        }
+        if ($want eq $MODE) {
+            emit_note(L('mode_switched', $MODE));
+            return;
+        }
+        if ($want eq 'bypass') {
+            $PENDING_MODE = 'bypass';
+            emit_note(L('mode_bypass_warn'));
+            return;
+        }
+        apply_mode($want);
+        return;
+    }
+    if ($input =~ m{^/allow-write\s*$}) {
+        emit_note(L('mode_now_writable', writable_display()));
+        emit_note(L('allow_write_usage'));
+        return;
+    }
+    if ($input =~ m{^/allow-write\s+(.+?)\s*$}) {
+        allow_write_command($1);
+        return;
+    }
+    if ($input =~ m{^/approvals\s*$}) {
+        print_approvals();
+        return;
+    }
 
     # 一覧を出す(端末のみ。GUIは起動時に一覧を受け取っている)
     if ($input eq '/model' || $input eq '/models' || $input eq '/m' || $input eq '?') {
@@ -3102,7 +3847,7 @@ sub handle_turn {
 
     while (1) {
         dbg("build_request: msgs=" . scalar(@messages));
-        my $body = build_request(\@messages, \@TOOLS, $SYSTEM_PROMPT);
+        my $body = build_request(\@messages, \@TOOLS, system_prompt());
         dbg("encode+call_api");
         my $resp = eval { call_api($API_URL, build_headers(), MiniJSON::encode($body)) };
         if ($@) {

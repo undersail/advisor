@@ -16,6 +16,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CORE = os.path.join(ROOT, 'agent', 'claude-agent.pl')
+PLATFORM = os.path.join(ROOT, 'remote', 'platform.pl')
 GATEWAY = os.path.join(ROOT, 'remote', 'gateway.pl')
 NOTIFY = os.path.join(ROOT, 'remote', 'notify.pl')
 
@@ -29,6 +30,8 @@ def read(p):
 
 core = read(CORE)
 gw = read(GATEWAY)
+plat = read(PLATFORM)
+note = read(NOTIFY)
 
 # 1) 核心里不能出现远程开关/远程字样（注释也算，免得被"顺手"接上）
 for pat in (r'\$REMOTE\w*', r'remote/', r'REMOTE_TOOLS'):
@@ -84,6 +87,18 @@ if not audit_opens:
     errs.append('remote/gateway.pl 里找不到对 $AUDIT_PATH 的 open')
 elif not all("'>>" in a for a in audit_opens):
     errs.append('remote/gateway.pl 的审计日志不是追加打开（只追加才有意义）')
+
+# --- 交互模式（--mode / --allow-write）はローカルの都合。远程には流さない ---
+# bypass は「その場に居る人が結果を引き受ける」前提のトレードオフ。遠隔は
+# 「ホワイトリストの誰かが携帯から一言」なので、同じ緩め方を共有してはいけない。
+for name, body in (('remote/gateway.pl', gw), ('remote/platform.pl', plat),
+                   ('remote/notify.pl', note)):
+    if body == '':
+        continue
+    for pat in (r'--mode\b', r'--mode=', r'--allow-write', r'CLAUDE_MODE', r'CLAUDE_ALLOW_WRITE'):
+        if re.search(pat, body):
+            errs.append('%s 里出现了 %s —— 交互模式 / 可写范围是本地专用，不传给远程'
+                        % (name, pat))
 
 if errs:
     print('解耦检查未通过：')

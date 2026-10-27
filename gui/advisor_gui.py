@@ -94,6 +94,41 @@ _S = {
         "en": "Resume",
         "zh": "继续上次",
     },
+    "mode_btn": {
+        "ja": "モード ▾",
+        "en": "Mode ▾",
+        "zh": "模式 ▾",
+    },
+    "mode_default": {
+        "ja": "通常（毎回確認）",
+        "en": "Default (asks every time)",
+        "zh": "默认（每次确认）",
+    },
+    "mode_default_short": {
+        "ja": "通常",
+        "en": "Default",
+        "zh": "默认",
+    },
+    "mode_accept_edits": {
+        "ja": "書込みだけ自動",
+        "en": "Accept edits",
+        "zh": "写文件免确认",
+    },
+    "mode_accept_edits_short": {
+        "ja": "書込自動",
+        "en": "Edits",
+        "zh": "写免确认",
+    },
+    "mode_bypass": {
+        "ja": "bypass（危険な操作だけ確認）",
+        "en": "Bypass (only dangerous ops ask)",
+        "zh": "Bypass（只有危险操作确认）",
+    },
+    "mode_bypass_short": {
+        "ja": "bypass",
+        "en": "Bypass",
+        "zh": "Bypass",
+    },
     "switch_btn": {
         "ja": "AIを切替 ▾",
         "en": "Switch AI ▾",
@@ -1090,6 +1125,26 @@ class AdvisorGUI:
         self.hist_btn.bind("<Button-1>", lambda e: self._write({"t": "list_history"}))
         self.hist_btn.pack(side=tk.RIGHT, padx=6, pady=3)
 
+        # 交互モードの切替。いま何モードかが常に見えていないと、
+        # 「勝手に確認なしで走った」と受け取られる（黙って挙動が変わるのが一番悪い）。
+        self.mode_btn = tk.Label(self.bar, text=L("mode_btn"), cursor=_pointing_cursor(),
+                                 padx=8, pady=2)
+        self.mode_menu = tk.Menu(self.mode_btn, tearoff=0)
+        self._mode_choice = tk.StringVar(value="default")
+        for key in ("default", "accept-edits", "bypass"):
+            self.mode_menu.add_radiobutton(
+                label=L("mode_" + key.replace("-", "_")), value=key,
+                variable=self._mode_choice,
+                command=lambda k=key: self._write({"t": "set_mode", "mode": k}))
+        self.mode_btn.bind("<Button-1>", lambda e: self._popup_menu(self.mode_menu, self.mode_btn))
+        self.mode_btn.pack(side=tk.RIGHT, padx=6, pady=3)
+
+        # 常設のバッジ（bypass のときは色を変える）。
+        self.mode_badge = tk.Label(self.bar, text="", cursor=_pointing_cursor(), padx=6, pady=2)
+        self.mode_badge.pack(side=tk.RIGHT, padx=(6, 0), pady=3)
+        self._mode_key = "default"
+        self._mode_writable = []
+
         # ヘッダー下の細い罫線(共通)。
         self.hdr_rule = tk.Frame(self.root, height=1)
         self.hdr_rule.pack(side=tk.TOP, fill=tk.X, padx=56)
@@ -1239,6 +1294,7 @@ class AdvisorGUI:
         active = getattr(self, "pane", "chat")
         tabs = (("chat", self.tab_chat, L("tab_chat")), ("cmd", self.tab_cmd, L("tab_cmd")))
         utils = ((self.hist_btn, L("hist_btn")), (self.switch_btn, L("switch_btn")),
+                 (self.mode_btn, L("mode_btn")),
                  (self.theme_btn, theme_label(t) + " ▾"))
         # 左右端を赤線に揃えたのはノート(縦線・罫線がある)向けの調整。
         # コーディング/ハッカーは全面黒で赤線が無く、[ ]で幅も食うため、
@@ -1634,6 +1690,10 @@ class AdvisorGUI:
         for tag in ("ai", "dim", "err"):
             self.note.tag_config(tag, lmargin1=near, lmargin2=near, rmargin=ai_right)
 
+        # テーマを変えたらモード徽標の色も引き直す（テーマの配色から取る）。
+        if hasattr(self, "mode_badge"):
+            self._apply_mode_colors()
+
     def _popup_menu(self, menu, widget):
         """見た目/AI切替ボタン用。普通のButtonの真下にメニューを出す
         (Menubuttonをやめて見た目を他のボタンと揃えるための代わり)。"""
@@ -1796,6 +1856,33 @@ class AdvisorGUI:
             self.events.put(obj)
         self.events.put({"t": "bye"})
 
+    def _update_mode(self, mode, writable=None):
+        """モードの表示を合わせる。色はテーマの配色から取る（直書きしない）。"""
+        if not mode:
+            return
+        self._mode_key = mode
+        self._mode_choice.set(mode)
+        if writable is not None:
+            self._mode_writable = list(writable)
+        short = L("mode_" + mode.replace("-", "_") + "_short")
+        self.mode_badge.configure(text=short)
+        self._apply_mode_colors()
+
+    def _apply_mode_colors(self):
+        try:
+            t = THEMES[self.theme_name]
+        except Exception:
+            return
+        key = getattr(self, "_mode_key", "default")
+        if key == "bypass":
+            fg = t["err"]          # 危険色。常に見えている必要がある
+        elif key == "accept-edits":
+            fg = t["ai"]
+        else:
+            fg = t["dim"]
+        self.mode_badge.configure(fg=fg, bg=t["bg"])
+        self.mode_btn.configure(fg=t["fg"], bg=t["bg"])
+
     def _write(self, obj):
         if not self.proc or self.proc.poll() is not None:
             return
@@ -1829,7 +1916,10 @@ class AdvisorGUI:
             self._set_model(obj.get("provider", ""), obj.get("model", ""))
             hist = L("history_encrypted") if obj.get("history") else L("history_off")
             self.status_var.set(L("ready_status", hist=hist))
+            self._update_mode(obj.get("mode", "default"), obj.get("writable"))
             self._set_busy(False)
+        elif t == "mode":
+            self._update_mode(obj.get("mode", "default"), obj.get("writable"))
         elif t == "text":
             txt = str(obj.get("text", ""))
             if "```" in txt:

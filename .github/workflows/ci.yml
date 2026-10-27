@@ -161,6 +161,25 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: 交互模式端到端（default / accept-edits / bypass）
+        run: |
+          set -o pipefail
+          # 不要真 key：起一个假的 OpenAI 兼容端点喂 tool_call，走 --rpc 断言
+          # 「问没问 / 批没批 / 拒得对不对」。危险命令的 fail-closed 只有无人应答
+          # 时才出现，终端里造不出来 —— 这也是必须走 rpc 的原因。
+          python3 scripts/test-modes.py
+
+      - name: GUI 模式控件（窗口内省，需 Xvfb）
+        run: |
+          set -o pipefail
+          # 徽标/菜单这类东西只有把窗口建起来才验得到。没有 Xvfb 就跳过，
+          # 不让它变成 macOS 上的假红。
+          if command -v xvfb-run >/dev/null 2>&1; then
+            xvfb-run -a python3 scripts/test-gui-modes.py
+          else
+            echo "::notice::没有 xvfb-run，跳过 GUI 窗口内省"
+          fi
+
       - name: GUI 静态检查（自递归 = 某平台启动即崩）
         run: |
           set -o pipefail
