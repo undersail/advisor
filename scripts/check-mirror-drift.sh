@@ -15,15 +15,26 @@
 #   1  读取镜像失败（网络/凭据）→ 也不要盲目推
 #
 # 只拦「真的会丢东西」的情况，避免误报把同步卡死：
-#   · 镜像上同名分支有我们没有的提交        → 拦（--force 会覆盖它）
-#   · 镜像上同名 tag 指向不同的提交          → 拦（--tags --force 会覆盖它）
+#   · 镜像上同名分支有未进入本地的提交        → 拦（--force 会覆盖它）
+#     ★ 用 patch-id 判定「未进入」：cherry-pick 回来的等价补丁算已收敛，
+#       否则按本脚本建议的方式修复完，同步还是永久卡着。
+#   · 镜像上同名 tag 指向本地历史之外的提交    → 拦（--tags --force 会覆盖它）
 #   · 镜像上还有我们完全没有的分支（如网页建的 master）→ 只提示，不拦
-#     （`--all` 不会删除它们，所以谈不上丢失）
-#   · 镜像上只有我们没有的 tag（不同名）     → 只提示，不拦（不会被覆盖）
+#     （`--all` 不会删除它们，谈不上丢失）
+#   · 镜像上只有我们没有的 tag（不同名）       → 只提示，不拦（不会被覆盖）
+#   · 镜像落后于本地                          → 放行（强推是预期收敛）
+#
+# 实现上的两个刻意选择（都被真实故障教育过）：
+#   1. 分支/tag 名单一律来自 `git ls-remote`，再按分支**单独** fetch；
+#      不依赖 for-each-ref 的 lstrip 之类格式特性 —— 不同 git 版本行为不一致，
+#      在 macOS runner 上就因此探测不到分支，提示是空的、比较全被跳过。
+#   2. 提示文案累积到临时文件而不是变量，并明确区分「阻塞」与「仅提示」；
+#      子 shell 与多行变量的行为差异踩过坑。
 #
 # 覆盖范围（别当成万能）：
 #   · 只比较分支与 tag 的提交关系，不比较文件内容；
-#   · 镜像仓若被回滚到更早的提交（是我们历史的祖先），不算漂移 —— 那种情况强推是预期的收敛。
+#   · 镜像被回滚到更早的提交（本地历史的祖先）不算漂移 —— 强推是预期的收敛；
+#   · 只看 SHA 与 patch-id，不检查被覆盖的提交里是否夹带了别的东西。
 
 set -o pipefail
 
@@ -51,103 +62,122 @@ cd "$ROOT" || exit 1
 [ -n "$BRANCH" ] || BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 say() { printf '%s\n' "$*"; }
 
-BLOCKED=0
-NOTES=""
+TMP_REF="refs/advisor-mirror-check"
+NOTES_FILE="$(mktemp -t advisor-mirror-notes.XXXXXX)" || exit 1
+FETCH_LOG="$(mktemp -t advisor-mirror-fetch.XXXXXX)" || exit 1
+cleanup() {
+  rm -f "$NOTES_FILE" "$FETCH_LOG"
+  git for-each-ref --format='%(refname)' "$TMP_REF" 2>/dev/null \
+    | while IFS= read -r r; do git update-ref -d "$r" 2>/dev/null; done
+  git update-ref -d "$TMP_REF/branch" 2>/dev/null
+  return 0
+}
+trap cleanup EXIT
+
+note()  { printf 'NOTE %s\n' "$*" >> "$NOTES_FILE"; }
+block() { printf 'BLOCK %s\n' "$*" >> "$NOTES_FILE"; }
 
 # ---------------------------------------------------------------- 读取镜像
-MIRROR_TMP="refs/advisor-mirror-check"
-git for-each-ref --format='%(refname)' "$MIRROR_TMP" 2>/dev/null | while IFS= read -r r; do
-  git update-ref -d "$r"
-done
-
-if ! git fetch --no-tags --quiet "$URL" "+refs/heads/*:$MIRROR_TMP/heads/*" 2>/tmp/advisor-mirror-fetch.log; then
+HEADS="$(git ls-remote --heads "$URL" 2>"$FETCH_LOG")"
+HEADS_RC=$?
+if [ "$HEADS_RC" != 0 ] || { [ -z "$HEADS" ] && [ -s "$FETCH_LOG" ]; }; then
   say "✗ 读不到镜像仓（网络或凭据问题），为安全起见不推："
-  sed 's/^/    /' /tmp/advisor-mirror-fetch.log | head -10
+  sed 's/^/    /' "$FETCH_LOG" | head -10
   exit 1
 fi
 
 # ---------------------------------------------------------------- 分支比较
-# 注意用 lstrip=3：refs/advisor-mirror-check/heads/main → main
-# （strip=2 会得到 heads/main，分支名对不上，比较就全被跳过 —— 这个坑踩过一次）
-MIRROR_BRANCHES="$(git for-each-ref --format='%(refname:lstrip=3)' "$MIRROR_TMP/heads" 2>/dev/null)"
+printf '%s\n' "$HEADS" | while IFS= read -r line; do
+  [ -n "$line" ] || continue
+  ref="${line##*[[:space:]]}"          # ls-remote 输出是「<sha>\t<ref>」
+  mb="${ref#refs/heads/}"
+  [ -n "$mb" ] || continue
 
-for mb in $MIRROR_BRANCHES; do
-  mref="$MIRROR_TMP/heads/$mb"
-  if git show-ref --verify --quiet "refs/heads/$mb"; then
-    # 同名分支：镜像上是否有我们没有的提交？
-    extra="$(git rev-list --count "refs/heads/$mb..$mref" 2>/dev/null || echo 0)"
-    if [ "${extra:-0}" -gt 0 ]; then
-      # ★ 关键：反拉回来通常走 cherry-pick，补丁内容一样但 SHA 不同。
-      #   只比 SHA 的话，反拉之后依然被判定为漂移，同步就永远卡住
-      #   —— 而「先反拉再同步」正是本脚本自己建议的恢复路径。
-      #   所以用 `git cherry` 比 patch-id：镜像上的提交若已有等价补丁在本地，
-      #   就算已收敛（这类提交强推覆盖掉不会丢任何改动）。
-      unapplied="$(git cherry "refs/heads/$mb" "$mref" 2>/dev/null | grep -c '^+')"
-      applied="$(git cherry "refs/heads/$mb" "$mref" 2>/dev/null | grep -c '^-')"
-      if [ "${unapplied:-0}" -gt 0 ]; then
-        BLOCKED=1
-        say "✗ 镜像分支 '$mb' 上有 $unapplied 个提交未以任何形式进入本地 '$mb' —— 强推会把它们覆盖掉："
-        git cherry "refs/heads/$mb" "$mref" 2>/dev/null | grep '^+' | head -5 | sed 's/^/    /'
-        MIRROR_DRIFT_BRANCH="$mb"
-      elif [ "${applied:-0}" -gt 0 ]; then
-        NOTES="$NOTES
-    · 镜像分支 '$mb' 上的 $applied 个提交已有等价补丁在本地（cherry-pick 过），同步会收敛"
-      fi
-    fi
-  else
-    # 镜像独有的分支：强推不会删除它，只提示
-    NOTES="$NOTES
-    · 镜像上还有本地没有的分支：$mb（不会被删除，但也不会被更新）"
+  if ! git show-ref --verify --quiet "refs/heads/$mb"; then
+    # 镜像独有的分支：--all 不会删除它，只提示
+    note "镜像上还有本地没有的分支：$mb（不会被删除，但也不会被更新）"
+    continue
+  fi
+
+  git update-ref -d "$TMP_REF/branch" 2>/dev/null
+  if ! git fetch --no-tags --quiet "$URL" "+refs/heads/$mb:$TMP_REF/branch" 2>>"$FETCH_LOG"; then
+    printf 'FETCHFAIL\n' >> "$NOTES_FILE"
+    continue
+  fi
+
+  # 镜像上这个分支有、本地没有的提交里，哪些补丁在本地不存在（= 真的会丢）
+  unapplied="$(git cherry "refs/heads/$mb" "$TMP_REF/branch" 2>/dev/null | grep -c '^+')"
+  applied="$(git cherry "refs/heads/$mb" "$TMP_REF/branch" 2>/dev/null | grep -c '^-')"
+
+  if [ "${unapplied:-0}" -gt 0 ]; then
+    block "镜像分支 '$mb' 上有 $unapplied 个提交未进入本地 —— 强推会覆盖它们"
+    git cherry "refs/heads/$mb" "$TMP_REF/branch" 2>/dev/null \
+      | grep '^+' | head -5 | awk '{print "  提交 " $2}' >> "$NOTES_FILE"
+  elif [ "${applied:-0}" -gt 0 ]; then
+    note "镜像分支 '$mb' 上的 $applied 个提交已有等价补丁在本地（cherry-pick 过），同步会收敛"
   fi
 done
+
+# 分支循环里 BLOCK 需要能被下面读到：文件是共享的，直接读就行
+DRIFT_BRANCH="$(grep '^BLOCK ' "$NOTES_FILE" 2>/dev/null | head -1 \
+                | sed -n "s/.*分支 '\([^']*\)'.*/\1/p")"
 
 # ---------------------------------------------------------------- tag 比较
-while IFS= read -r line; do
-  [ -n "$line" ] || continue
-  # ls-remote 的输出是「<sha>\t<ref>」（制表符分隔），按空格切会把名和 sha 弄反
-  tsha="${line%%[[:space:]]*}"
-  tname="${line##*[[:space:]]}"
-  local_sha="$(git rev-parse -q --verify "refs/tags/$tname" 2>/dev/null || true)"
-  if [ -z "$local_sha" ]; then
-    NOTES="$NOTES
-    · 镜像上还有本地没有的 tag：$tname（不同名，不会被覆盖）"
-  elif [ "$local_sha" != "$tsha" ]; then
-    # 同名 tag 但不指向同一提交：--tags --force 会覆盖
-    # 如果镜像那个提交已经被本地某个 ref 包含（例如是我们历史的祖先），覆盖是预期的
-    if git cat-file -e "$tsha^{commit}" 2>/dev/null && git merge-base --is-ancestor "$tsha" "$BRANCH" 2>/dev/null; then
-      NOTES="$NOTES
-    · 镜像 tag $tname 指向较旧的提交（在本分支历史里），同步会把它更新到最新"
-    else
-      BLOCKED=1
-      say "✗ 镜像 tag '$tname' 指向的提交不在本地历史里（$tsha）—— 同步会覆盖它"
+TAGS="$(git ls-remote --tags "$URL" 2>/dev/null | grep -v '\^{}')"
+if [ -n "$TAGS" ]; then
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    tsha="${line%%[[:space:]]*}"
+    tname="${line##*[[:space:]]}"
+    tname="${tname#refs/tags/}"
+    [ -n "$tname" ] || continue
+    local_sha="$(git rev-parse -q --verify "refs/tags/$tname" 2>/dev/null || true)"
+    if [ -z "$local_sha" ]; then
+      note "镜像上还有本地没有的 tag：$tname（不同名，不会被覆盖）"
+    elif [ "$local_sha" != "$tsha" ]; then
+      if git cat-file -e "$tsha^{commit}" 2>/dev/null \
+         && git merge-base --is-ancestor "$tsha" "$BRANCH" 2>/dev/null; then
+        note "镜像 tag $tname 指向较旧的提交（在本分支历史里），同步会把它更新到最新"
+      else
+        block "镜像 tag '$tname' 指向的提交不在本地历史里 —— 同步会覆盖它"
+      fi
     fi
-  fi
-done < <(git ls-remote --tags "$URL" 2>/dev/null | sed 's|refs/tags/||' | grep -v '\^{}')
-
-# ---------------------------------------------------------------- 清理临时 ref
-git for-each-ref --format='%(refname)' "$MIRROR_TMP" 2>/dev/null | while IFS= read -r r; do
-  git update-ref -d "$r"
-done
-
-if [ -n "$NOTES" ]; then
-  say "提示（不拦，仅供参考）：$NOTES"
+  done <<EOF
+$TAGS
+EOF
 fi
 
-if [ "$BLOCKED" = 1 ]; then
+# ---------------------------------------------------------------- 汇总
+if grep -q '^FETCHFAIL' "$NOTES_FILE" 2>/dev/null; then
+  say "✗ 取镜像分支失败，为安全起见不推："
+  sed 's/^/    /' "$FETCH_LOG" | head -10
+  exit 1
+fi
+
+if grep -q '^BLOCK ' "$NOTES_FILE" 2>/dev/null; then
+  grep '^BLOCK ' "$NOTES_FILE" | sed 's/^BLOCK /✗ /'
+  grep '^   提交 ' "$NOTES_FILE" 2>/dev/null | head -10
   say ""
   say "镜像侧有会被覆盖的内容，已中止同步。先把它们反拉回来："
-  if [ -n "${MIRROR_DRIFT_BRANCH:-}" ]; then
+  if [ -n "$DRIFT_BRANCH" ]; then
     say "  git remote add gitee $URL            # 只需要一次"
     say "  git fetch gitee"
-    say "  git log --oneline $BRANCH..gitee/$MIRROR_DRIFT_BRANCH"
-    say "  git cherry-pick <需要的提交>          # 或者 git merge gitee/$MIRROR_DRIFT_BRANCH"
+    say "  git log --oneline $BRANCH..gitee/$DRIFT_BRANCH"
+    say "  git cherry-pick <需要的提交>          # 或者 git merge gitee/$DRIFT_BRANCH"
     say "  git push origin main                 # 再同步回去"
+    say ""
+    say "  cherry-pick 回来的算「已收敛」，再次同步会自动放行（按 patch-id 判定）。"
   else
     say "  git fetch gitee --tags && git tag -l  # 确认 tag 指向后手工对齐"
   fi
   say ""
   say "确认镜像侧那些内容可以丢弃时，用 workflow_dispatch 的 force 选项重跑同步。"
   exit 2
+fi
+
+if grep -q '^NOTE ' "$NOTES_FILE" 2>/dev/null; then
+  say "提示（不拦，仅供参考）："
+  grep '^NOTE ' "$NOTES_FILE" | sed 's/^NOTE /    · /'
 fi
 
 say "镜像无漂移（分支与 tag 都不会覆盖镜像侧独有的内容），可以推。"
