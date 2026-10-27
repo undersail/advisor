@@ -6,7 +6,7 @@
 > Worker 只是一个**可选**的中继，**必须用你自己的 Cloudflare 账号部署**。
 > 仓库里不含任何人的账号、令牌、存储 id 或 workers.dev 子域。
 
-## 三个文件
+## 四个文件
 
 | 文件 | 作用 | 什么时候用 |
 |---|---|---|
@@ -68,17 +68,29 @@ perl remote/gateway.pl --poll --max-msgs 5     # 处理 5 条就退出（测试�
   不进 `ps`、不进日志；输出里只打名字（如 `WECOM_WEBHOOK`）。
 - 单轮 180 秒超时：子进程沉默就杀掉重建，不会永久卡住。
 
-## 已知未完成（档② 的最后一公里）
+## 验证到什么程度（诚实版）
 
-Worker 只负责「收下消息 / 交出去 / 收回结果」。**把结果真正推回手机**需要平台
-自建应用的发送凭据（企微 corp secret + agentid，或飞书 app id/secret + 权限），
-并且接收端要处理平台的回调签名与 AES 解密。这部分没做，原因：
+| 部件 | 自动化测试 | 真机/真实平台 |
+|---|---|---|
+| `gateway.pl`（白名单 / 审计 / 只读） | `scripts/test-remote.py` 20 项 | 本地 mock 验过 |
+| `relay/worker.js`（Worker + DO 队列） | `test-relay.py` 7 项 + `test-relay-do.mjs` 21 项 | 只跑过 `wrangler dev --local`，**没在你自己的 CF 账号上部署过** |
+| `platform.pl`（企微/飞书回调收 + 发） | **只有 `perl -c` 与分层卡口** | **一次都没连过真实平台** |
 
-1. 需要你的企业主体 / 应用凭据，我这边没有，也无法替你申请；
-2. 回调验签与解密各家的算法细节不同，要拿真凭据联调才有意义，mock 验不出问题。
+`platform.pl` 里最需要真凭据才能验的几段——AES-256-CBC 解密、`sha1(sort(token,timestamp,nonce,encrypt))`
+验签、企微明文尾部 ReceiveId 校验、`access_token` / `tenant_access_token` 取用、发送接口的
+错误码处理——目前**只有实现、没有自动化覆盖**。第一次真正跑通必须在有凭据的环境里联调，
+mock 验不出这类问题。
 
-所以当前能用的形态是：**Mac 主动拉取 → 处理 → 结果进 `/outbox`**。
-要打通手机端，先确认平台侧的自建应用能拿到凭据，再补这一层。
+要真连一次，需要你在平台侧准备：
+
+1. **真实凭据**：企微 corp id + secret + agentid + EncodingAESKey + Token，或飞书 app id/secret；
+2. **公网可达的回调地址**（`https://<域名或穿透地址>/wecom` 或 `/feishu`），本机 NAT 后
+   需要内网穿透；
+3. **白名单填真实 UserID / open_id**（`~/.claude-agent/remote.conf` 的 `ALLOW`）。
+
+这三样我这边都没有，也不该替你申请。所以当前能用的形态是两种：**平台端收发**（手机 →
+回调 → `platform.pl` → `gateway.pl` → 回复推回手机，需要上面三样）和**中继拉取**
+（Mac 主动 `/pull` → 处理 → 结果进 `/outbox`，不依赖公网回调）。
 
 ## 平台端收发（`platform.pl`）
 
