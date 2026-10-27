@@ -83,6 +83,12 @@ def guard(local, mirror, *args):
     return run(['/bin/bash', GUARD, mirror] + list(args), local)
 
 
+def guard_debug(local, mirror, *args):
+    """带诊断开关跑一遍：探测到的分支/tag 名单会打到 stderr。"""
+    env = dict(os.environ, ADVISOR_MIRROR_DEBUG='1')
+    return run(['/bin/bash', GUARD, mirror] + list(args), local, env=env)
+
+
 def main():
     if not (os.path.exists(GUARD) and os.access(GUARD, os.X_OK)):
         check('守卫脚本存在且可执行', False, GUARD)
@@ -156,6 +162,10 @@ def main():
         out = r.stdout + r.stderr
         check('镜像上不同名的 tag 不拦', r.returncode == 0,
               '退出 %d: %s' % (r.returncode, out[-200:]))
+        if 'v0.0.1-mirror' not in out:
+            dbg = guard_debug(local3, mirror3)
+            print('   [诊断] stdout=%r' % dbg.stdout[-300:])
+            print('   [诊断] stderr=%r' % dbg.stderr[-300:])
         check('但会提示镜像上有本地没有的 tag', 'v0.0.1-mirror' in out, out[-160:])
 
         # ---- F) 镜像有本地完全没有的分支（网页建的 master）→ 放行 + 提示
@@ -168,6 +178,10 @@ def main():
         out = r.stdout + r.stderr
         check('镜像独有的分支不拦（--all 不会删除它）', r.returncode == 0,
               '退出 %d: %s' % (r.returncode, out[-200:]))
+        if 'master' not in out:
+            dbg = guard_debug(local4, mirror4)
+            print('   [诊断] stdout=%r' % dbg.stdout[-300:])
+            print('   [诊断] stderr=%r' % dbg.stderr[-300:])
         check('但会提示还有本地没有的分支', 'master' in out, out[-160:])
 
         # ---- G) 镜像落后于本地 → 放行（强推是预期收敛）

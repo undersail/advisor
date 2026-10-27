@@ -86,7 +86,17 @@ if [ "$HEADS_RC" != 0 ] || { [ -z "$HEADS" ] && [ -s "$FETCH_LOG" ]; }; then
   exit 1
 fi
 
+# ---------------------------------------------------------------- tag 名单（供调试与比较）
+TAGS="$(git ls-remote --tags "$URL" 2>/dev/null | grep -v '\^{}')"
+
 # ---------------------------------------------------------------- 分支比较
+if [ -n "${ADVISOR_MIRROR_DEBUG:-}" ]; then
+  printf 'DEBUG heads=%s tags=%s\n' \
+    "$(printf '%s' "$HEADS" | grep -c . || true)" \
+    "$(printf '%s' "$TAGS" | grep -c . || true)" >&2
+  printf 'DEBUG heads_raw=%s\n' "$(printf '%s' "$HEADS" | tr '\n' '|')" >&2
+fi
+
 printf '%s\n' "$HEADS" | while IFS= read -r line; do
   [ -n "$line" ] || continue
   ref="${line##*[[:space:]]}"          # ls-remote 输出是「<sha>\t<ref>」
