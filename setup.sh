@@ -259,7 +259,9 @@ fi
 P_NAME=(); P_KENV=(); P_DMODEL=(); P_URL=(); P_LABEL=()
 P_COUNT=0
 while IFS='|' read -r _nm _ke _dm _ku _ja _en _zh; do
-  case "$_nm" in ''|'#'*) continue ;; esac
+  # 不用 `case … continue ;;`：这个构造在 bash 3.2 上有解析问题（pre-commit hook 因此炸过）
+  if [ -z "$_nm" ]; then continue; fi
+  if [ "${_nm#\#}" != "$_nm" ]; then continue; fi
   [ -z "$_ke" ] && continue
   P_COUNT=$((P_COUNT + 1))
   P_NAME[$P_COUNT]="$_nm"

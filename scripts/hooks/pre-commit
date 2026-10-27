@@ -45,9 +45,15 @@ fi
 # ------------------------------------------------------------------ 2. 换行/编码
 # 用 perl 而不是 grep -U：macOS 是 BSD grep，不认 -U
 BAD_FILES=$(git diff --cached --name-only --diff-filter=ACM | while IFS= read -r f; do
-  case "$f" in *.png|*.icns|*.jpg|*.zip) continue ;; esac
-  [ -f "$f" ] || continue
-  if perl -ne 'exit 1 if /\r\n/' "$f" 2>/dev/null; then :; else printf '%s\n' "$f"; fi
+  # bash 3.2（macOS 自带）里 case 分支里写 `continue` 会报
+  # "syntax error near unexpected token `;;'" —— 改用 if/else。
+  if printf '%s' "$f" | grep -qE '\.(png|icns|jpg|jpeg|gif|zip)$'; then
+    :
+  else
+    if [ -f "$f" ] && ! perl -ne 'exit 1 if /\r\n/' "$f" 2>/dev/null; then
+      printf '%s\n' "$f"
+    fi
+  fi
 done)
 if [ -n "$BAD_FILES" ]; then
   say ""
