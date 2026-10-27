@@ -151,6 +151,13 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: 镜像反拉保护测试（本地裸仓模拟 Gitee）
+        run: |
+          set -o pipefail
+          # Gitee 镜像用 --force 同步。保护逻辑漏判 = 别人在 Gitee 上的提交被无声覆盖；
+          # 过度敏感 = 正常同步一直被卡。两种错都靠本地造场景验。
+          python3 scripts/test-mirror-drift.py
+
       - name: git hook 测试（真的 commit 一次，验证拦截有效）
         run: |
           set -o pipefail

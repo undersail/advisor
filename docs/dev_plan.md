@@ -477,3 +477,26 @@ bash scripts/install-git-hooks.sh     # 每个克隆做一次（core.hooksPath �
 装上之后 `git commit` 会自动拦：本机家目录等泄漏、疑似 API key、CRLF、调试残留。
 确需跳过用 `git commit --no-verify`。hook 自身有测试（`scripts/test-hooks.py`
 在临时仓库里真提交一次），CI 会跑，避免「装了等于没装」。
+
+## Gitee 镜像的写入约定（反拉保护）
+
+GitHub 是唯一写入源，Gitee 是**只读镜像**（`--all --force` + `--tags --force`）。
+
+如果有人直接在 Gitee 上提交/tag，下次同步会覆盖它们 —— 所以同步前会先跑
+`scripts/check-mirror-drift.sh`：只要发现「推上去会覆盖镜像侧独有的提交或同名 tag」，
+就**中止同步**并打印反拉步骤（不会静默丢弃）。
+
+反拉回来：
+
+```bash
+git remote add gitee https://gitee.com/undersail/advisor.git   # 只需一次
+git fetch gitee
+git log --oneline main..gitee/main        # 看 Gitee 上多了什么
+git cherry-pick <需要的提交>               # 或 git merge gitee/main
+git push origin main                      # 再同步回去
+```
+
+确认那些改动可以丢弃时，在 Actions 里手动触发 Sync to Gitee Mirror 并勾选 `force`。
+
+只拦「真的会丢东西」的情况：镜像独有的分支（`--all` 不删除）和不同名 tag
+（不会被覆盖）只提示、不拦，避免把同步卡死。测试见 `scripts/test-mirror-drift.py`。

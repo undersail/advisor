@@ -9,12 +9,24 @@ name: Sync to Gitee Mirror
 #       权限必须勾选 projects，否则 push 会被拒；令牌只显示一次，当场复制。
 #
 # 目标仓：https://gitee.com/undersail/advisor
-# 注意：--force 会覆盖镜像仓的分支，Gitee 侧不要直接提交代码。
+#
+# ★ 反拉保护：推送前会先读镜像仓（scripts/check-mirror-drift.sh）。
+#   只要发现「推上去会覆盖掉 Gitee 侧独有的提交/同名 tag」就**中止同步**并给出
+#   反拉步骤 —— 避免 Gitee 上的改动被 --force 无声抹掉。
+#   确认那些改动可以丢弃时，用 workflow_dispatch 勾选 force 重跑。
+#
+#   镜像定位：GitHub 是唯一写入源；Gitee 只读镜像。真在 Gitee 上改了东西，
+#   先反拉回来合进 main，再让这里同步回去。
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      force:
+        description: '跳过反拉保护，允许覆盖 Gitee 侧独有的提交/tag（确认可丢弃才勾）'
+        type: boolean
+        default: false
 
 concurrency:
   group: sync-gitee
@@ -50,6 +62,28 @@ jobs:
           echo "目标: gitee.com/undersail/advisor"
           echo "分支: $(git branch -r | tr -d ' ' | tr '\n' ' ')"
           echo "tag:  $(git tag | wc -l | tr -d ' ') 个"
+
+      - name: 反拉保护（Gitee 侧有我们没的提交就停下）
+        if: ${{ github.event_name == 'push' || inputs.force != true }}
+        run: |
+          set -o pipefail
+          # 只读不写：fetch 镜像仓，比较分支与 tag。
+          # 退出 2 = 会被覆盖，立刻中止；退出 1 = 读不到镜像，同样不盲目推。
+          REMOTE_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/undersail/advisor.git"
+          # 显式取退出码：`if cmd; then ...; fi` 在没有分支命中时整体状态是 0，
+          # 直接读 $? 会拿到 0，把「漂移」误判成「正常」。
+          set +e
+          bash scripts/check-mirror-drift.sh "$REMOTE_URL" --branch main
+          code=$?
+          set -e
+          [ "$code" = 0 ] && exit 0
+          sed -i "s|${GITEE_TOKEN}|***|g" /tmp/advisor-mirror-fetch.log 2>/dev/null || true
+          if [ "$code" = 2 ]; then
+            echo "::error::Gitee 镜像上有 GitHub 没有的提交/tag，强推会覆盖它们。已中止同步。先反拉回来（见上方步骤），或确认可丢弃后手动触发并勾选 force。"
+          else
+            echo "::error::读不到 Gitee 镜像（网络或凭据），为避免盲目强推已中止。"
+          fi
+          exit 1
 
       - name: 推送到 Gitee 镜像
         run: |
