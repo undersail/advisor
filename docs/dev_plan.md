@@ -25,7 +25,7 @@
 | CI / Gitee 镜像 / 文档骨架 | ✅ 本仓已落位（§1）|
 | **Gitee 反拉保护**（会覆盖对方提交就中止 + 反拉流程） | ✅ 本仓已实现（§8.2）|
 | **macOS 兼容卡口**（bash 3.2 两类坑 + GUI 自递归 + .app 弹窗） | ✅ 已实现（`check-shell-var-glue.py` / `test-gui-recursion.py` / `test-setup-py3.py`）|
-| **交互模式：bypass（减少确认）** | 📝 方案讨论中（未开发），设计见 `docs/design_doc_advisor.md` §10 |
+| **交互模式（default / accept-edits / bypass）** | 📝 设计已确认、**未开发**；见 `docs/design_doc_advisor.md` §10（M0~M5）|
 | **Tier A（10.6 ~ 10.8）** | ❌ 未开工 |
 | ~~微信接入~~ | 已排除（认证主体 + 公网回调 + 5 秒硬超时）|
 
@@ -441,6 +441,20 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 
 ---
 
+### 6.1 交互模式（已确认，未开工）
+
+设计见 `docs/design_doc_advisor.md` §10。三个已定的关键取舍（不是默认值，是维护者拍的）：
+
+1. **三档都做**：`default` / `accept-edits` / `bypass`；`accept-edits` 只放宽写文件，命令照旧确认。
+2. **危险命令改为弹确认**（不硬拒）：三档通用；因此必须配「无人应答 fail-closed」——
+   60 秒超时即拒绝、无 tty 无 GUI 直接拒绝，绝不把「没人回答」当同意，也绝不挂死会话。
+3. **可写目录是会话级白名单、可多个**：`--allow-write`（可重复）/ `CLAUDE_ALLOW_WRITE`（冒号分隔）/
+   `/allow-write` 会话内增删查；`write_file` 与命令写目标共用同一份列表；
+   `~/.claude-agent`、`/etc`、`/usr` 等**即使显式加入也不放行**。
+
+开发顺序 M0 → M5：超时与输出上限 → 模式骨架 → 危险命令与 fail-closed → 可写范围 →
+自动批准 + 审计 + 可见性 → 会话内切换 + 测试卡口。
+
 ## 7. 决策记录
 
 ### 7.1 已定（维护者确认）
@@ -454,6 +468,9 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 | 5 | 中继服务 | **接受维护**（Cloudflare Worker，免费额度足够） |
 | 6 | 远程写权限 | **只读**：只开 `read_file` / `list_dir`；`write_file` / `run_shell` 远程模式硬关 |
 | 7 | 本地预演 CI 的方式 | **必须执行 `ci.yml` 本身**（`python3 scripts/ci-local.py`），不许手抄检查逻辑。教训：M2 把 models.txt 改成 4 列、M4 又改成 6 列，手抄的复现脚本两次都写的是旧规则，本地"全绿"而线上红 / 险些红 |
+| 8 | 交互模式档位 | **三档都做**：`default` / `accept-edits` / `bypass`；`accept-edits` 只放宽写文件，`run_shell` 仍逐次确认 |
+| 9 | bypass 下危险命令 | **弹确认**（不硬拒）+ 无人应答 fail-closed（60s 超时即拒绝、无 tty 无 GUI 直接拒绝） |
+| 10 | 可写范围 | **会话级多目录白名单**：`--allow-write`（可重复）/ `CLAUDE_ALLOW_WRITE`（冒号分隔）/ `/allow-write`；`~/.claude-agent`、`/etc`、`/usr` 等即使显式加入也不放行 |
 
 ### 7.2 待定（带触发条件）
 
