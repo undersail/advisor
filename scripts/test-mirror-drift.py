@@ -185,4 +185,14 @@ def finish():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    import traceback
+    try:
+        sys.exit(main())
+    except SystemExit:
+        raise
+    except Exception:
+        tb = traceback.format_exc()
+        print('::error::镜像漂移测试异常（未到断言就崩了）: %s'
+              % tb.strip().split('\n')[-1][:200])
+        print(tb)
+        sys.exit(1)

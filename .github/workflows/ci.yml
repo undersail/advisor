@@ -151,6 +151,12 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: GUI 静态检查（自递归 = 某平台启动即崩）
+        run: |
+          set -o pipefail
+          # `return f()` 这种自递归在 Linux 上永远走不到，macOS 上却是启动即崩。
+          python3 scripts/test-gui-recursion.py
+
       - name: 镜像反拉保护测试（本地裸仓模拟 Gitee）
         run: |
           set -o pipefail
