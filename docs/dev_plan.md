@@ -551,3 +551,19 @@ git push origin main                      # 再同步回去
 
 测试 `scripts/test-mirror-drift.py`（19 项，本地裸仓模拟 Gitee）。
 诊断开关：`ADVISOR_MIRROR_DEBUG=1` 会把探测到的分支/tag 名单打到 stderr。
+
+### 8.3 本机预演要跑两种环境
+
+`python3 scripts/ci-local.py` 用的是**当前 shell 环境**；runner 是干净环境。
+两者不一致时会出现「本机绿、CI 红」，实测踩过一次（测试把「范围外」的目录
+建在 `/tmp` 下，而本机 `TMPDIR` 指向别处，云端 `/tmp` 恰好是可写根）。
+
+因此本地预演要跑两遍：
+
+```bash
+python3 scripts/ci-local.py              # 常规
+python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 HOME、无 TMPDIR）
+```
+
+新写的测试**不得依赖宿主的 `TMPDIR`/`HOME`/`PATH` 具体取值**：需要环境的
+地方自己显式设定（测试自己指定 `TMPDIR`、`cwd`，别用 `tempfile` 的宿主默认值）。
