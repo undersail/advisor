@@ -3755,6 +3755,7 @@ if ($GUI) {
                                 provider => $_->[2] } } @MODEL_CHOICES ],
         providers => [ map { my $pv = $_; { name  => $pv,
                                label => provider_label($pv),
+                               has_key       => provider_has_key($pv) ? 1 : 0,
                                key_env       => provider_info($pv, 'key_env'),
                                key_url       => provider_info($pv, 'key_url'),
                                default_model => provider_info($pv, 'default_model'),

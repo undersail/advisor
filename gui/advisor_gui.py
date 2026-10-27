@@ -219,6 +219,11 @@ _S = {
         "en": "  ← current",
         "zh": "  ← 使用中",
     },
+    "menu_no_key": {
+        "ja": "  [キー未設定]",
+        "en": "  [no key yet]",
+        "zh": "  [未配置密钥]",
+    },
     "passphrase_title": {
         "ja": "パスフレーズ",
         "en": "Passphrase",
@@ -1912,6 +1917,10 @@ class AdvisorGUI:
             # 付けるので、_set_model を呼ぶより先に自分でセットしておく
             # (_set_model 自体は後段の短縮表示更新のために引き続き呼ぶ)。
             self._current_model_id = obj.get("model", "")
+            # 哪些厂商已有密钥只有 agent 知道（它持有密钥、读过 ~/.claude-agent-env），
+            # GUI 自己猜会和 agent 的判断打架，所以只接收、不推断。
+            self._has_key = {p.get("name"): bool(p.get("has_key"))
+                             for p in obj.get("providers", []) if p.get("name")}
             self._fill_menu(obj.get("models", []))
             self._set_model(obj.get("provider", ""), obj.get("model", ""))
             hist = L("history_encrypted") if obj.get("history") else L("history_off")
@@ -1999,6 +2008,8 @@ class AdvisorGUI:
                     if name == p:
                         lbl = provider_label(info) or p
                         break
+                if getattr(self, "_has_key", {}).get(p) is False:
+                    lbl += L("menu_no_key")
                 sub = tk.Menu(self.switch_menu, tearoff=0)
                 self.switch_menu.add_cascade(label=lbl, menu=sub)
                 self._provider_menus[p] = sub

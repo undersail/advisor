@@ -156,6 +156,54 @@ def main():
         root.update()
         check(str(badge.cget('fg')) == str(theme['ai']), 'accept-edits 用强调色（%s）' % theme['ai'])
 
+        print('[菜单] 没配密钥的厂商先标出来（判断权在 agent）')
+        # 真实反馈那次的 GUI 版：agent 在 ready 里下发 has_key，GUI 只接收不推断。
+        app._handle({
+            't': 'ready',
+            'provider': 'deepseek', 'model': 'deepseek-chat', 'history': 0,
+            'mode': 'default', 'writable': [],
+            'models': [
+                {'id': 'claude-opus-5', 'label': 'Claude Opus 5', 'provider': 'anthropic'},
+                {'id': 'deepseek-chat', 'label': 'DeepSeek Chat', 'provider': 'deepseek'},
+            ],
+            'providers': [
+                {'name': 'anthropic', 'label': 'Anthropic (Claude)', 'has_key': 0,
+                 'key_env': 'ANTHROPIC_API_KEY'},
+                {'name': 'deepseek', 'label': 'DeepSeek', 'has_key': 1,
+                 'key_env': 'DEEPSEEK_API_KEY'},
+            ],
+        })
+        root.update()
+        vend = []
+        m = app.switch_menu
+        last = m.index('end')
+        if last is not None:
+            for i in range(last + 1):
+                if m.type(i) == 'cascade':
+                    vend.append(m.entrycget(i, 'label'))
+        marked = [v for v in vend if G.L('menu_no_key').strip() in v]
+        check(any('Anthropic' in v for v in marked),
+              '没密钥的厂商被标出（%s）' % vend)
+        check(not any('DeepSeek' in v for v in marked),
+              '有密钥的厂商不标注（%s）' % vend)
+        check(len(marked) == 1, '只标出真正缺密钥的那一家（%s）' % marked)
+
+        print('[菜单] 没收到 has_key 时不乱标（保守）')
+        app._has_key = {}
+        app._fill_menu([
+            {'id': 'claude-opus-5', 'label': 'Claude Opus 5', 'provider': 'anthropic'},
+            {'id': 'deepseek-chat', 'label': 'DeepSeek Chat', 'provider': 'deepseek'},
+        ])
+        root.update()
+        vend2 = []
+        last2 = m.index('end')
+        if last2 is not None:
+            for i in range(last2 + 1):
+                if m.type(i) == 'cascade':
+                    vend2.append(m.entrycget(i, 'label'))
+        check(not any(G.L('menu_no_key').strip() in v for v in vend2),
+              '状态未知时不做任何标注（%s）' % vend2)
+
         print('[主题] 换主题后徽标颜色仍然跟随')
         other = [k for k in G.THEMES if k != app.theme_name]
         if other:
