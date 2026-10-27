@@ -90,17 +90,24 @@ fi
 TAGS="$(git ls-remote --tags "$URL" 2>/dev/null | grep -v '\^{}')"
 
 # ---------------------------------------------------------------- 分支比较
+# 再抓一份（来源二）：批量 fetch 后从 refs 里读名字。
+# 某些平台上 ls-remote 与 for-each-ref 只有其一是可靠的，取并集最稳。
+git fetch --no-tags --quiet "$URL" "+refs/heads/*:$TMP_REF/heads/*" 2>>"$FETCH_LOG" || true
+EXTRA_HEADS="$(git for-each-ref --format='%(refname:lstrip=3)' "$TMP_REF/heads" 2>/dev/null)"
+
+# 名字先算好再打：别把 awk/sed 塞进双引号里（`$2` 会被 bash 先展开，整段语法崩）
+HEADS_NAMES="$(printf '%s\n' "$HEADS" | sed 's|.*refs/heads/||')"
+TAGS_NAMES="$(printf '%s\n' "$TAGS" | sed 's|.*refs/tags/||')"
+ALL_HEADS="$(printf '%s\n%s\n' "$HEADS_NAMES" "$EXTRA_HEADS" | grep -v '^$' | sort -u)"
+
 if [ -n "${ADVISOR_MIRROR_DEBUG:-}" ]; then
-  printf 'DEBUG heads=%s tags=%s\n' \
-    "$(printf '%s' "$HEADS" | grep -c . || true)" \
-    "$(printf '%s' "$TAGS" | grep -c . || true)" >&2
-  printf 'DEBUG heads_raw=%s\n' "$(printf '%s' "$HEADS" | tr '\n' '|')" >&2
+  printf 'DEBUG lsremote_heads=[%s]\n' "$(printf '%s' "$HEADS_NAMES" | tr '\n' ' ')" >&2
+  printf 'DEBUG foreach_heads=[%s]\n' "$(printf '%s' "$EXTRA_HEADS" | tr '\n' ' ')" >&2
+  printf 'DEBUG tags=[%s]\n' "$(printf '%s' "$TAGS_NAMES" | tr '\n' ' ')" >&2
+  printf 'DEBUG all_heads=[%s]\n' "$(printf '%s' "$ALL_HEADS" | tr '\n' ' ')" >&2
 fi
 
-printf '%s\n' "$HEADS" | while IFS= read -r line; do
-  [ -n "$line" ] || continue
-  ref="${line##*[[:space:]]}"          # ls-remote 输出是「<sha>\t<ref>」
-  mb="${ref#refs/heads/}"
+printf '%s\n' "$ALL_HEADS" | while IFS= read -r mb; do
   [ -n "$mb" ] || continue
 
   if ! git show-ref --verify --quiet "refs/heads/$mb"; then
@@ -120,17 +127,13 @@ printf '%s\n' "$HEADS" | while IFS= read -r line; do
   applied="$(git cherry "refs/heads/$mb" "$TMP_REF/branch" 2>/dev/null | grep -c '^-')"
 
   if [ "${unapplied:-0}" -gt 0 ]; then
-    block "镜像分支 '$mb' 上有 $unapplied 个提交未进入本地 —— 强推会覆盖它们"
+    block "镜像分支 [$mb] 上有 $unapplied 个提交未进入本地 —— 强推会覆盖它们"
     git cherry "refs/heads/$mb" "$TMP_REF/branch" 2>/dev/null \
       | grep '^+' | head -5 | awk '{print "  提交 " $2}' >> "$NOTES_FILE"
   elif [ "${applied:-0}" -gt 0 ]; then
-    note "镜像分支 '$mb' 上的 $applied 个提交已有等价补丁在本地（cherry-pick 过），同步会收敛"
+    note "镜像分支 [$mb] 上的 $applied 个提交已有等价补丁在本地（cherry-pick 过），同步会收敛"
   fi
 done
-
-# 分支循环里 BLOCK 需要能被下面读到：文件是共享的，直接读就行
-DRIFT_BRANCH="$(grep '^BLOCK ' "$NOTES_FILE" 2>/dev/null | head -1 \
-                | sed -n "s/.*分支 '\([^']*\)'.*/\1/p")"
 
 # ---------------------------------------------------------------- tag 比较
 TAGS="$(git ls-remote --tags "$URL" 2>/dev/null | grep -v '\^{}')"
@@ -149,7 +152,7 @@ if [ -n "$TAGS" ]; then
          && git merge-base --is-ancestor "$tsha" "$BRANCH" 2>/dev/null; then
         note "镜像 tag $tname 指向较旧的提交（在本分支历史里），同步会把它更新到最新"
       else
-        block "镜像 tag '$tname' 指向的提交不在本地历史里 —— 同步会覆盖它"
+        block "镜像 tag [$tname] 指向的提交不在本地历史里 —— 同步会覆盖它"
       fi
     fi
   done <<EOF
@@ -158,15 +161,43 @@ EOF
 fi
 
 # ---------------------------------------------------------------- 汇总
-if grep -q '^FETCHFAIL' "$NOTES_FILE" 2>/dev/null; then
+# 全部用 bash 内建读文件（while read + case），不拿 grep/sed/awk 去啃临时文件：
+# BSD 工具在不同 locale / 二进制判定下的行为差异已经在 macOS runner 上坑过一次。
+BLOCKED=0
+DRIFT_BRANCH=""
+has_marker() {   # $1 = BLOCK / FETCHFAIL
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in "$1 "*) return 0 ;; "$1") return 0 ;; esac
+  done < "$NOTES_FILE"
+  return 1
+}
+
+while IFS= read -r l || [ -n "$l" ]; do
+  case "$l" in
+    BLOCK*)
+      BLOCKED=1
+      msg="${l#BLOCK }"
+      say "✗ $msg"
+      case "$msg" in
+        *"分支 ["*"]"*)
+          tb="${msg#*分支 [}"; DRIFT_BRANCH="${tb%%]*}" ;;
+      esac
+      ;;
+    FETCHFAIL) BLOCKED=2 ;;
+  esac
+done < "$NOTES_FILE"
+
+if [ "$BLOCKED" = 2 ]; then
   say "✗ 取镜像分支失败，为安全起见不推："
   sed 's/^/    /' "$FETCH_LOG" | head -10
   exit 1
 fi
 
-if grep -q '^BLOCK ' "$NOTES_FILE" 2>/dev/null; then
-  grep '^BLOCK ' "$NOTES_FILE" | sed 's/^BLOCK /✗ /'
-  grep '^   提交 ' "$NOTES_FILE" 2>/dev/null | head -10
+if [ "$BLOCKED" = 1 ]; then
+  # 附上具体是哪几个提交
+  while IFS= read -r l || [ -n "$l" ]; do
+    case "$l" in "   提交 "*) say "$l" ;; esac
+  done < "$NOTES_FILE"
   say ""
   say "镜像侧有会被覆盖的内容，已中止同步。先把它们反拉回来："
   if [ -n "$DRIFT_BRANCH" ]; then
@@ -185,10 +216,16 @@ if grep -q '^BLOCK ' "$NOTES_FILE" 2>/dev/null; then
   exit 2
 fi
 
-if grep -q '^NOTE ' "$NOTES_FILE" 2>/dev/null; then
-  say "提示（不拦，仅供参考）："
-  grep '^NOTE ' "$NOTES_FILE" | sed 's/^NOTE /    · /'
-fi
+# 非阻塞提示
+NOTES_SHOWN=0
+while IFS= read -r l || [ -n "$l" ]; do
+  case "$l" in
+    "NOTE "*)
+      if [ "$NOTES_SHOWN" = 0 ]; then say "提示（不拦，仅供参考）："; NOTES_SHOWN=1; fi
+      say "    · ${l#NOTE }"
+      ;;
+  esac
+done < "$NOTES_FILE"
 
 say "镜像无漂移（分支与 tag 都不会覆盖镜像侧独有的内容），可以推。"
 exit 0

@@ -164,8 +164,8 @@ def main():
               '退出 %d: %s' % (r.returncode, out[-200:]))
         if 'v0.0.1-mirror' not in out:
             dbg = guard_debug(local3, mirror3)
-            print('   [诊断] stdout=%r' % dbg.stdout[-300:])
-            print('   [诊断] stderr=%r' % dbg.stderr[-300:])
+            for ln in (dbg.stdout[-300:] + dbg.stderr[-300:]).splitlines():
+                print('::notice::诊断 %s' % ln.replace('%', '％'))
         check('但会提示镜像上有本地没有的 tag', 'v0.0.1-mirror' in out, out[-160:])
 
         # ---- F) 镜像有本地完全没有的分支（网页建的 master）→ 放行 + 提示
@@ -180,8 +180,8 @@ def main():
               '退出 %d: %s' % (r.returncode, out[-200:]))
         if 'master' not in out:
             dbg = guard_debug(local4, mirror4)
-            print('   [诊断] stdout=%r' % dbg.stdout[-300:])
-            print('   [诊断] stderr=%r' % dbg.stderr[-300:])
+            for ln in (dbg.stdout[-300:] + dbg.stderr[-300:]).splitlines():
+                print('::notice::诊断 %s' % ln.replace('%', '％'))
         check('但会提示还有本地没有的分支', 'master' in out, out[-160:])
 
         # ---- G) 镜像落后于本地 → 放行（强推是预期收敛）
