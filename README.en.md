@@ -77,7 +77,7 @@ faces depending on your mood.
   required.
 - **Conversation history is encrypted and stored locally** — unreadable
   to anyone who doesn't know your passphrase.
-- **Automatic Japanese/English switching** — the GUI, terminal text, and
+- **Automatic Japanese/English/Chinese switching** — the GUI, terminal text, and
   even the native macOS menu bar all follow your Mac's system language
   automatically.
 - **Double-clickable `Advisor.app`** — no terminal experience required.
@@ -86,6 +86,22 @@ faces depending on your mood.
   yet the first time you launch, you get an in-app screen instead of a
   terminal prompt. Pick a provider, click a button to open the key page,
   paste it in — done. No terminal window, ever.
+
+- **Confirmation only where it is needed** - three interaction modes: `default` (asks before
+  every write and every command), `accept-edits` (writes are automatic, commands still ask) and
+  `bypass` (ordinary work runs without asking, **dangerous commands still ask**). The GUI shows a
+  **[ Mode ]** menu plus a permanent badge, so the current mode is always visible.
+- **Safety valves so it cannot run away** - `run_shell` has a **timeout (120 s by default) and a
+  64 KB output cap**; a dangerous-command prompt that goes **unanswered for 60 seconds counts as
+  refused**, and with neither a terminal nor a GUI attached it is refused up front (nothing runs
+  unattended, nothing hangs). Every auto-approval is appended to
+  `~/.claude-agent/approvals.log` and `/approvals` shows the last ten.
+- **You decide where it may write** - by default only the current directory and the temp
+  directory. `--allow-write` / `/allow-write` add more for the session; `~/.ssh` and
+  `~/.claude-agent` (where keys and the audit log live) **stay refused even if you add them**.
+- **Remote access (optional)** — drive it from outside through a read-only gateway; results can
+  be pushed to WeCom / Feishu (see `remote/README.md`). **Remote has no write or execute
+  capability** — it only ever gets the two read-only tools.
 
 ## Supported OS tiers
 
@@ -105,8 +121,8 @@ too.
 
 ### ① Download and go (no terminal needed)
 
-1. Grab **`Advisor-v0.1-standalone.zip`** from the
-   [latest release](https://github.com/watermark-hd/advisor/releases/latest)
+1. Grab **`Advisor-v0.2.2-standalone.zip`** from the
+   [latest release](https://github.com/undersail/advisor/releases/latest)
    and unzip it
 2. Drag the `Advisor` inside into your `Applications` folder (or the Dock)
 3. **The very first time only**, instead of double-clicking, right-click
@@ -213,6 +229,8 @@ advisor --no-history             don't save this session
 advisor --change-passphrase      change the history passphrase
 advisor --set-recovery           set a recovery passphrase
 advisor -h / --version           help / version
+advisor --mode=<name>         default / accept-edits / bypass (default: default)
+advisor --allow-write=<dir>   add a writable directory (repeatable)
 ```
 
 In a new terminal, type `advisor ` and press Tab to complete option names;
@@ -229,6 +247,42 @@ that ships with High Sierra).
 - Gemini tends to "think" for a while even on simple questions, so thinking
   is set shallow (`LOW`) by default. Set `CLAUDE_GEMINI_THINKING=high` if you
   want it to think harder.
+
+## How confirmation works (interaction modes)
+
+The model has four tools (`read_file` / `write_file` / `list_dir` / `run_shell`). Reads never ask;
+**only writes and command execution are subject to asking**. How much of that asking to skip is
+a three-step choice.
+
+| Mode | Writes | Commands | Dangerous commands |
+|---|---|---|---|
+| `default` (default) | ask every time | ask every time | ask |
+| `accept-edits` | automatic inside the writable roots | ask every time | ask |
+| `bypass` | automatic inside the writable roots | automatic normally | **ask** |
+
+Dangerous commands (recursive deletes, `sudo`, permission changes, power/system actions,
+download-and-run, interactive programs like `vi`/`less`) **always ask, even in bypass**. If that
+prompt goes unanswered for 60 seconds it counts as refused; with no terminal and no GUI attached
+it is refused up front, so the session can neither hang nor run unattended.
+
+```bash
+advisor --mode=bypass          # choose at launch
+/mode                          # show the current mode and writable roots
+/mode accept-edits             # switch mid-session (switching to bypass asks for "yes")
+/allow-write ~/work/notes /tmp/work   # add writable directories (repeatable)
+/allow-write                   # list them; /allow-write clear removes the added ones
+/approvals                     # last ten auto-approvals
+```
+
+- The default writable roots are **only the current directory and the temp directory**.
+  `~/.ssh`, `~/.claude-agent`, `/etc`, `/usr` and friends **stay refused even if you add them**.
+- Writes performed through a command (`echo x > path`, `cp`, `mv`, `rm`, `tee`) go through the
+  same scope check. The detection only catches recognisable shapes; whatever it misses is still
+  backed by the dangerous-command prompt.
+- The chosen mode is stored in `~/.claude-agent-env` and reused next launch (or set
+  `CLAUDE_MODE`). Timeouts are tunable via `CLAUDE_SHELL_TIMEOUT` / `CLAUDE_CONFIRM_TIMEOUT`.
+- **Remote access (WeCom / Feishu) has no write or execute capability in any mode** - it only
+  ever gets the two read-only tools.
 
 ## About the Chinese/Japanese/English support
 
@@ -314,8 +368,6 @@ actually talk to either AI. No API key is included in the code anywhere.
   Google account — the free tier (no card required) is enough to get
   started comfortably.
 - **Anthropic**: get a key at
-
-- **Remote access (optional)** — drive it from outside through a read-only gateway; notify results to WeCom / Feishu. See `remote/README.md`.
   [console.anthropic.com](https://console.anthropic.com/) and add a small
   credit charge under Billing (this is separate, pay-as-you-go billing —
   not the same as a claude.ai Pro/Max subscription).

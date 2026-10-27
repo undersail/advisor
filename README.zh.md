@@ -65,6 +65,18 @@ Gemini（Google）。
 - **API 密钥直接在 GUI 里登记** —— 第一次启动若还没有密钥，会给你一个应用内页面而
   不是在终端里问你。选厂商、点按钮打开申请页面、粘贴进来 —— 完事。全程不用开终端。
 
+- **确认只问必要的** —— 交互模式分三档：`default`（写文件、跑命令都问）/ `accept-edits`
+  （只自动写文件，命令仍问）/ `bypass`（普通操作不再问，**危险命令仍然问**）。GUI 里页眉有
+  **[ 模式 ]** 菜单和常驻徽标，当前是哪个模式一直看得见。
+- **不会跑飞的安全阀** —— `run_shell` 有**超时（默认 120 秒）和输出上限（64KB）**；危险命令的
+  确认**60 秒没人应答就按拒绝处理**，既没有终端也没有界面的环境下直接拒绝（不会自己乱跑，也不会
+  卡死）。自动批准了什么都会记进 `~/.claude-agent/approvals.log`，`/approvals` 看最近 10 条。
+- **能写哪里由你定** —— 默认只有当前目录和临时目录。用 `--allow-write` / `/allow-write`
+  可以在会话里追加多个目录；`~/.ssh`、`~/.claude-agent`（存密钥和审计日志的地方）
+  **即使显式加入也拒绝**。
+- **远程接入（可选）** —— 经只读网关从外面派活，结果可推到企业微信 / 飞书（配置见
+  `remote/README.md`）。**远程侧没有写入和执行能力**，工具固定为两个只读的。
+
 ## 支持的 OS 层级
 
 - **Tier B：Mavericks（10.9）～ High Sierra（10.13）及更新** —— 系统自带的 `curl`
@@ -79,8 +91,8 @@ Gemini（Google）。
 
 ### ① 下载即用（不需要终端）
 
-1. 从[最新发布](https://github.com/watermark-hd/advisor/releases/latest)下载
-   **`Advisor-v0.1-standalone.zip`** 并解压
+1. 从[最新发布](https://github.com/undersail/advisor/releases/latest)下载
+   **`Advisor-v0.2.2-standalone.zip`** 并解压
 2. 把里面的 `Advisor` 拖进 `Applications` 文件夹（或 Dock）
 3. **仅第一次**不要双击，而是右键（或 Control-点击）选择「打开」。macOS 会提示开发者
    未验证（这是预期的 —— 这个构建还没有用付费的 Apple Developer ID 签名），再点一次
@@ -121,6 +133,8 @@ bash setup.sh
   随时可在标题栏的 **[ 主题 ]** 里切换。
 - **[ 切换 AI ]** 用来选 Claude 或 Gemini 的模型，**[ 继续上次 ]** 用来打开以前加密
   保存的对话。
+- 页眉的 **[ 模式 ]** 切换交互模式，左边的徽标显示当前模式（bypass 是警示色）；
+  切到 `bypass` 时会先确认一次。
 - 输入框直接使用 Mac 正常的输入法，绕开了 Terminal.app 的双字节字符问题。
 
 ## 使用终端（`advisor` 命令）
@@ -171,6 +185,8 @@ advisor --no-history           本次不保存
 advisor --change-passphrase    修改历史记录口令
 advisor --set-recovery         设置密保问题
 advisor -h / --version         帮助 / 版本
+advisor --mode=<名字>        default / accept-edits / bypass（默认 default）
+advisor --allow-write=<目录>  追加可写目录（可重复）
 ```
 
 在新终端里输入 `advisor ` 然后按 Tab 可以补全选项名；在 `advisor -m ` 之后按 Tab 会
@@ -183,6 +199,38 @@ bash 3.2 上测过）。
 - 只想切厂商，用 **`/claude`** / **`/gemini`**。
 - Gemini 即使回答简单问题也容易「想」很久，所以思考深度默认设得很浅（`LOW`）。想要它
   想得更深，设 `CLAUDE_GEMINI_THINKING=high`。
+
+## 确认的方式（交互模式）
+
+AI 手上有四个工具（`read_file` / `write_file` / `list_dir` / `run_shell`）。读取从不询问，
+**需要决定「问不问」的只有写文件和执行命令**。要省到什么程度，有三档可选。
+
+| 模式 | 写文件 | 执行命令 | 危险命令 |
+|---|---|---|---|
+| `default`（默认） | 每次确认 | 每次确认 | 确认 |
+| `accept-edits` | 可写范围内自动 | 每次确认 | 确认 |
+| `bypass` | 可写范围内自动 | 通常自动 | **确认** |
+
+危险命令（递归删除、`sudo`、改权限、关机/系统设置、下载后直接执行、`vi`/`less` 这类
+交互式命令等）**即使在 bypass 也一定会问**。这个确认 60 秒没人应答就按拒绝处理；既没有
+终端也没有界面时直接拒绝，不会挂住会话。
+
+```bash
+advisor --mode=bypass          # 启动时选
+/mode                          # 看当前模式与可写范围
+/mode accept-edits             # 会话里切换（切到 bypass 需再输一次 yes）
+/allow-write ~/work/notes /tmp/work   # 追加可写目录（可多个）
+/allow-write                   # 查看；/allow-write clear 清空追加项
+/approvals                     # 最近 10 条自动批准记录
+```
+
+- 默认可写范围**只有当前目录和临时目录**。`~/.ssh`、`~/.claude-agent`、`/etc`、`/usr`
+  这些**即使显式加入也拒绝**。
+- 经由命令的写入（`echo x > path`、`cp`、`mv`、`rm`、`tee`）走同一套范围判定——只识别
+  能看出来的形态，识别不到的最终仍由危险命令确认兜底。
+- 模式选择保存在 `~/.claude-agent-env`，下次启动沿用（也可用 `CLAUDE_MODE`）。
+  超时可用 `CLAUDE_SHELL_TIMEOUT` / `CLAUDE_CONFIRM_TIMEOUT` 调。
+- **远程（企业微信 / 飞书）不管什么模式都没有写入和执行能力**，只有两个只读工具。
 
 ## 关于中文 / 日文 / 英文
 
@@ -287,8 +335,6 @@ API 密钥。
   [aistudio.google.com/apikey](https://aistudio.google.com/apikey) 申请 —— 免费额度
   （无需绑卡）足够舒服地起步。
 - **Anthropic**：在 [console.anthropic.com](https://console.anthropic.com/) 申请，
-
-- **远程接入（可选）** —— 经只读网关从外面派活，结果可推到企业微信 / 飞书。配置见 `remote/README.md`。
   并在 Billing 里充值少量额度（这是单独的按量计费，和 claude.ai 的 Pro/Max 订阅不是
   一回事）。
 
