@@ -164,6 +164,11 @@ jobs:
           # 过度敏感 = 正常同步一直被卡。两种错都靠本地造场景验。
           python3 scripts/test-mirror-drift.py
 
+
+      - name: 变量粘连中文检查（bash 3.2 会吞掉变量名）
+        run: |
+          python3 scripts/check-shell-var-glue.py
+
       - name: git hook 测试（真的 commit 一次，验证拦截有效）
         run: |
           set -o pipefail

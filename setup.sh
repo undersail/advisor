@@ -533,7 +533,7 @@ select_model() {
   echo "export CLAUDE_MODEL=\$chosen" >> "\$ENV_FILE"
   echo "export CLAUDE_PROVIDER=\$prov" >> "\$ENV_FILE"
   chmod 600 "\$ENV_FILE"
-  if [ "\$LANGCODE" = "zh" ]; then echo "→ 使用 \$chosen。"
+  if [ "\$LANGCODE" = "zh" ]; then echo "→ 使用 \${chosen}。"
   elif [ "\$IS_EN" = "1" ]; then echo "→ Using \$chosen."
   else echo "→ \$chosen を使います。"; fi
   local keyvar

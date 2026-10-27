@@ -112,7 +112,7 @@ printf '%s\n' "$ALL_HEADS" | while IFS= read -r mb; do
 
   if ! git show-ref --verify --quiet "refs/heads/$mb"; then
     # 镜像独有的分支：--all 不会删除它，只提示
-    note "镜像上还有本地没有的分支：$mb（不会被删除，但也不会被更新）"
+    note "镜像上还有本地没有的分支：${mb}（不会被删除，但也不会被更新）"
     continue
   fi
 
@@ -146,7 +146,7 @@ if [ -n "$TAGS" ]; then
     [ -n "$tname" ] || continue
     local_sha="$(git rev-parse -q --verify "refs/tags/$tname" 2>/dev/null || true)"
     if [ -z "$local_sha" ]; then
-      note "镜像上还有本地没有的 tag：$tname（不同名，不会被覆盖）"
+      note "镜像上还有本地没有的 tag：${tname}（不同名，不会被覆盖）"
     elif [ "$local_sha" != "$tsha" ]; then
       if git cat-file -e "$tsha^{commit}" 2>/dev/null \
          && git merge-base --is-ancestor "$tsha" "$BRANCH" 2>/dev/null; then

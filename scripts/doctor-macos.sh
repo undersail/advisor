@@ -43,7 +43,7 @@ else
       info "修: chmod +x \"$EXEC\""
     fi
   else
-    bad "Info.plist 说可执行文件是 $EXEC_NAME，但 Contents/MacOS/$EXEC_NAME 不存在"
+    bad "Info.plist 说可执行文件是 ${EXEC_NAME}，但 Contents/MacOS/$EXEC_NAME 不存在"
   fi
 
   if plutil -lint "$APP/Contents/Info.plist" >/dev/null 2>&1; then
@@ -55,7 +55,7 @@ else
 
   # alias 模式的 py2app 产物：没有内嵌解释器，靠本机 python3 + 源码目录
   if [ -L "$APP/Contents/MacOS/$EXEC_NAME" ] || ! [ -d "$APP/Contents/Frameworks" ]; then
-    info "这是 alias 模式构建（py2app -A）：依赖本机 python3 和 $SRC_DIR，不能拷到别的机器跑"
+    info "这是 alias 模式构建（py2app -A）：依赖本机 python3 和 ${SRC_DIR}，不能拷到别的机器跑"
   else
     info "看起来是自带解释器的独立构建"
   fi
@@ -67,7 +67,7 @@ if [ -f "$SRC_DIR/advisor_gui.py" ]; then
   ok "GUI 源码在: $SRC_DIR/advisor_gui.py"
 else
   bad "缺少 $SRC_DIR/advisor_gui.py —— alias 模式的 app 会立刻退出（Finder 里就是「打不开」）"
-  info "修: 重跑 setup.sh（它会把源码铺到 $SRC_DIR）"
+  info "修: 重跑 setup.sh（它会把源码铺到 ${SRC_DIR}）"
 fi
 
 for py in "$(command -v python3 2>/dev/null)" /usr/bin/python3 \
