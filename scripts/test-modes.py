@@ -109,7 +109,7 @@ def free_port():
 
 # ------------------------------------------------------------------ agent
 class Agent:
-    def __init__(self, home, mode, base_url, extra_env=None):
+    def __init__(self, home, mode, base_url, extra_env=None, work=None):
         env = {
             'HOME': home,
             'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
@@ -121,15 +121,19 @@ class Agent:
             'CLAUDE_LANG': 'zh',
             'CLAUDE_MODE': mode,
             'TERM': 'dumb',
+            # 一時ディレクトリの根を明示する（/tmp はもう既定の可写根ではない）。
+            # ここを固定しないと「範囲外」の意味が実行環境で変わってしまう。
+            'TMPDIR': os.path.join(home, 'tmpdir'),
         }
         if extra_env:
             env.update(extra_env)
+        os.makedirs(os.path.join(home, 'tmpdir'), exist_ok=True)
         args = ['perl', AGENT, '--rpc']
         if mode is None:
             env.pop('CLAUDE_MODE', None)
         self.p = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env=env, cwd=home, text=True, bufsize=1, start_new_session=True)
+            env=env, cwd=(work or home), text=True, bufsize=1, start_new_session=True)
         self.home = home
         self.events = []
         self.hello = None
@@ -289,13 +293,16 @@ def confirms(events):
 def case_default_asks(tmp, base):
     print('[default] 写文件与命令都要确认')
     print('::notice::[default] 写文件与命令都要确认')
-    a = Agent(tmp, 'default', base)
+    work = os.path.join(tmp, 'work')
+    os.makedirs(work, exist_ok=True)
+
+    a = Agent(tmp, 'default', base, work=work)
     try:
-        SCRIPT.push_tool('write_file', {'path': os.path.join(tmp, 'd.txt'), 'content': 'x'})
+        SCRIPT.push_tool('write_file', {'path': os.path.join(work, 'd.txt'), 'content': 'x'})
         SCRIPT.push_text()
         ev = a.turn('写个文件', answer='y')
         check(len(confirms(ev)) == 1, 'default 下 write_file 弹了确认', texts(ev))
-        check(os.path.exists(os.path.join(tmp, 'd.txt')), 'reply=y 后文件真的写了')
+        check(os.path.exists(os.path.join(work, 'd.txt')), 'reply=y 后文件真的写了')
 
         SCRIPT.push_tool('run_shell', {'command': 'echo hello-default'})
         SCRIPT.push_text()
@@ -323,9 +330,14 @@ def case_default_declines(tmp, base):
 def case_accept_edits(tmp, base):
     print('[accept-edits] 范围内自动、范围外仍问、命令仍问')
     print('::notice::[accept-edits] 范围内自动、范围外仍问、命令仍问')
-    a = Agent(tmp, 'accept-edits', base)
+    work = os.path.join(tmp, 'work')
+    outside = os.path.join(tmp, 'outside')
+    os.makedirs(work, exist_ok=True)
+    os.makedirs(outside, exist_ok=True)
+
+    a = Agent(tmp, 'accept-edits', base, work=work)
     try:
-        inside = os.path.join(tmp, 'auto.txt')
+        inside = os.path.join(work, 'auto.txt')
         SCRIPT.push_tool('write_file', {'path': inside, 'content': 'auto'})
         SCRIPT.push_text()
         ev = a.turn('写文件')
@@ -333,7 +345,7 @@ def case_accept_edits(tmp, base):
         check(os.path.exists(inside), '文件写了')
         check('已自动批准' in texts(ev), '消息流里出现「已自动批准」', texts(ev))
 
-        outside = os.path.join(tempfile.gettempdir(), 'advisor-outside-%d.txt' % os.getpid())
+        outside = os.path.join(outside, 'auto.txt')
         SCRIPT.push_tool('write_file', {'path': outside, 'content': 'x'})
         SCRIPT.push_text()
         ev = a.turn('写范围外的文件', answer='n')
@@ -351,9 +363,12 @@ def case_accept_edits(tmp, base):
 def case_bypass(tmp, base):
     print('[bypass] 普通操作不问、危险命令必问、超时拒绝')
     print('::notice::[bypass] 普通操作不问、危险命令必问、超时拒绝')
+    work = os.path.join(tmp, 'work')
+    os.makedirs(work, exist_ok=True)
+
     a = Agent(tmp, 'bypass', base)
     try:
-        p1 = os.path.join(tmp, 'b1.txt')
+        p1 = os.path.join(work, 'b1.txt')
         SCRIPT.push_tool('write_file', {'path': p1, 'content': 'b'})
         SCRIPT.push_text()
         ev = a.turn('写文件')
@@ -408,7 +423,10 @@ def case_bypass_timeout(tmp, base):
 def case_write_scope(tmp, base):
     print('[bypass] 可写范围：永远拒绝目录、/allow-write 追加、clear')
     print('::notice::[bypass] 可写范围：永远拒绝目录、/allow-write 追加、clear')
-    a = Agent(tmp, 'bypass', base)
+    work = os.path.join(tmp, 'work')
+    os.makedirs(work, exist_ok=True)
+
+    a = Agent(tmp, 'bypass', base, work=work)
     try:
         secret = os.path.join(tmp, '.claude-agent', 'evil.txt')
         SCRIPT.push_tool('write_file', {'path': secret, 'content': 'x'})
@@ -417,7 +435,8 @@ def case_write_scope(tmp, base):
         check(not os.path.exists(secret), '~/.claude-agent 下的写入被拒')
         check('永远不允许写入' in texts(ev), '拒绝理由说明是永久禁止', texts(ev))
 
-        outside_dir = tempfile.mkdtemp(prefix='advisor-allow-')
+        outside_dir = os.path.join(tmp, 'scope-outside')
+        os.makedirs(outside_dir, exist_ok=True)
         try:
             target = os.path.join(outside_dir, 'ok.txt')
             SCRIPT.push_tool('write_file', {'path': target, 'content': 'x'})
@@ -517,8 +536,12 @@ def case_bad_mode(tmp, base):
 def case_cmd_write_scope(tmp, base):
     print('[bypass] 命令里的写入目标也受可写范围约束')
     print('::notice::[bypass] 命令里的写入目标也受可写范围约束')
-    a = Agent(tmp, 'bypass', base)
-    outside = tempfile.mkdtemp(prefix='advisor-cmd-outside-')
+    work = os.path.join(tmp, 'work')
+    os.makedirs(work, exist_ok=True)
+
+    a = Agent(tmp, 'bypass', base, work=work)
+    outside = os.path.join(tmp, 'cmd-outside')
+    os.makedirs(outside, exist_ok=True)
     try:
         target = os.path.join(outside, 'via-cmd.txt')
 

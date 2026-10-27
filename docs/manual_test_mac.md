@@ -297,6 +297,7 @@ advisor --mode=bypass        # 普通写/跑不问，危险命令仍问
 - [ ] bypass 下用**命令**写到范围外（`echo hi > /tmp/xxx`）也会弹确认；写 `/etc/...` **直接拒绝**
 - [ ] 不涉及写入的命令（`echo hi`、`ls`）在 bypass 下照旧不问，别被写目标识别误伤
 - [ ] 一条 `sleep 200` 的命令在 120 秒后被中断，结果里说明是超时（不是无声消失）
+- [ ] `/allow-write` 显示的「临时目录」就是 macOS 的 `$TMPDIR`（`/var/folders/.../T`），写 `/tmp` 不算默认可写
 - [ ] 输出很大的命令只回前 64 KB，并注明原大小
 - [ ] `~/.claude-agent/approvals.log` 里能看到刚才的自动批准，权限 `-rw-------`，不含 API key
 - [ ] GUI：页眉有「模式 ▾」，切换后旁边徽标跟着变（默认=灰、写免确认=强调色、Bypass=**红色**）

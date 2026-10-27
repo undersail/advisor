@@ -3149,11 +3149,19 @@ sub resolve_path {
     return '';
 }
 
+# 可写の既定根: カレントディレクトリ + 一時ディレクトリ。
+# 一時ディレクトリは TMPDIR があれば**それだけ**を使う（macOS は必ず設定される）。
+# /tmp を常に足していた頃は、テストが「範囲外」を作ったつもりで /tmp 配下に
+# 置いてしまい、環境によって可否が変わった —— 判定に環境依存を持ち込まない。
+sub temp_root {
+    my $t = defined $ENV{TMPDIR} && $ENV{TMPDIR} ne '' ? $ENV{TMPDIR} : '/tmp';
+    return resolve_path($t);
+}
+
 sub write_roots_all {
     my @r = @WRITE_ROOTS;
     push @r, resolve_path(Cwd::getcwd());
-    push @r, resolve_path($ENV{TMPDIR} || '/tmp');
-    push @r, resolve_path('/tmp');
+    push @r, temp_root();
     my %seen;
     return grep { !$seen{$_}++ } grep { defined $_ && $_ ne '' } @r;
 }
@@ -3455,11 +3463,10 @@ sub danger_reason_text {
 # 可写ディレクトリの表示。$TMPDIR は環境ごとに長い内部パス（macOS だと
 # /var/folders/xx/.../T）で、そのまま出すと意味が伝わらないだけだった。
 sub writable_display {
-    my $tmp = resolve_path($ENV{TMPDIR} || '/tmp');
-    my $slash_tmp = resolve_path('/tmp');
+    my $tmp = temp_root();
     my @out;
     for my $r (write_roots_all()) {
-        if (($tmp ne '' && $r eq $tmp) || ($slash_tmp ne '' && $r eq $slash_tmp)) {
+        if ($tmp ne '' && $r eq $tmp) {
             push @out, L('temp_dir_label');
             next;
         }
