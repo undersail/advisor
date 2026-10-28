@@ -257,6 +257,25 @@ def wait_for(fn, seconds=12, step=0.2):
     return None
 
 
+def wait_quiet(quiet=0.8, cap=20.0, poll=0.2):
+    """等推送流停下来：连续 quiet 秒没有新的推送就返回。
+
+    为什么需要它：代理是**异步**推结果，长回复还会分片。慢机器上
+    「先 sleep 固定秒数再断言」会读在半路上 —— 上一条的分片会被算进下一条用例，
+    表现为「签名错却推了东西」这种假失败（macos-15-intel 上真的红过）。
+    """
+    end = time.time() + cap
+    last_n, last_t = len(PUSHES), time.time()
+    while time.time() < end:
+        time.sleep(poll)
+        n = len(PUSHES)
+        if n != last_n:
+            last_n, last_t = n, time.time()
+        elif time.time() - last_t >= quiet:
+            return True
+    return False
+
+
 def start_platform(home, api_base, gateway_cmd):
     env = dict(os.environ)
     env.update({
@@ -365,6 +384,7 @@ def main():
     enc = wecom_encrypt(aes, xml)
     outer = '<xml><ToUserName><![CDATA[corp]]></ToUserName><Encrypt><![CDATA[%s]]></Encrypt></xml>' % enc
     sig = wecom_sig(token, ts, nonce, enc)
+    wait_quiet()
     PUSHES.clear()
     st, body = http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base, sig, ts, nonce), outer)
     check('企微消息：应答 success（平台要求 5 秒内回）', st == 200 and 'success' in body,
@@ -409,9 +429,11 @@ def main():
     enc3 = wecom_encrypt(aes, xml3)
     outer_c = '<xml><Encrypt><![CDATA[%s]]></Encrypt></xml>' % enc3
     sig_c = wecom_sig(token, ts, nonce, enc3)
+    wait_quiet()
     PUSHES.clear()
     http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base, sig_c, ts, nonce), outer_c)
     wait_for(lambda: [x for x in PUSHES if '网关收到' in x[2]], seconds=25)
+    wait_quiet(quiet=1.2)  # 分片是连续推的，等它推完再数（慢机器上原来会少收两三段）
     parts = [x for x in PUSHES if x[0] == 'wecom']
     check('长回复：被拆成多条发送（否则平台会直接拒发）', len(parts) >= 2, '条数=%d' % len(parts))
     if parts:
@@ -424,6 +446,7 @@ def main():
               'joined_len=%d orig=%d' % (len(joined), len(long_text)))
 
     # --- 签名错：丢弃且不回复 ---
+    wait_quiet()
     PUSHES.clear()
     st, body = http_post('%s?msg_signature=bad&timestamp=%s&nonce=%s' % (base, ts, nonce), outer)
     time.sleep(1.5)
@@ -472,6 +495,7 @@ def main():
     check('企微消息：ReceiveId 不是本企业 → 400（防密文被换）', st == 400, 'status=%s' % st)
 
     # --- 非文本消息：收下（平台要求 5 秒内 200）但不派活 ---
+    wait_quiet()
     PUSHES.clear()
     n_gw_before = len(open(os.path.join(home, 'gw_in.txt')).readlines()) \
         if os.path.exists(os.path.join(home, 'gw_in.txt')) else 0
@@ -508,6 +532,7 @@ def main():
     proc2 = start_platform(home2, api_base, 'perl ' + GATEWAY)   # 用**真网关**
     base2 = 'http://127.0.0.1:%d/wecom' % port2
     wait_for(lambda: http_get(base2 + '?msg_signature=x&timestamp=1&nonce=2&echostr=y')[0] in (400, 403))
+    wait_quiet()
     PUSHES.clear()
     enc2 = wecom_encrypt(aes2, xml)
     sig3 = wecom_sig(token2, ts, nonce, enc2)
@@ -537,6 +562,7 @@ def main():
     base_rl = 'http://127.0.0.1:%d/wecom' % port_rl
     wait_for(lambda: http_get(base_rl + '?msg_signature=x&timestamp=1&nonce=2&echostr=y')[0] == 403)
 
+    wait_quiet()
     PUSHES.clear()
     xml_rl = ('<xml><FromUserName><![CDATA[zhangsan]]></FromUserName>'
               '<MsgType><![CDATA[text]]></MsgType>'
@@ -575,6 +601,7 @@ def main():
     proc_ack = start_platform(home_ack, api_base, gw_ack)
     base_ack = 'http://127.0.0.1:%d/wecom' % port_ack
     wait_for(lambda: http_get(base_ack + '?msg_signature=x&timestamp=1&nonce=2&echostr=y')[0] == 403)
+    wait_quiet()
     PUSHES.clear()
     xml_slow = ('<xml><FromUserName><![CDATA[zhangsan]]></FromUserName>'
                 '<MsgType><![CDATA[text]]></MsgType>'
@@ -613,6 +640,7 @@ def main():
     proc3 = start_platform(home3, api_base, gw3)
     base3 = 'http://127.0.0.1:%d/feishu' % port3
     wait_for(lambda: http_post(base3, '{}')[0] in (200, 403))
+    wait_quiet()
     PUSHES.clear()
 
     # --- URL 验证（challenge）---
