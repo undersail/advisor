@@ -34,12 +34,12 @@
 | `test-remote.py` | **24** | 新增：`no_config=1` 审计、聊天端改配置被拒 |
 | `test-remote-notify.py` | 22 | 档① 通知 |
 | `test-relay-do.mjs` | 21 | Durable Object 队列语义 |
-| `test-mirror-drift.sh` 配套 `test-mirror-drift.py` | 19 | 镜像漂移与反拉保护 |
+| `test-mirror-drift.py` | **20** | 镜像漂移与反拉保护（新增「推 tag 也要同步」） |
 | `test-hooks.py` | 10 | pre-commit hook |
 | `test-gui-keyenv.py` | **8** | 新增：GUI 存密钥的权限路径 |
 | `test-gui-recursion.py` | 8 | GUI 自递归静态卡口 |
 | `test-relay.py` | 7 | 档② 轮询端 |
-| **合计** | **363** | 15 个脚本 |
+| **合计** | **364** | 15 个脚本（发版前逐条实测，不是抄文档） |
 
 卡口 6 个：`check-secrets`（70 个已跟踪文件 + 全历史，0 命中）、`check-i18n`（Perl `%S` **147** /
 GUI `_S` **68** / `msg()` **48**，未译 0）、`check-models`（12 条模型 × 7 家）、`check-version`、
