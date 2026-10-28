@@ -38,11 +38,11 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 15 个，合计 **356 项**（modes 60 · **platform 46** · release-workflow 26 · audit-commands 27 · setup-py3 35 · **gui-keyenv 8** · **remote-notify 22** · relay-do 21 · remote 20 · mirror-drift 19 · gui-modes 18 · **key-policy 25** · hooks 10 · gui-recursion 8 · relay 7） |
+| 测试脚本 | 15 个，合计 **363 项**（modes 60 · **platform 46** · release-workflow 26 · audit-commands 27 · setup-py3 35 · **gui-keyenv 8** · **remote-notify 22** · relay-do 21 · remote 20 · mirror-drift 19 · gui-modes 25 · **key-policy 25** · hooks 10 · gui-recursion 8 · relay 7） |
 | CI | `ci.yml` **30 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
-| 文案/注册表 | Perl `%S` 147 · GUI `_S` 66 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
+| 文案/注册表 | Perl `%S` 147 · GUI `_S` 68 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
 | 泄漏 | 67 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
 
 审计记录：`docs/audits/audit_advisor_v0.2.1.md`（v0.2.1 快照）、`docs/audits/audit_advisor_v0.2.1_r2.md`（之后的第二轮）。
@@ -86,7 +86,7 @@
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
 | `agent/claude-agent.pl` → `my %S` | **147**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
-| `gui/advisor_gui.py` → `_S` | **66** | 同上，`L()` 里 `ja, en = _S[key]` |
+| `gui/advisor_gui.py` → `_S` | **68** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|日本語ラベル|English label` |
 | 文档 | README.md(ja) / README.en.md / release/ReadMe_JP.txt / ReadMe_EN.txt | 日英各一份 |

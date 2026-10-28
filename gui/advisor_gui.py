@@ -314,6 +314,19 @@ _S = {
         "en": "Could not start",
         "zh": "无法启动",
     },
+    "backend_exit_title": {
+        "ja": "バックエンドが終了しました。この画面からは送信できません。",
+        "en": "The backend has exited — you can no longer send from this window.",
+        "zh": "后端进程已退出 —— 这个窗口已经发不出消息了。",
+    },
+    "backend_exit_hint": {
+        "ja": "上の理由を確認してください（キー未設定・モデル名・設定ファイルの権限など）。\n"
+              "直し方: このウィンドウを閉じて開き直す / ターミナルで `advisor` を実行すると同じエラーがそのまま出ます。",
+        "en": "See the reason above (missing key, unknown model id, config file permission, ...).\n"
+              "To fix: close and reopen this window, or run `advisor` in Terminal — it prints the same error.",
+        "zh": "先看上面的原因（未配置密钥、模型名不认识、配置文件权限等）。\n"
+              "处理办法：关掉这个窗口重新打开，或在终端直接运行 `advisor`，同样的错误会原样打出来。",
+    },
     "key_save_denied": {
         "ja": "設定ファイルに書き込めません:\n  {path}\n"
               "（所有者 {owner} / 権限 {mode}）\n"
@@ -927,8 +940,26 @@ class AdvisorGUI:
         self._build_ui()
         self._apply_theme(self.theme_name)
         self._write_show_marker()
+        # 起動直後に書き込み欄へフォーカスを渡す。渡さないと「ウィンドウは
+        # 出ているのに何を打っても入らない」になる（実機で踏んだ）。
+        self._focus_write_zone()
         self._start_backend()
+        self.root.bind("<FocusIn>", self._on_window_focus, add="+")
         self.root.after(80, self._pump)
+
+    def _on_window_focus(self, _event=None):
+        try:
+            if self.root.focus_get() is None:
+                self._focus_write_zone()
+        except Exception:
+            pass
+
+    def _focus_write_zone(self):
+        try:
+            if str(self.write_zone.cget("state")) not in ("disabled", "1"):
+                self.write_zone.focus_set()
+        except Exception:
+            pass
 
     # ---------- 初回起動時、APIキー未登録なら出す案内画面 ----------
     def _build_onboarding(self):
@@ -1898,7 +1929,10 @@ class AdvisorGUI:
             self.proc = subprocess.Popen(
                 cmd, env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, bufsize=1,
+                # stderr を捨てない: バックエンドが即死したとき、GUI 側に
+                # 「なぜ死んだか」を出す手段がこれしかない（実機で
+                # 「入力できない」だけが見えて原因不明になった）。
+                stderr=subprocess.PIPE, bufsize=1,
                 universal_newlines=True, encoding="utf-8",
             )
         except OSError as e:
@@ -1906,6 +1940,23 @@ class AdvisorGUI:
             self.root.destroy()
             return
         threading.Thread(target=self._reader, daemon=True).start()
+        self._stderr_tail = []
+        threading.Thread(target=self._reader_err, daemon=True).start()
+
+    _stderr_tail = None
+
+    def _reader_err(self):
+        """バックエンドの stderr を最後の 20 行だけ保持する（常駐ログにはしない）。"""
+        try:
+            for line in self.proc.stderr:
+                line = line.rstrip("\n")
+                if not line:
+                    continue
+                self._stderr_tail.append(line)
+                if len(self._stderr_tail) > 20:
+                    del self._stderr_tail[0]
+        except Exception:
+            return
 
     def _reader(self):
         for line in self.proc.stdout:
@@ -1985,6 +2036,7 @@ class AdvisorGUI:
             self.status_var.set(L("ready_status", hist=hist))
             self._update_mode(obj.get("mode", "default"), obj.get("writable"))
             self._set_busy(False)
+            self._focus_write_zone()
         elif t == "mode":
             self._update_mode(obj.get("mode", "default"), obj.get("writable"))
         elif t == "text":
@@ -2033,8 +2085,15 @@ class AdvisorGUI:
             self.cmd_proc = None
             self._cmd_set_running(False)
         elif t == "bye":
-            self.status_var.set(L("bye_status"))
+            # バックエンドが終了。黙って入力欄を殺すだけだと「打てない」しか
+            # 分からないので、stderr の最後の数行と直し方を画面に出す。
             self._set_busy(True)
+            self._append(L("backend_exit_title"), "err")
+            tail = [ln for ln in getattr(self, "_stderr_tail", []) if ln.strip()]
+            for ln in tail[-8:]:
+                self._append("  " + ln.strip(), "dim")
+            self._append(L("backend_exit_hint"), "dim")
+            self.status_var.set(L("bye_status"))
 
     # ---------- 小物 ----------
     def _set_model(self, provider, model):
@@ -2282,6 +2341,9 @@ class AdvisorGUI:
     def _set_busy(self, busy):
         self.busy = busy
         self.write_zone.config(state=tk.DISABLED if busy else tk.NORMAL)
+        if not busy:
+            # 返信が終わったら入力欄へ戻す（毎回クリックさせない）
+            self._focus_write_zone()
 
     def _write_show_marker(self):
         self.write_zone.delete("1.0", tk.END)

@@ -214,6 +214,46 @@ def main():
         check(not any(G.L('menu_no_key').strip() in v for v in vend2),
               '状态未知时不做任何标注（%s）' % vend2)
 
+        print('[焦点] 打开窗口后输入框必须拿到键盘焦点')
+        # 真机报障：GUI 打开了但打不了字 —— 代码里从来没给 write_zone 设过焦点。
+        # Xvfb 没有窗口管理器，focus_get() 永远是 None —— 不能直接断言"谁持有
+        # 焦点"。改成盯着「有没有真的去给写作框设焦点」这个动作。
+        hit = []
+        orig_focus = app.write_zone.focus_set
+        app.write_zone.focus_set = lambda: (hit.append(1), orig_focus())[1]
+        app._set_busy(True)
+        app._set_busy(False)
+        check(len(hit) >= 1, '解除忙状态后主动把焦点交回写作框（%d 次）' % len(hit))
+        app._handle({'t': 'ready', 'provider': 'deepseek', 'model': _default_model(),
+                     'mode': 'default', 'writable': [], 'history': 0,
+                     'providers': [{'name': 'deepseek', 'has_key': True}],
+                     'models': [{'id': _default_model(), 'label': 'DS', 'provider': 'deepseek'}]})
+        root.update()
+        check(len(hit) >= 2, 'ready 之后也会给一次焦点（%d 次）' % len(hit))
+        app.write_zone.focus_set = orig_focus
+
+        print('[后端退出] 必须把原因说出来，不能只把输入框杀掉')
+        # 真机报障：GUI 打开后输入框打不了字 —— 实际是后端进程已经退出，
+        # 而 bye 分支只做了 _set_busy(True)，stderr 又被 DEVNULL 丢掉。
+        app._stderr_tail = ['请设置 ANTHROPIC_API_KEY']
+        app._handle({'t': 'bye'})
+        root.update()
+        body = app.note.get('1.0', 'end-1c')
+        check('后端进程已退出' in body, '退出时明确说「后端进程已退出」', body[-160:])
+        check('请设置 ANTHROPIC_API_KEY' in body,
+              '把后端 stderr 的最后几行也显示出来', body[-160:])
+        check(('advisor' in body) and ('重开' in body or '终端' in body),
+              '给出处理办法（关掉重开 / 终端跑 advisor）', body[-160:])
+        check(str(app.write_zone.cget('state')) in ('disabled', 1),
+              '没有后端时输入框保持禁用（不假装能发）', app.write_zone.cget('state'))
+        app._handle({'t': 'ready', 'provider': 'deepseek', 'model': _default_model(),
+                     'mode': 'default', 'writable': [], 'history': 0,
+                     'providers': [{'name': 'deepseek', 'has_key': True}],
+                     'models': [{'id': _default_model(), 'label': 'DS', 'provider': 'deepseek'}]})
+        root.update()
+        check(str(app.write_zone.cget('state')) in ('normal', 0),
+              '后端 ready 后输入框恢复可用', app.write_zone.cget('state'))
+
         print('[主题] 换主题后徽标颜色仍然跟随')
         other = [k for k in G.THEMES if k != app.theme_name]
         if other:
