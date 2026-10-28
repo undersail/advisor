@@ -128,8 +128,18 @@ def run(feed, mode='ok', port=None):
         os.waitpid(proc.pid, 0)
     except ChildProcessError:
         pass
+    txt = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', buf.decode('utf-8', 'replace'))
+    envfile = os.path.join(home, '.claude-agent-env')
+    saved, mode = {}, None
+    if os.path.exists(envfile):
+        mode = oct(os.stat(envfile).st_mode & 0o777)
+        for ln in open(envfile, encoding='utf-8'):
+            ln = ln.strip()
+            if ln.startswith('export ') and '=' in ln:
+                k, _, v = ln[len('export '):].partition('=')
+                saved[k] = v
     shutil.rmtree(home, ignore_errors=True)
-    return re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', buf.decode('utf-8', 'replace'))
+    return txt, saved, mode
 
 
 def main():
@@ -138,7 +148,7 @@ def main():
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
     print('::notice::会话中切到没有密钥的厂商')
-    out = run([('/model', 1.5), ('1', 2.0), ('1', 2.5), ('再问一句', 3.5)], port=port)
+    out, _, _ = run([('/model', 1.5), ('1', 2.0), ('1', 2.5), ('再问一句', 3.5)], port=port)
     # 「粘贴 / 输入密钥」这类索要动作一律不该出现
     ask_words = ['粘贴', '请输入密钥', 'paste', 'Paste']
     check('不再索要密钥（没有"粘贴/请输入密钥"这类措辞）',
@@ -147,16 +157,41 @@ def main():
     check('提示先退出会话（exit）', 'exit' in out)
     check('指出配置途径（setup.sh 或 ~/.claude-agent-env）',
           'setup.sh' in out and '.claude-agent-env' in out)
+    check('指出去哪儿配：/key <厂商>', '/key anthropic' in out)
     check('取消后仍停在原来的模型', '仍使用 [deepseek' in out)
     check('取消后继续对话正常（没有被"要密钥"打断）', 'pong' in out)
 
     print('::notice::密钥失效（API 返回 401）')
-    out2 = run([('你好', 4.0)], mode='401', port=port)
+    out2, _, _ = run([('你好', 4.0)], mode='401', port=port)
     check('提示密钥被拒绝', '密钥被拒绝' in out2 and '401' in out2)
     check('指出要检查哪个变量', 'DEEPSEEK_API_KEY' in out2)
     check('要求退出后重新配置', 'exit' in out2)
     check('不再把原始 JSON 甩给用户', 'authentication_error' not in out2)
     check('401 时也不弹输入', not any(w in out2 for w in ['粘贴', '请输入密钥']))
+
+    print('::notice::/key 列出各厂商密钥状态')
+    out3, _, _ = run([('/key', 1.5), ('exit', 1.0)], port=port)
+    check('/key 列出全部 7 家并标状态',
+          out3.count('未配置') + out3.count('已配置') >= 7,
+          out3.count('未配置') + out3.count('已配置'))
+    check('/key 给出用法', '/key deepseek' in out3)
+
+    print('::notice::/key <厂商> 配置并保存')
+    out4, saved, mode = run([('/key anthropic', 1.5), ('sk-ant-test-9876', 1.5),
+                             ('y', 1.5), ('exit', 1.0)], port=port)
+    check('/key 才索要密钥（专门命令里允许输入）', '粘贴后按回车' in out4)
+    check('保存后明确告知已保存', '已保存' in out4)
+    check('密钥真的写进配置文件', saved.get('ANTHROPIC_API_KEY') == 'sk-ant-test-9876', saved)
+    check('配置文件权限 0600', mode == '0o600', mode)
+    check('保存到文件的是输入的那把（没有串到别的厂商）',
+          'DEEPSEEK_API_KEY' not in saved or saved['DEEPSEEK_API_KEY'] == 'dummy-key-for-test',
+          saved)
+
+    print('::notice::/key 不认识的厂商')
+    out5, saved5, _ = run([('/key 没有这家', 1.2), ('exit', 1.0)], port=port)
+    check('不认识的厂商只报错、不索要输入',
+          '不认识的厂商' in out5 and '粘贴后按回车' not in out5)
+    check('不认识的厂商不会写配置文件', not saved5, saved5)
 
     srv.shutdown()
     print()

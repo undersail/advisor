@@ -284,13 +284,78 @@ my %S = (
     # 密钥只在安装时输入一次（setup.sh）。会话里既不索要、也不接收，
     # 只把"缺什么、去哪里配"说清楚 —— 在对话中途打断要密钥是这个项目
     # 真实出过事故的地方（看起来像 key 失效）。
+    # 密钥的配置只有两条路：安装时（setup.sh），或会话中的专门命令 /key。
+    # 切换模型的流程里**不夹带**密钥输入 —— 那会让人分不清"我要换模型"和"我的 key 坏了"。
     key_config_needed    => {
-        ja => "\n%s のキーが未設定です（%s）。\n"
-            . "ここでは入力しません。一度 exit で抜けて、setup.sh か %s で設定してから起動し直してください。\n",
-        en => "\nNo key for %s (%s).\n"
-            . "Keys are not entered mid-conversation. Exit once and set it via setup.sh or %s, then start again.\n",
+        ja => "\n%s のキーがまだ未設定です（%s）。\n"
+            . "キーの設定は専用コマンドで行います: /key %s\n"
+            . "（セッションを抜けて setup.sh か %s で設定してもかまいません）\n",
+        en => "\n%s has no key yet (%s).\n"
+            . "Keys are set with the dedicated command: /key %s\n"
+            . "(or exit and set it via setup.sh / %s)\n",
         zh => "\n%s 还没有配置密钥（%s）。\n"
-            . "会话中不输入密钥：请先 exit 退出，用 setup.sh 或编辑 %s 配置后再启动。\n",
+            . "密钥用专门的命令配置：/key %s\n"
+            . "（也可以退出会话后用 setup.sh 或编辑 %s 配置）\n",
+    },
+    key_cmd_head         => {
+        ja => "\nキー設定の専用コマンド: /key <ベンダー名>\n",
+        en => "\nDedicated key command: /key <vendor>\n",
+        zh => "\n密钥配置的专门命令：/key <厂商>\n",
+    },
+    key_cmd_have         => {
+        ja => "設定済み",
+        en => "configured",
+        zh => "已配置",
+    },
+    key_cmd_missing      => {
+        ja => "未設定",
+        en => "not set",
+        zh => "未配置",
+    },
+    key_cmd_usage        => {
+        ja => "使い方: /key deepseek （または /key 4 のように番号でも可）\n",
+        en => "Usage: /key deepseek (a menu number like /key 4 also works)\n",
+        zh => "用法：/key deepseek（也可以 /key 4 这样用编号）\n",
+    },
+    key_cmd_unknown      => {
+        ja => "不明なベンダー: %s\n",
+        en => "Unknown vendor: %s\n",
+        zh => "不认识的厂商：%s\n",
+    },
+    key_cmd_where        => {
+        ja => "\n%s の API キーを入力してください。未取得なら: %s\n",
+        en => "\nEnter the API key for %s. Get one here: %s\n",
+        zh => "\n请输入 %s 的 API 密钥。还没有的话：%s\n",
+    },
+    key_cmd_prompt       => {
+        ja => "貼り付けて Enter（画面には表示されません。空 Enter でキャンセル）: ",
+        en => "Paste and press Enter (not echoed; empty Enter cancels): ",
+        zh => "粘贴后按回车（不会显示在屏幕上；直接回车取消）：",
+    },
+    key_cmd_empty        => {
+        ja => "キャンセルしました。\n",
+        en => "Cancelled.\n",
+        zh => "已取消。\n",
+    },
+    key_cmd_save_prompt  => {
+        ja => "\n%s に保存しますか？ [y/N]: ",
+        en => "\nSave it to %s? [y/N]: ",
+        zh => "\n要保存到 %s 吗？[y/N]：",
+    },
+    key_cmd_saved        => {
+        ja => "保存しました: %s（次回起動時も有効）\n",
+        en => "Saved: %s (also used on next start)\n",
+        zh => "已保存：%s（下次启动仍然有效）\n",
+    },
+    key_cmd_not_saved    => {
+        ja => "保存していません（このセッション内だけ有効）。\n",
+        en => "Not saved (only valid for this session).\n",
+        zh => "未保存（只在本次会话内有效）。\n",
+    },
+    key_cmd_gui          => {
+        ja => "GUI では開始画面（または設定）でキーを設定してください。ファイルを直接編集するなら %s\n",
+        en => "In the GUI, set the key on the start screen (or Settings). Or edit %s directly.\n",
+        zh => "GUI 里请在首启页（或设置）配置密钥；也可以直接编辑 %s\n",
     },
     key_invalid          => {
         ja => "\n%s のキーが拒否されました（HTTP %s）。\n"
@@ -308,12 +373,9 @@ my %S = (
         zh => "  [未配置密钥]",
     },
     menu_vendor_no_key   => {
-        ja => "  ※ %s はまだキーが未設定です（%s）。会话中は切り替えられません。\n"
-            . "    一度 exit で抜けて setup.sh か %s で設定してください。\n",
-        en => "  Note: %s has no key yet (%s). It cannot be switched to mid-conversation.\n"
-            . "        Exit once and set it with setup.sh or %s.\n",
-        zh => "  注：%s 还没有配置密钥（%s）。会话中无法切换：\n"
-            . "      请先 exit 退出，用 setup.sh 或编辑 %s 配置后再启动。\n",
+        ja => "  ※ %s はまだキー未設定です（%s）。設定するには /key %s\n",
+        en => "  Note: %s has no key yet (%s). Set it with /key %s\n",
+        zh => "  注：%s 还没有配置密钥（%s）。要配置请用 /key %s\n",
     },
     switch_cancelled     => {
         ja => "キャンセルしました。[%s / %s] のままです。\n",
@@ -1096,6 +1158,7 @@ sub print_help {
 
 对话中可用 /claude・/gemini 切换 AI（对话内容会保留）。
 /mode 查看或切换交互模式；/allow-write 管理可写目录；/approvals 看最近自动批准。
+/key <厂商> 配置某家厂商的 API 密钥（会话中唯一的密钥入口；密钥只在安装时或这里输入）。
 模型选择用 `advisor --select-model` / `advisor -m <ID>`（由 shell 包装脚本处理）。
 EOH
         $h =~ s{%s}{join(" / ", @PROVIDER_ORDER)}e;
@@ -1134,6 +1197,7 @@ EOH
 
 会話中に /claude・/gemini でAIを切り替えられる(会話は引き継がれる)。
 /mode で対話モードの表示・切り替え、/allow-write で書き込み先の管理、/approvals で自動承認の履歴。
+/key <ベンダー> でそのベンダーの API キーを設定(会話中にキーを入れる唯一の入口)。
 モデルの選択は `advisor --select-model` / `advisor -m <ID>` (シェルラッパー側)。
 EOH
     $hj =~ s{%s}{join(" / ", @PROVIDER_ORDER)}e;
@@ -1432,12 +1496,13 @@ sub switch_provider {
         # 首回起動の案内画面（キー未設定時）は GUI 側の初期設定で扱う。
         # ここは「会話中に別の厂商へ切り替えようとした」场合なので、
         # 入力は求めず、設定方法だけ伝える。
-        emit_error(L('key_config_needed', provider_label($target), $key_name, $ENV_FILE_PATH));
+        emit_error(L('key_config_needed', provider_label($target), $key_name,
+                     $target, $ENV_FILE_PATH));
         return 0;
     }
 
     # 会话中不索要密钥（见上面 key_config_needed 的注释）。
-    print L('key_config_needed', provider_label($target), $key_name, $ENV_FILE_PATH);
+    print L('key_config_needed', provider_label($target), $key_name, $target, $ENV_FILE_PATH);
     print L('switch_cancelled', $PROVIDER, $MODEL);
     return 0;
 }
@@ -1498,8 +1563,7 @@ sub show_vendor_models {
     print "\n";
     printf "  [%s]\n", provider_label($p);
     unless (provider_has_key($p)) {
-        print L('menu_vendor_no_key', provider_label($p), provider_info($p, 'key_env'),
-                $ENV_FILE_PATH);
+        print L('menu_vendor_no_key', provider_label($p), provider_info($p, 'key_env'), $p);
     }
     my $i = 1;
     %MENU_MODELS = ();
@@ -3982,6 +4046,62 @@ sub handle_turn {
     }
 
     # /model 3 や /model <ID> でも指定できる
+    # ---- /key：密钥配置的唯一会话内入口（切换模型不夹带密钥输入）----
+    if ($input =~ m{^/key(?:\s+(.+?))?\s*$}) {
+        my $arg = defined $1 ? $1 : '';
+        if ($arg eq '') {
+            print L('key_cmd_head');
+            my $i = 0;
+            for my $p (@PROVIDER_ORDER) {
+                $i++;
+                printf("  %2d  %-24s %s\n", $i, provider_label($p),
+                       provider_has_key($p) ? L('key_cmd_have') : L('key_cmd_missing'));
+            }
+            print L('key_cmd_usage');
+            return;
+        }
+        # 厂商名或菜单编号都认
+        my $target = $arg;
+        if ($arg =~ /^\d+$/ && $arg >= 1 && $arg <= @PROVIDER_ORDER) {
+            $target = $PROVIDER_ORDER[$arg - 1];
+        }
+        elsif (provider_from_command(lc $arg) ne '') {
+            $target = provider_from_command(lc $arg);
+        }
+        unless (grep { $_ eq $target } @PROVIDER_ORDER) {
+            print L('key_cmd_unknown', $arg);
+            print L('key_cmd_usage');
+            return;
+        }
+        if ($GUI) {
+            emit_error(L('key_cmd_gui', $ENV_FILE_PATH));
+            return;
+        }
+        my $kenv = provider_info($target, 'key_env');
+        my $kurl = provider_info($target, 'key_url');
+        print L('key_cmd_where', provider_label($target), $kurl) if $kurl ne '';
+        my $key = read_secret(L('key_cmd_prompt'));
+        if (!defined $key || $key eq '') {
+            print L('key_cmd_empty');
+            return;
+        }
+        my $old = $ENV{$kenv};
+        $ENV{$kenv} = $key;
+        if ($target eq $PROVIDER) {
+            eval { configure_provider($PROVIDER) };   # 立即对当前会话生效
+        }
+        print L('key_cmd_save_prompt', $ENV_FILE_PATH);
+        my $yn = <STDIN>;
+        if (defined $yn && $yn =~ /^y/i) {
+            persist_env($kenv, $key);
+            print L('key_cmd_saved', $ENV_FILE_PATH);
+        }
+        else {
+            print L('key_cmd_not_saved');
+        }
+        return;
+    }
+
     if ($input =~ m{^/models?\s+(\S.*?)\s*$}) {
         my $arg = $1;
         my $id = ($arg =~ /^\d+$/ && @MODEL_CHOICES && $arg >= 1 && $arg <= @MODEL_CHOICES)
