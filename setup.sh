@@ -66,7 +66,12 @@ msg() {
       stock_curl) fmt="使用系统自带的 curl（Mavericks 及之后的版本已支持 TLS 1.2，无需另外编译）。" ;;
       title) fmt="=== high_sierra_claude (advisor) 安装向导 ===" ;;
       ask_provider) fmt="要使用哪一个 AI？" ;;
-      enter_number) fmt="输入编号 [1]: " ;;
+      enter_number) fmt="输入编号 [%s]: " ;;
+      mark_has_key) fmt="  ← 已有密钥" ;;
+      ask_confirm_switch) fmt="注意：你已经为 %s 配好密钥。
+继续会把当前 AI 改成 %s（它还没有密钥，需要新粘一把）。
+按 y 继续，直接回车保持用 %s：" ;;
+      kept_previous) fmt="已保持使用 %s。" ;;
       using_provider) fmt="→ 使用 %s。" ;;
       reuse_key) fmt="直接使用已保存的 %s。" ;;
       reuse_key_hint) fmt="如果想换成别的密钥，请先执行 'rm %s' 再重新运行。" ;;
@@ -115,7 +120,12 @@ msg() {
       stock_curl) fmt="Using the system curl (Mavericks and later already support TLS 1.2, no extra build needed)." ;;
       title) fmt="=== high_sierra_claude (advisor) setup ===" ;;
       ask_provider) fmt="Which AI do you want to use?" ;;
-      enter_number) fmt="Enter a number [1]: " ;;
+      enter_number) fmt="Enter a number [%s]: " ;;
+      mark_has_key) fmt="  <- key already saved" ;;
+      ask_confirm_switch) fmt="Note: you already have a key for %s.
+Continuing switches the current AI to %s (which has no key yet and needs a new one).
+Press y to continue, or just Enter to keep using %s: " ;;
+      kept_previous) fmt="Kept using %s." ;;
       using_provider) fmt="→ Using %s." ;;
       reuse_key) fmt="Using the already-saved %s." ;;
       reuse_key_hint) fmt="To use a different key, run 'rm %s' and start over." ;;
@@ -163,7 +173,12 @@ msg() {
       stock_curl) fmt="標準のcurlを使います(Mavericks以降はTLS1.2対応済みのため追加ビルド不要)。" ;;
       title) fmt="=== high_sierra_claude (advisor) セットアップ ===" ;;
       ask_provider) fmt="どちらのAIを使いますか?" ;;
-      enter_number) fmt="番号を入力 [1]: " ;;
+      enter_number) fmt="番号を入力 [%s]: " ;;
+      mark_has_key) fmt="  ← キー保存済み" ;;
+      ask_confirm_switch) fmt="注意: %s のキーは既に保存されています。
+このまま進むと現在の AI を %s に変えます（こちらはキー未設定で、新しく貼る必要があります）。
+y で続行、Enter だけで %s のままにします: " ;;
+      kept_previous) fmt="%s のままにしました。" ;;
       using_provider) fmt="→ %s を使います。" ;;
       reuse_key) fmt="保存済みの %s をそのまま使います。" ;;
       reuse_key_hint) fmt="別のキーに変えたい場合は 'rm %s' してから再実行してください。" ;;
@@ -282,14 +297,46 @@ if [ "$P_COUNT" -eq 0 ]; then
   exit 1
 fi
 
+# 既にあるキーと、いま使っている AI を先に調べる（重ねて入れ直す事故を防ぐ）。
+# 値そのものは表示しない —— 「あるか無いか」だけ。
+_CUR_PROVIDER="${CLAUDE_PROVIDER:-}"
+_CUR_CHOICE=0
+_FIRST_KEYED=0
+P_HASKEY=()
+_i=1
+while [ "$_i" -le "$P_COUNT" ]; do
+  eval "_kv=\${${P_KENV[$_i]}}"
+  if [ -n "${_kv:-}" ]; then
+    P_HASKEY[$_i]=1
+    [ "$_FIRST_KEYED" -eq 0 ] && _FIRST_KEYED=$_i
+  else
+    P_HASKEY[$_i]=0
+  fi
+  if [ -n "$_CUR_PROVIDER" ] && [ "${P_NAME[$_i]}" = "$_CUR_PROVIDER" ]; then
+    _CUR_CHOICE=$_i
+  fi
+  _i=$((_i + 1))
+done
+
 msg ask_provider
 _i=1
 while [ "$_i" -le "$P_COUNT" ]; do
-  printf "  %d) %s\n" "$_i" "${P_LABEL[$_i]}"
+  printf "  %d) %s" "$_i" "${P_LABEL[$_i]}"
+  if [ "${P_HASKEY[$_i]}" = "1" ]; then
+    printf "%s" "$(msg mark_has_key)"
+  fi
+  printf "\n"
   _i=$((_i + 1))
 done
-printf "$(msg enter_number)"
+if [ "$_CUR_CHOICE" -gt 0 ]; then
+  printf "$(msg enter_number)" "$_CUR_CHOICE"
+else
+  printf "$(msg enter_number)" "1"
+fi
 read -r PROVIDER_CHOICE
+if [ -z "$PROVIDER_CHOICE" ] && [ "$_CUR_CHOICE" -gt 0 ]; then
+  PROVIDER_CHOICE="$_CUR_CHOICE"
+fi
 PROVIDER_CHOICE="${PROVIDER_CHOICE:-1}"
 case "$PROVIDER_CHOICE" in
   ''|*[!0-9]*) PROVIDER_CHOICE=1 ;;
@@ -297,6 +344,21 @@ esac
 if [ "$PROVIDER_CHOICE" -lt 1 ] || [ "$PROVIDER_CHOICE" -gt "$P_COUNT" ]; then
   msg err_bad_choice "$P_COUNT"
   exit 1
+fi
+
+# 別の厂商（キー未設定）に切り替えようとしている場合だけ一度だけ確認する。
+# 何も言わずに CLAUDE_PROVIDER を書き換えると、貼ったキーが別の厂商のもので
+# 落ちて「キーが無効になった」ように見える。
+if [ "$_CUR_CHOICE" -gt 0 ] \
+   && [ "$PROVIDER_CHOICE" -ne "$_CUR_CHOICE" ] \
+   && [ "${P_HASKEY[$PROVIDER_CHOICE]}" != "1" ]; then
+  msg ask_confirm_switch "${P_LABEL[$_CUR_CHOICE]}" "${P_LABEL[$PROVIDER_CHOICE]}" "${P_LABEL[$_CUR_CHOICE]}"
+  read -r _SWITCH_YN || _SWITCH_YN=""
+  case "$_SWITCH_YN" in
+    y|Y|yes|YES) : ;;
+    *) msg kept_previous "${P_LABEL[$_CUR_CHOICE]}"
+       PROVIDER_CHOICE="$_CUR_CHOICE" ;;
+  esac
 fi
 PROVIDER="${P_NAME[$PROVIDER_CHOICE]}"
 KEY_VAR="${P_KENV[$PROVIDER_CHOICE]}"
@@ -743,7 +805,7 @@ if [ ! -x "\$GUI_PY" ] || ! "\$GUI_PY" -c 'import tkinter' >/dev/null 2>&1 || [ 
   # 先写文字提示再弹窗：无人值守环境（CI / 远程登录）弹窗可能没人点，
   # 不能让「能看到的信息」排在弹窗后面。
   printf 'Advisor: %s\n  解释器: %s\n  程序: %s\n' "\$TIP" "\$GUI_PY" "\$GUI_SRC" >&2
-  # `giving up after` 必须有：没有它 display dialog 会一直等人点「好」，
+  # “giving up after”必须有：没有它 display dialog 会一直等人点「好」，
   # 在没有人操作的机器上就是永久挂住（macOS CI 上实测卡死过）。
   osascript -e "display dialog \"\$TIP\" buttons {\"好\"} default button 1 with title \"Advisor\" giving up after 10" >/dev/null 2>&1
   exit 1

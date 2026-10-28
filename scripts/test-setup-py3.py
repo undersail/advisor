@@ -256,6 +256,44 @@ def main():
           len(re.findall(r'gui_no_tk\)\s*fmt=', src)) == 3,
           '%d 条' % len(re.findall(r'gui_no_tk\)\s*fmt=', src)))
 
+    # ---------------- 4. 菜单要说出「哪些厂商已经配好密钥」 ----------------
+    # 真实事故：重跑 setup.sh，默认编号是 1（没密钥的那家），直接回车就把
+    # CLAUDE_PROVIDER 改了，然后要求粘贴密钥，粘的是原来那把 → 连通性检查
+    # 回报 "Incorrect API key" → 用户以为「原来的 key 失效了」。
+    for key in ('mark_has_key', 'ask_confirm_switch', 'kept_previous'):
+        n = len(re.findall(r'\n\s*%s\)\s*fmt=' % key, src))
+        check('菜单新增文案 %s 三语齐备' % key, n == 3, '%d 条' % n)
+    check('菜单会标出已有密钥的厂商', 'P_HASKEY[' in src and 'msg mark_has_key' in src)
+    check('默认编号取当前 CLAUDE_PROVIDER（不再无条件 [1]）',
+          '_CUR_CHOICE' in src and 'msg enter_number)" "$_CUR_CHOICE' in src.replace('\n', ''))
+    check('换到没密钥的厂商之前要确认', 'ask_confirm_switch' in src and 'kept_previous' in src)
+
+    # ---------------- 5. 不带引号的 heredoc 里不许有反引号 ----------------
+    # `<< APPEOF`（没引号）里的反引号会被当命令替换执行：曾经在安装时真的去跑
+    # 「giving up after」，用户看到 "giving: command not found"。注释里也不行。
+    heredocs = []
+    lines = src.split('\n')
+    i = 0
+    while i < len(lines):
+        m = re.search(r'<<\s*(?![\'"])[A-Za-z_]+', lines[i])
+        if m and '<<' in lines[i] and "'" not in lines[i].split('<<')[1][:1]:
+            tag = lines[i].split('<<')[1].strip().split()[0]
+            j = i + 1
+            body = []
+            while j < len(lines) and lines[j].strip() != tag:
+                body.append(lines[j])
+                j += 1
+            heredocs.append((i + 1, body))
+            i = j
+        i += 1
+    risky = []
+    for start, body in heredocs:
+        for off, line in enumerate(body):
+            if '`' in line.replace('\\`', ''):
+                risky.append('第 %d 行' % (start + off + 1))
+    check('未加引号的 heredoc 里没有反引号（否则安装时会去执行它）',
+          not risky, '、'.join(risky[:4]))
+
     return finish()
 
 

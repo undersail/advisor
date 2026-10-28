@@ -11,7 +11,7 @@
 | Tier B（10.9 ~ 10.13+）终端 + GUI | ✅ 上游已实现 |
 | 双提供商（Claude / Gemini） | ✅ 上游已实现 |
 | **7 提供商（+ OpenAI / DeepSeek / 通义千问 / Kimi / GLM）** | ✅ 本 fork 已实现（M4）|
-| **中文化（跟随系统语言，三语 135 + 65 条）** | ✅ 本 fork 已实现（M2）|
+| **中文化（跟随系统语言，三语 134 + 65 条）** | ✅ 本 fork 已实现（M2）|
 | 加密历史 + 口令/合言葉双恢复 | ✅ 已实现 |
 | 日英双语（自动跟随系统语言） | ✅ 已实现 |
 | 内嵌 GUI key 注册（7 家下拉） | ✅ 已实现（M4-GUI）|
@@ -38,12 +38,12 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 13 个，合计 **299 项**（modes 60 · **platform 46** · release-workflow 26 · audit-commands 27 · setup-py3 22 · **remote-notify 22** · relay-do 21 · remote 20 · mirror-drift 19 · gui-modes 18 · hooks 10 · gui-recursion 8 · relay 7） |
-| CI | `ci.yml` **28 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
+| 测试脚本 | 14 个，合计 **323 项**（modes 60 · **platform 46** · release-workflow 26 · audit-commands 27 · setup-py3 29 · **remote-notify 22** · relay-do 21 · remote 20 · mirror-drift 19 · gui-modes 18 · **key-policy 10** · hooks 10 · gui-recursion 8 · relay 7） |
+| CI | `ci.yml` **29 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
-| 文案/注册表 | Perl `%S` 135 · GUI `_S` 65 · `setup.sh msg()` 44 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
-| 泄漏 | 65 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
+| 文案/注册表 | Perl `%S` 134 · GUI `_S` 65 · `setup.sh msg()` 46 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
+| 泄漏 | 66 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
 
 审计记录：`docs/audits/audit_advisor_v0.2.1.md`（v0.2.1 快照）、`docs/audits/audit_advisor_v0.2.1_r2.md`（之后的第二轮）。
 
@@ -52,7 +52,7 @@
 | 文件 | 作用 |
 |---|---|
 | `.editorconfig` | utf-8 / LF / 2 空格（`.pl` `.py` 为 4） |
-| `.github/workflows/ci.yml` | 28 个步骤：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、6 个卡口脚本、13 个测试脚本、泄漏 + 换行检查；矩阵 ubuntu + macos |
+| `.github/workflows/ci.yml` | 29 个步骤：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、6 个卡口脚本、14 个测试脚本、泄漏 + 换行检查；矩阵 ubuntu + macos |
 | `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；**推之前先跑反拉保护**（会覆盖对方提交就中止，见 §8.2）；凭据 `oauth2:`→`undersail:` 自动回退 |
 | `docs/design_doc_advisor.md` | 架构、JSON 行协议、加密密钥层级、已知限制、改动规则 |
 | `docs/releases/` | 发布说明，文件名 = tag 名 |
@@ -85,7 +85,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **135**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `agent/claude-agent.pl` → `my %S` | **134**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
 | `gui/advisor_gui.py` → `_S` | **65** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|日本語ラベル|English label` |
@@ -108,7 +108,7 @@ need_key => { ja => '%s を設定してください', en => 'Please set %s', zh 
 ```
 
 理由：加语言不用改索引、不会错位。改动面其实很小 —— **读取点各自只有 1 处**
-（`L()` 函数），剩下 135 + 65 条是纯数据替换。
+（`L()` 函数），剩下 134 + 65 条是纯数据替换。
 
 **B. 语言解析改成三分支 + 回退链**
 
@@ -144,12 +144,12 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 补中文（现 135 条，随功能增长）
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 134 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 65 条）
 - [x] `gui/advisor_gui.py`：硬编码文案扫一遍 —— 主题名原只有 `label`/`label_en`，zh 下会显示日文，已加 `label_zh` 并改 `theme_label()`
-- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 44 条（三语各 44）补中文，未命中落回原 en/ja
+- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 46 条（三语各 46）补中文，未命中落回原 en/ja
 - [x] `models.txt`：4 列格式 + 5 个模型补中文标签（Perl 解析同步改限 4 段选列）
 - [x] `README.zh.md` + 三份 README 互链 + 语言说明改三语
 - [x] `release/ReadMe_ZH.txt`（ASCII 文件名）+ `build_standalone_app.sh` 打包列表
@@ -161,7 +161,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 - `setup.sh` 的 heredoc 里嵌了给 `~/bin/advisor` 生成的代码，**那段是生成给
   bash 3.2 用的**，中文字面量在里面要留意引号嵌套
 - 别翻译 `run_shell` 类工具名、`--flag` 名、环境变量名 —— 只翻人类可读文案
-- 上游日后同步会在这 135+65 条上冲突，**同步时要整段手动合并**，不要盲信
+- 上游日后同步会在这 134+65 条上冲突，**同步时要整段手动合并**，不要盲信
   `git merge` 的自动结果
 
 **规模**：约 242 条文案 + 6 处逻辑分派。**风险低**（纯数据 + 一处读取逻辑），

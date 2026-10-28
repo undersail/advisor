@@ -161,6 +161,13 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: 密钥策略（只在安装时输入，会话中不索要）
+        run: |
+          set -o pipefail
+          # PTY 真喂输入：切到没密钥的厂商、以及 API 返回 401 时，都只能提示
+          # "退出后用 setup.sh 配置"，绝不能停下来要密钥。
+          python3 scripts/test-key-policy.py
+
       - name: 交互模式端到端（default / accept-edits / bypass）
         run: |
           set -o pipefail

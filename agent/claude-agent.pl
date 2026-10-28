@@ -281,10 +281,24 @@ my %S = (
         en => "\nInterrupted.\n",
         zh => "\n已中断。\n",
     },
-    key_missing_prompt   => {
-        ja => "\n%s は未設定です。このメーカーを使うにはキーが必要です。貼り付けてEnter(空Enterでキャンセル): ",
-        en => "\n%s is not set. Using this vendor needs a key. Paste it and press Enter (empty to cancel): ",
-        zh => "\n未检测到 %s，使用这个厂商需要先填密钥。粘贴后按回车（直接回车取消）：",
+    # 密钥只在安装时输入一次（setup.sh）。会话里既不索要、也不接收，
+    # 只把"缺什么、去哪里配"说清楚 —— 在对话中途打断要密钥是这个项目
+    # 真实出过事故的地方（看起来像 key 失效）。
+    key_config_needed    => {
+        ja => "\n%s のキーが未設定です（%s）。\n"
+            . "ここでは入力しません。一度 exit で抜けて、setup.sh か %s で設定してから起動し直してください。\n",
+        en => "\nNo key for %s (%s).\n"
+            . "Keys are not entered mid-conversation. Exit once and set it via setup.sh or %s, then start again.\n",
+        zh => "\n%s 还没有配置密钥（%s）。\n"
+            . "会话中不输入密钥：请先 exit 退出，用 setup.sh 或编辑 %s 配置后再启动。\n",
+    },
+    key_invalid          => {
+        ja => "\n%s のキーが拒否されました（HTTP %s）。\n"
+            . "一度 exit で抜けて、%s を確認・設定してから起動し直してください。\n",
+        en => "\nThe %s key was rejected (HTTP %s).\n"
+            . "Exit once, check/set %s, then start again.\n",
+        zh => "\n%s 的密钥被拒绝（HTTP %s）。\n"
+            . "请先 exit 退出，检查或重新配置 %s 后再启动。\n",
     },
     # 一覧で「まだキーが無い」ことを先に示す。選んでから初めて分かる状態は
     # 「動かないボタン」と同じで、ユーザーから見ると不具合に見える。
@@ -294,9 +308,12 @@ my %S = (
         zh => "  [未配置密钥]",
     },
     menu_vendor_no_key   => {
-        ja => "  ※ %s はまだキーが未設定です（%s）。選ぶと貼り付けを求められます。\n",
-        en => "  Note: %s has no key yet (%s). Picking it will ask you to paste one.\n",
-        zh => "  注：%s 还没有配置密钥（%s）。选择后会提示你粘贴。\n",
+        ja => "  ※ %s はまだキーが未設定です（%s）。会话中は切り替えられません。\n"
+            . "    一度 exit で抜けて setup.sh か %s で設定してください。\n",
+        en => "  Note: %s has no key yet (%s). It cannot be switched to mid-conversation.\n"
+            . "        Exit once and set it with setup.sh or %s.\n",
+        zh => "  注：%s 还没有配置密钥（%s）。会话中无法切换：\n"
+            . "      请先 exit 退出，用 setup.sh 或编辑 %s 配置后再启动。\n",
     },
     switch_cancelled     => {
         ja => "キャンセルしました。[%s / %s] のままです。\n",
@@ -308,16 +325,6 @@ my %S = (
         en => "Still couldn't switch: %s",
         zh => "仍然无法切换：%s",
     },
-    save_key_prompt      => {
-        ja => "このキーを %s に保存しますか? [y/N] ",
-        en => "Save this key to %s? [y/N] ",
-        zh => "要把这个密钥保存到 %s 吗？[y/N] ",
-    },
-    saved_plain          => {
-        ja => "保存しました。\n",
-        en => "Saved.\n",
-        zh => "已保存。\n",
-    },
     model_list_unavail   => {
         ja => "\n(モデル一覧が読み込めません)\n",
         en => "\n(Could not load the model list)\n",
@@ -327,6 +334,11 @@ my %S = (
         ja => " ← 使用中",
         en => " ← current",
         zh => " ← 使用中",
+    },
+    model_switch_hint    => {
+        ja => "（別のAIに切り替えるには /model と入力）\n",
+        en => "(To switch AI, type /model)\n",
+        zh => "（要换别的 AI 请输入 /model）\n",
     },
     model_menu_pick_vendor => {
         ja => "メーカーを番号で選んでください（Enter だけなら取消）。\n",
@@ -357,11 +369,6 @@ my %S = (
         ja => "取消しました。\n",
         en => "Cancelled.\n",
         zh => "已取消。\n",
-    },
-    key_where => {
-        ja => "キー取得ページ: %s\n",
-        en => "Get a key here: %s\n",
-        zh => "密钥获取页面：%s\n",
     },
     thinking_status      => {
         ja => "問い合わせ中",
@@ -1422,37 +1429,27 @@ sub switch_provider {
     # 任せ、検証済みのキーを {"t":"key","value":...} で受け取る
     # (need_passphraseと同じ「投げて待つ」パターン)。
     if ($GUI) {
-        gui_send({ t => 'need_key', provider => $target, key_name => $key_name });
-        my $r = gui_read_typed('key');
-        return 0 unless $r;                # EOF/終了
-        my $key = $r->{value};
-        if (!defined $key || $key eq '') {
-            return 0;                       # キャンセル
-        }
-        $ENV{$key_name} = $key;
-        eval { configure_provider($target) };
-        if ($@) { emit_error(L('switch_failed', $@)); return 0; }
-        persist_env($key_name, $key);
-        return 1;
-    }
-
-    my $kurl = provider_info($target, 'key_url');
-    print L('key_where', $kurl) if $kurl ne '';
-    my $key = read_secret(L('key_missing_prompt', $key_name));
-    if (!defined $key || $key eq '') {
-        print L('switch_cancelled', $PROVIDER, $MODEL);
+        # 首回起動の案内画面（キー未設定時）は GUI 側の初期設定で扱う。
+        # ここは「会話中に別の厂商へ切り替えようとした」场合なので、
+        # 入力は求めず、設定方法だけ伝える。
+        emit_error(L('key_config_needed', provider_label($target), $key_name, $ENV_FILE_PATH));
         return 0;
     }
-    $ENV{$key_name} = $key;
-    eval { configure_provider($target) };
-    if ($@) { print L('switch_failed', $@); return 0; }
-    print L('save_key_prompt', $ENV_FILE_PATH);
-    my $yn = <STDIN>;
-    if (defined $yn && $yn =~ /^y/i) {
-        persist_env($key_name, $key);
-        print L('saved_plain');
-    }
-    return 1;
+
+    # 会话中不索要密钥（见上面 key_config_needed 的注释）。
+    print L('key_config_needed', provider_label($target), $key_name, $ENV_FILE_PATH);
+    print L('switch_cancelled', $PROVIDER, $MODEL);
+    return 0;
+}
+
+# 密钥类错误（401/403 或各家等价的报文）单独认出来，提示"退出后重配密钥"，
+# 而不是丢一段原始 JSON 让人自己猜。
+sub looks_like_key_error {
+    my ($code, $body) = @_;
+    return 1 if defined $code && ($code eq '401' || $code eq '403');
+    return 0 unless defined $body;
+    return 1 if $body =~ /authentication_error|invalid_api_key|incorrect api key|invalid x-api-key|API key not valid|invalid_request_error.*key|鑒权|鉴权失败/i;
+    return 0;
 }
 
 # モデル選択は二段階。1段目でメーカー、2段目でそのメーカーのモデル。
@@ -1501,7 +1498,8 @@ sub show_vendor_models {
     print "\n";
     printf "  [%s]\n", provider_label($p);
     unless (provider_has_key($p)) {
-        print L('menu_vendor_no_key', provider_label($p), provider_info($p, 'key_env'));
+        print L('menu_vendor_no_key', provider_label($p), provider_info($p, 'key_env'),
+                $ENV_FILE_PATH);
     }
     my $i = 1;
     %MENU_MODELS = ();
@@ -1925,6 +1923,10 @@ sub call_api {
     if ($http_code !~ /^2/) {
         if ($http_code eq '' || $http_code eq '000') {
             die L('cannot_connect');
+        }
+        if (looks_like_key_error($http_code, $resp_body)) {
+            die L('key_invalid', provider_label($PROVIDER),
+                  $http_code, provider_info($PROVIDER, 'key_env'));
         }
         # 本文が長いと画面が流れてしまうので、頭だけ見せる。
         my $brief = $resp_body;
@@ -3859,10 +3861,14 @@ if ($MODE ne 'default') {
     print L('mode_now_log', approvals_path());
 }
 print $HISTORY_ENABLED ? L('hist_will_encrypt') : L('hist_will_not_save');
-if (@MODEL_CHOICES) {
+if (@MODEL_CHOICES && !$RESUME) {
     show_model_menu();
 } else {
+    # --resume で会话を選んだ直後に厂商リストを出すと、「続きの番号入力」と
+    # 誤解して押され、そのままキー入力待ちに入る（実際に起きた）。再開時は
+    # 現在の組み合わせを示すだけにして、切り替えたい人には /model を案内する。
     print "[$PROVIDER / $MODEL]\n";
+    print L('model_switch_hint') if $RESUME && @MODEL_CHOICES;
 }
 print L('greeting');
 
