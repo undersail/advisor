@@ -112,21 +112,33 @@ def run(feed, mode='ok', port=None, args=()):
     os.close(slave)
     buf = b''
 
-    def pump(sec):
-        nonlocal buf
-        end = time.time() + sec
-        while time.time() < end:
-            r, _, _ = select.select([master], [], [], 0.2)
-            if r:
-                try:
-                    chunk = os.read(master, 65536)
-                except OSError:
-                    return
-                if not chunk:
-                    return
-                buf += chunk
+    def pump(sec, quiet=0.7):
+        """事件驱动：收到过数据后静默 quiet 秒就返回（上限 sec）。
 
-    pump(3)
+        原来每条输入都盲等满 sec，25 个用例在 macOS 腿上烧掉 86 秒；
+        没收到任何数据时仍等满上限，行为不变，不会漏判。
+        """
+        nonlocal buf
+        deadline = time.time() + sec
+        last = time.time()
+        got = False
+        while time.time() < deadline:
+            r, _, _ = select.select([master], [], [], 0.1)
+            if not r:
+                if got and time.time() - last >= quiet:
+                    return
+                continue
+            try:
+                chunk = os.read(master, 65536)
+            except OSError:
+                return
+            if not chunk:
+                return
+            buf += chunk
+            last = time.time()
+            got = True
+
+    pump(3, quiet=1.0)
     for line, wait in feed:
         os.write(master, (line + '\n').encode())
         pump(wait)

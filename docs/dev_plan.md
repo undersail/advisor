@@ -39,7 +39,7 @@
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
 | 测试脚本 | 15 个，合计 **363 项**（modes 60 · **platform 46** · release-workflow 26 · audit-commands 27 · setup-py3 35 · **gui-keyenv 8** · **remote-notify 22** · relay-do 21 · remote 20 · mirror-drift 19 · gui-modes 25 · **key-policy 25** · hooks 10 · gui-recursion 8 · relay 7） |
-| CI | `ci.yml` **30 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
+| CI | `ci.yml` **3 个 job × 34 步 × 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
 | 文案/注册表 | Perl `%S` 147 · GUI `_S` 68 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |

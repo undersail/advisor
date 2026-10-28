@@ -15,9 +15,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# ★ 三个 job 并行，覆盖范围与原先把 30 步串在一个 job 里时**完全一致**，只是不再排队等彼此。
+#   实测（c01615a / 9e10bb4 两次 run）：串行时 ubuntu 腿 5.5 分、macOS 腿 9.0 分，
+#   其中 73% 花在「命令可达性审计」一步上；把它和另外几个慢测试分开起，墙钟约减半。
+#   拆 job 不省机器时间（多一条腿就多一台 runner），省的是**等人**的时间。
 jobs:
-  check:
-    name: check (${{ matrix.os }})
+
+  gates:
+    name: 卡口 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # ★ 超时要按平台分开，而且**不要用 `cond && A || B` 这种表达式**：
     #   实测 df2e917 的 macOS 腿是 15 分钟整被取消、steps=0（一步没跑），
@@ -50,6 +55,7 @@ jobs:
           echo "files:    $(git ls-files | wc -l | tr -d ' ')"
 
       # ---------- 1. Perl 智能体本体 ----------
+
       - name: Perl 语法检查（agent/claude-agent.pl）
         run: |
           set -o pipefail
@@ -71,6 +77,7 @@ jobs:
           }
 
       # ---------- 2. GUI ----------
+
       - name: Python 语法检查（gui/advisor_gui.py）
         run: |
           set -o pipefail
@@ -81,6 +88,7 @@ jobs:
           python3 -m py_compile scripts/*.py && echo "scripts/*.py 语法 OK"
 
       # ---------- 3. Shell 脚本 ----------
+
       - name: Shell 语法检查
         run: |
           set -o pipefail
@@ -96,6 +104,7 @@ jobs:
           echo "全部 shell 脚本语法 OK（$FILES）"
 
       # ---------- 4. models.txt 格式卡口 ----------
+
       - name: models.txt 格式校验
         run: |
           set -o pipefail
@@ -131,14 +140,17 @@ jobs:
           [ "$FAIL" -eq 0 ] || exit 1
 
       # ---------- 4b. models.txt 与注册表一致性 ----------
+
       - name: models.txt 与注册表一致性
         run: python3 scripts/check-models.py
 
       # ---------- 5. 三语文案占位符一致性 ----------
+
       - name: 三语文案占位符卡口
         run: python3 scripts/check-i18n.py
 
       # ---------- 6. 编码/换行卡口 ----------
+
       - name: Perl 语法检查（remote/）
         run: |
           set -o pipefail
@@ -153,110 +165,15 @@ jobs:
           # 远程能力只能靠核心的「--tools 收窄」实现；核心里出现远程分支就红。
           python3 scripts/check-decoupling.py
 
-      - name: 远程端到端测试（假模型 + 假 webhook）
-        run: |
-          set -o pipefail
-          # 不碰真网络、不碰真 key：本地起假端点，真跑 gateway。
-          python3 scripts/test-remote.py
-
-      - name: 中继端到端测试（假中继，同契约）
-        run: |
-          set -o pipefail
-          # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
-          python3 scripts/test-relay.py
-
-      - name: GUI 密钥保存的权限路径（原子替换 + 可操作报错）
-        run: |
-          set -o pipefail
-          # 真机报障：GUI 输入 key 后提示「文件没权限」，而命令行 setup 却能写 ——
-          # 差别在 open(path,'w') 要文件可写、mv/os.replace 只要目录可写。
-          python3 scripts/test-gui-keyenv.py
-
-      - name: 密钥策略（只在安装时输入，会话中不索要）
-        run: |
-          set -o pipefail
-          # PTY 真喂输入：切到没密钥的厂商、以及 API 返回 401 时，都只能提示
-          # "退出后用 setup.sh 配置"，绝不能停下来要密钥。
-          python3 scripts/test-key-policy.py
-
-      - name: 交互模式端到端（default / accept-edits / bypass）
-        run: |
-          set -o pipefail
-          # 不要真 key：起一个假的 OpenAI 兼容端点喂 tool_call，走 --rpc 断言
-          # 「问没问 / 批没批 / 拒得对不对」。危险命令的 fail-closed 只有无人应答
-          # 时才出现，终端里造不出来 —— 这也是必须走 rpc 的原因。
-          python3 scripts/test-modes.py
-
-      - name: GUI 模式控件（窗口内省，需 Xvfb）
-        run: |
-          set -o pipefail
-          # 徽标/菜单这类东西只有把窗口建起来才验得到。没有 Xvfb 就跳过，
-          # 不让它变成 macOS 上的假红。
-          if command -v xvfb-run >/dev/null 2>&1; then
-            xvfb-run -a python3 scripts/test-gui-modes.py
-          else
-            echo "::notice::没有 xvfb-run，跳过 GUI 窗口内省"
-          fi
-
       - name: GUI 静态检查（自递归 = 某平台启动即崩）
         run: |
           set -o pipefail
           # `return f()` 这种自递归在 Linux 上永远走不到，macOS 上却是启动即崩。
           python3 scripts/test-gui-recursion.py
 
-      - name: 镜像反拉保护测试（本地裸仓模拟 Gitee）
-        run: |
-          set -o pipefail
-          # Gitee 镜像用 --force 同步。保护逻辑漏判 = 别人在 Gitee 上的提交被无声覆盖；
-          # 过度敏感 = 正常同步一直被卡。两种错都靠本地造场景验。
-          python3 scripts/test-mirror-drift.py
-
-
       - name: 变量粘连中文检查（bash 3.2 会吞掉变量名）
         run: |
           python3 scripts/check-shell-var-glue.py
-
-      - name: git hook 测试（真的 commit 一次，验证拦截有效）
-        run: |
-          set -o pipefail
-          # hook 最坑的形态是「装了但没生效」，所以这里在临时仓库里真提交：
-          # 该拦的（本机路径 / key / CRLF / 调试残留）必须拦住，干净的必须能过。
-          python3 scripts/test-hooks.py
-
-      - name: setup.sh 的 python3 探测与 GUI 前置条件
-        run: |
-          set -o pipefail
-          # 回归防线：曾经把「不存在的 /usr/bin/python3」当兜底选中，
-          # 装出来的 Advisor.app 双击必然失败，而 setup.sh 还显示一切正常。
-          python3 scripts/test-setup-py3.py
-
-      - name: 中继队列（Durable Object）逻辑测试
-        run: |
-          set -o pipefail
-          # 直接 import 真实的 remote/relay/worker.js，用假 storage 验队列语义：
-          # 取走即删、先进先出、序号只增、鉴权 fail-closed。
-          # 需要 Cloudflare 账号的那一步（wrangler dev --local / deploy）CI 里跑不了。
-          node scripts/test-relay-do.mjs
-
-      - name: 平台端到端（自造凭据：验签 / AES / 白名单 / 回推）
-        run: |
-          set -o pipefail
-          # 不需要任何真实 token：EncodingAESKey、回调 Token、Encrypt Key 全是现场生成的。
-          python3 scripts/test-platform.py
-
-      - name: 出站通知（档① notify.pl，假 webhook）
-        run: |
-          set -o pipefail
-          # 断言的是"发出去的报文对不对"：企微 markdown / 飞书 text 的字段形态、
-          # 中文与转义、平台报错时的退出码、以及 http:// 明文地址必须被拒。
-          python3 scripts/test-remote-notify.py
-
-      - name: 命令可达性审计（12 条命令 × 路由/真切换 两相）
-        run: |
-          set -o pipefail
-          # 用 PTY 真喂命令（管道会把多行读成一整块，测出来全是默认厂商）。
-          # 这条以前只在本地手工跑，等于没有防线：别名被删/改坏没人会发现。
-          python3 scripts/audit-commands.py
 
       - name: 版本与文档数字防漂移
         run: |
@@ -296,3 +213,167 @@ jobs:
           done
           [ "$BAD" -eq 0 ] || exit 1
           echo "无 CRLF"
+
+  core:
+    name: 慢测·核心 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # ★ 超时要按平台分开，而且**不要用 `cond && A || B` 这种表达式**：
+    #   实测 df2e917 的 macOS 腿是 15 分钟整被取消、steps=0（一步没跑），
+    #   说明表达式没吃到 45，仍然按 15 处理。改成矩阵里直接给每行一个数值。
+    #   macOS runner 排队 + 镜像准备能有 10~30 分钟，给足 90。
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            timeout: 25
+          - os: macos-latest
+            timeout: 90
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 环境信息（失败时便于定位）
+        run: |
+          echo "runner:   ${{ matrix.os }}"
+          echo "perl:     $(perl -v | grep -oE 'v5\.[0-9]+\.[0-9]+' | head -1)"
+          echo "python3:  $(python3 -V 2>&1)"
+          echo "bash:     $(bash --version | head -1)"
+          echo "curl:     $(curl --version | head -1)"
+          echo "openssl:  $(openssl version)"
+          echo "--- 仓库现状 ---"
+          echo "commit:   $(git rev-parse --short HEAD)"
+          echo "files:    $(git ls-files | wc -l | tr -d ' ')"
+
+      # ---------- 1. Perl 智能体本体 ----------
+
+      - name: 命令可达性审计（12 条命令 × 路由/真切换 两相）
+        run: |
+          set -o pipefail
+          # 用 PTY 真喂命令（管道会把多行读成一整块，测出来全是默认厂商）。
+          # 这条以前只在本地手工跑，等于没有防线：别名被删/改坏没人会发现。
+          python3 scripts/audit-commands.py
+
+      - name: 密钥策略（只在安装时输入，会话中不索要）
+        run: |
+          set -o pipefail
+          # PTY 真喂输入：切到没密钥的厂商、以及 API 返回 401 时，都只能提示
+          # "退出后用 setup.sh 配置"，绝不能停下来要密钥。
+          python3 scripts/test-key-policy.py
+
+      - name: 平台端到端（自造凭据：验签 / AES / 白名单 / 回推）
+        run: |
+          set -o pipefail
+          # 不需要任何真实 token：EncodingAESKey、回调 Token、Encrypt Key 全是现场生成的。
+          python3 scripts/test-platform.py
+
+      - name: 中继队列（Durable Object）逻辑测试
+        run: |
+          set -o pipefail
+          # 直接 import 真实的 remote/relay/worker.js，用假 storage 验队列语义：
+          # 取走即删、先进先出、序号只增、鉴权 fail-closed。
+          # 需要 Cloudflare 账号的那一步（wrangler dev --local / deploy）CI 里跑不了。
+          node scripts/test-relay-do.mjs
+
+      - name: git hook 测试（真的 commit 一次，验证拦截有效）
+        run: |
+          set -o pipefail
+          # hook 最坑的形态是「装了但没生效」，所以这里在临时仓库里真提交：
+          # 该拦的（本机路径 / key / CRLF / 调试残留）必须拦住，干净的必须能过。
+          python3 scripts/test-hooks.py
+
+  io:
+    name: 慢测·输入输出 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # ★ 超时要按平台分开，而且**不要用 `cond && A || B` 这种表达式**：
+    #   实测 df2e917 的 macOS 腿是 15 分钟整被取消、steps=0（一步没跑），
+    #   说明表达式没吃到 45，仍然按 15 处理。改成矩阵里直接给每行一个数值。
+    #   macOS runner 排队 + 镜像准备能有 10~30 分钟，给足 90。
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            timeout: 25
+          - os: macos-latest
+            timeout: 90
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 环境信息（失败时便于定位）
+        run: |
+          echo "runner:   ${{ matrix.os }}"
+          echo "perl:     $(perl -v | grep -oE 'v5\.[0-9]+\.[0-9]+' | head -1)"
+          echo "python3:  $(python3 -V 2>&1)"
+          echo "bash:     $(bash --version | head -1)"
+          echo "curl:     $(curl --version | head -1)"
+          echo "openssl:  $(openssl version)"
+          echo "--- 仓库现状 ---"
+          echo "commit:   $(git rev-parse --short HEAD)"
+          echo "files:    $(git ls-files | wc -l | tr -d ' ')"
+
+      # ---------- 1. Perl 智能体本体 ----------
+
+      - name: 交互模式端到端（default / accept-edits / bypass）
+        run: |
+          set -o pipefail
+          # 不要真 key：起一个假的 OpenAI 兼容端点喂 tool_call，走 --rpc 断言
+          # 「问没问 / 批没批 / 拒得对不对」。危险命令的 fail-closed 只有无人应答
+          # 时才出现，终端里造不出来 —— 这也是必须走 rpc 的原因。
+          python3 scripts/test-modes.py
+
+      - name: 出站通知（档① notify.pl，假 webhook）
+        run: |
+          set -o pipefail
+          # 断言的是"发出去的报文对不对"：企微 markdown / 飞书 text 的字段形态、
+          # 中文与转义、平台报错时的退出码、以及 http:// 明文地址必须被拒。
+          python3 scripts/test-remote-notify.py
+
+      - name: 中继端到端测试（假中继，同契约）
+        run: |
+          set -o pipefail
+          # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
+          python3 scripts/test-relay.py
+
+      - name: 远程端到端测试（假模型 + 假 webhook）
+        run: |
+          set -o pipefail
+          # 不碰真网络、不碰真 key：本地起假端点，真跑 gateway。
+          python3 scripts/test-remote.py
+
+      - name: GUI 模式控件（窗口内省，需 Xvfb）
+        run: |
+          set -o pipefail
+          # 徽标/菜单这类东西只有把窗口建起来才验得到。没有 Xvfb 就跳过，
+          # 不让它变成 macOS 上的假红。
+          if command -v xvfb-run >/dev/null 2>&1; then
+            xvfb-run -a python3 scripts/test-gui-modes.py
+          else
+            echo "::notice::没有 xvfb-run，跳过 GUI 窗口内省"
+          fi
+
+      - name: GUI 密钥保存的权限路径（原子替换 + 可操作报错）
+        run: |
+          set -o pipefail
+          # 真机报障：GUI 输入 key 后提示「文件没权限」，而命令行 setup 却能写 ——
+          # 差别在 open(path,'w') 要文件可写、mv/os.replace 只要目录可写。
+          python3 scripts/test-gui-keyenv.py
+
+      - name: setup.sh 的 python3 探测与 GUI 前置条件
+        run: |
+          set -o pipefail
+          # 回归防线：曾经把「不存在的 /usr/bin/python3」当兜底选中，
+          # 装出来的 Advisor.app 双击必然失败，而 setup.sh 还显示一切正常。
+          python3 scripts/test-setup-py3.py
+
+      - name: 镜像反拉保护测试（本地裸仓模拟 Gitee）
+        run: |
+          set -o pipefail
+          # Gitee 镜像用 --force 同步。保护逻辑漏判 = 别人在 Gitee 上的提交被无声覆盖；
+          # 过度敏感 = 正常同步一直被卡。两种错都靠本地造场景验。
+          python3 scripts/test-mirror-drift.py

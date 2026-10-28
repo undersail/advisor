@@ -60,12 +60,21 @@ def run_command(cmd, home, with_key=False):
 
     buf = ''
 
-    def pump(seconds):
+    def pump(seconds, quiet=0.8):
+        """读输出。收到过数据后，连续 quiet 秒没有新数据就提前返回（上限仍是 seconds）。
+
+        原来是盲等满 seconds，27 个用例白白烧掉 4 分钟（CI 里这一步占 ubuntu 腿 73%）。
+        没收到任何数据时行为与以前一致：等满上限，不会提前走。
+        """
         nonlocal buf
-        end = time.time() + seconds
-        while time.time() < end:
-            r, _, _ = select.select([fd], [], [], 0.3)
+        deadline = time.time() + seconds
+        last = time.time()
+        got = False
+        while time.time() < deadline:
+            r, _, _ = select.select([fd], [], [], 0.1)
             if not r:
+                if got and time.time() - last >= quiet:
+                    return True
                 continue
             try:
                 chunk = os.read(fd, 65536)
@@ -74,10 +83,12 @@ def run_command(cmd, home, with_key=False):
             if not chunk:
                 return False
             buf += chunk.decode('utf-8', 'replace')
+            last = time.time()
+            got = True
         return True
 
     try:
-        pump(6)                                    # 启动横幅 / 提示符
+        pump(6, quiet=1.2)                         # 启动横幅 / 提示符
         mark = len(buf)                            # ★ 记下命令之前的位置
         os.write(fd, ('/%s\n' % cmd).encode())
         pump(3)
@@ -91,7 +102,7 @@ def run_command(cmd, home, with_key=False):
                 os.write(fd, b'n\n')
             else:
                 break
-            pump(2)
+            pump(2, quiet=0.6)
         os.write(fd, b'exit\n')
         pump(3)
     finally:
@@ -133,12 +144,17 @@ def menu_lines(home, steps, with_key=False, seconds=3):
         os._exit(127)
     buf = ''
 
-    def pump(sec):
+    def pump(sec, quiet=0.8):
+        """同上：有输出后静默 quiet 秒即返回，没输出就等满 sec。"""
         nonlocal buf
-        end = time.time() + sec
-        while time.time() < end:
-            r, _, _ = select.select([fd], [], [], 0.3)
+        deadline = time.time() + sec
+        last = time.time()
+        got = False
+        while time.time() < deadline:
+            r, _, _ = select.select([fd], [], [], 0.1)
             if not r:
+                if got and time.time() - last >= quiet:
+                    return
                 continue
             try:
                 chunk = os.read(fd, 65536)
@@ -147,9 +163,11 @@ def menu_lines(home, steps, with_key=False, seconds=3):
             if not chunk:
                 return
             buf += chunk.decode('utf-8', 'replace')
+            last = time.time()
+            got = True
 
     try:
-        pump(6)
+        pump(6, quiet=1.2)
         for st in steps:
             os.write(fd, (st + '\n').encode())
             pump(seconds)
