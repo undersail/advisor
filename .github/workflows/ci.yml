@@ -24,16 +24,20 @@ jobs:
   gates:
     name: 卡口 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # ★ 超时写成字面量，不走任何表达式。
-    #   事实：df2e917 / f4f96f9 / 924a91a 三次的 macOS 腿都是**恰好 15.0 分**被取消、
-    #   steps=0、runner_name 为空 —— 说明它一步没跑就被掐掉，不是测试失败。
-    #   先排除「我们的配置」这一嫌疑：这里给一个明显不同的字面量 300，
-    #   如果 macOS 腿仍然在 15 分被取消，那就是 GitHub 侧的排队/资源问题，不是我们的配置。
+    # ★ 两条腿的标签都是钉死的具体镜像，不用 `-latest` 这类会漂移的别名：
+    #   `macos-latest` 现在是 **macOS 26 arm64**，而 GitHub 自己给的注解写着
+    #   「Due to capacity constraints, jobs targeting macOS arm64 runners may experience
+    #    longer queue times.」—— 我们连续几次的 macOS 腿就是这样一步没跑就被取消
+    #   （`The job was not acquired by Runner of type hosted even after multiple attempts`，
+    #   steps=0、恰好 15 分钟后 cancelled）。换到 Intel 池 `macos-15-intel` 绕开这个池子。
+    #   顺带：我们的真实目标机是 High Sierra（Intel），Intel 腿也少一层架构偏差。
+    # ★ 超时给足：实测**排队时间也算在 timeout-minutes 里**（15 分钟的值连排队一起掐），
+    #   所以写 300 这种字面量，不要写 `cond && A || B` 之类的表达式。
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-15-intel]
 
     steps:
       - name: 检出代码
@@ -214,16 +218,20 @@ jobs:
   core:
     name: 慢测·核心 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # ★ 超时写成字面量，不走任何表达式。
-    #   事实：df2e917 / f4f96f9 / 924a91a 三次的 macOS 腿都是**恰好 15.0 分**被取消、
-    #   steps=0、runner_name 为空 —— 说明它一步没跑就被掐掉，不是测试失败。
-    #   先排除「我们的配置」这一嫌疑：这里给一个明显不同的字面量 300，
-    #   如果 macOS 腿仍然在 15 分被取消，那就是 GitHub 侧的排队/资源问题，不是我们的配置。
+    # ★ 两条腿的标签都是钉死的具体镜像，不用 `-latest` 这类会漂移的别名：
+    #   `macos-latest` 现在是 **macOS 26 arm64**，而 GitHub 自己给的注解写着
+    #   「Due to capacity constraints, jobs targeting macOS arm64 runners may experience
+    #    longer queue times.」—— 我们连续几次的 macOS 腿就是这样一步没跑就被取消
+    #   （`The job was not acquired by Runner of type hosted even after multiple attempts`，
+    #   steps=0、恰好 15 分钟后 cancelled）。换到 Intel 池 `macos-15-intel` 绕开这个池子。
+    #   顺带：我们的真实目标机是 High Sierra（Intel），Intel 腿也少一层架构偏差。
+    # ★ 超时给足：实测**排队时间也算在 timeout-minutes 里**（15 分钟的值连排队一起掐），
+    #   所以写 300 这种字面量，不要写 `cond && A || B` 之类的表达式。
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-15-intel]
 
     steps:
       - name: 检出代码
@@ -281,16 +289,20 @@ jobs:
   io:
     name: 慢测·输入输出 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # ★ 超时写成字面量，不走任何表达式。
-    #   事实：df2e917 / f4f96f9 / 924a91a 三次的 macOS 腿都是**恰好 15.0 分**被取消、
-    #   steps=0、runner_name 为空 —— 说明它一步没跑就被掐掉，不是测试失败。
-    #   先排除「我们的配置」这一嫌疑：这里给一个明显不同的字面量 300，
-    #   如果 macOS 腿仍然在 15 分被取消，那就是 GitHub 侧的排队/资源问题，不是我们的配置。
+    # ★ 两条腿的标签都是钉死的具体镜像，不用 `-latest` 这类会漂移的别名：
+    #   `macos-latest` 现在是 **macOS 26 arm64**，而 GitHub 自己给的注解写着
+    #   「Due to capacity constraints, jobs targeting macOS arm64 runners may experience
+    #    longer queue times.」—— 我们连续几次的 macOS 腿就是这样一步没跑就被取消
+    #   （`The job was not acquired by Runner of type hosted even after multiple attempts`，
+    #   steps=0、恰好 15 分钟后 cancelled）。换到 Intel 池 `macos-15-intel` 绕开这个池子。
+    #   顺带：我们的真实目标机是 High Sierra（Intel），Intel 腿也少一层架构偏差。
+    # ★ 超时给足：实测**排队时间也算在 timeout-minutes 里**（15 分钟的值连排队一起掐），
+    #   所以写 300 这种字面量，不要写 `cond && A || B` 之类的表达式。
     timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-15-intel]
 
     steps:
       - name: 检出代码

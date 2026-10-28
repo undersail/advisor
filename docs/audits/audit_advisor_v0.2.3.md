@@ -105,6 +105,25 @@ GUI `_S` **68** / `msg()` **48**，未译 0）、`check-models`（12 条模型 �
 
 拆完本地预演（含 `--pristine`）：**62 步执行 / 6 步按平台跳过 / 0 失败**。
 
+### 根因（GitHub 自己给的注解，不是猜）
+
+三次 macOS 腿都是 `steps=0`、恰好 15.0 分被取消。查 check-run 的 annotations 拿到原文：
+
+```
+[failure] The job was not acquired by Runner of type hosted even after multiple attempts
+[notice]  Due to capacity constraints, jobs targeting macOS arm64 runners may experience
+          longer queue times.
+```
+
+即：**`macos-latest` 现在指向 macOS 26 arm64，而 arm64 池容量紧张** —— 我们的 job 一直没被
+分配机器，GitHub 多次重试后放弃并按「取消」记账。期间我们做过两次排除：把超时从表达式改成
+字面量 300（结果仍是 15 分整被取消，说明与我们的配置无关）、以及确认仓库是 public（不限分钟数）。
+
+处置：CI 与发布两条 macOS 腿都改用 **Intel 池的具体标签 `macos-15-intel`**（不再用会漂移的
+`macos-latest`），顺带减少一层架构偏差 —— 真实目标机 High Sierra 也是 Intel。
+同时确认了一个反直觉的事实：**排队时间算在 `timeout-minutes` 里**（15 分钟那档连排队一起掐），
+所以超时一律写字面量并给足。
+
 **但真正让 CI 显得很慢的还有 macOS runner 排队**：实测 `9e10bb4` 那次总 19.1 分里，
 我们自己的步骤只占 9 分，其余是排队 + 镜像准备（GitHub 侧，我们控制不了）。
 所以「减步骤」和「拆 job」的收益有上限，剩下的只能等 GitHub 的 macOS 机器。

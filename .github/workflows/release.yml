@@ -31,8 +31,10 @@ jobs:
   release:
     name: build & release (macos)
     # 必须 macOS：py2app 只能在 macOS 上打，且产物与构建机的系统版本相关。
-    runs-on: macos-latest
-    timeout-minutes: 30
+    # ★ 用 Intel 池的具体标签，不用 `macos-latest`（它现在是 macOS 26 arm64，
+    #   GitHub 明说 arm64 池有容量约束、排队很久，实测会「not acquired by Runner」被取消）。
+    runs-on: macos-15-intel
+    timeout-minutes: 120
 
     steps:
       - name: 检出代码
