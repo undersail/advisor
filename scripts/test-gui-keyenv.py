@@ -18,6 +18,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = r'''
 import os, sys, stat
 sys.path.insert(0, os.path.join(%r, "gui"))
+# 被测的是「写配置文件」这段纯逻辑，跟界面无关。CI 的 python 不一定带 tkinter，
+# 缺就用桩顶掉，别让整个测试因为 import 失败而红（本机有 tkinter 时走真模块）。
+try:
+    import tkinter  # noqa: F401
+except Exception:
+    from unittest.mock import MagicMock
+    for _n in ("tkinter", "tkinter.font", "tkinter.messagebox", "tkinter.ttk"):
+        sys.modules[_n] = MagicMock(name=_n)
+    sys.modules["tkinter"].END = "end"
 import advisor_gui as G
 
 def lines_of(p):
@@ -35,17 +44,14 @@ if case == "readonly_file":
     print(lines_of(envp))
     print("MODE", oct(os.stat(envp).st_mode & 0o777))
 elif case == "readonly_dir":
-    with open(envp, "w", encoding="utf-8") as f:
-        f.write("export DEEPSEEK_API_KEY=old\n")
-    os.chmod(os.path.dirname(envp), 0o500)
+    # 目标目录不存在 = 一定写不进去（与运行用户是否 root 无关，CI 上更可靠）
+    G.ENV_FILE_PATH = os.path.join(os.path.dirname(envp), "no-such-dir", ".claude-agent-env")
     try:
         G.save_onboard_env("deepseek", "sk-new-1234")
         print("NO_ERROR")
     except RuntimeError as e:
         print("ERROR_TEXT")
         print(str(e))
-    finally:
-        os.chmod(os.path.dirname(envp), 0o700)
 else:
     G.save_onboard_env("deepseek", "sk-new-1234")
     print("WROTE")
@@ -99,7 +105,8 @@ print('::notice::目录不可写')
 out2 = run('readonly_dir')
 check('目录不可写时报错而不是静默失败', 'ERROR_TEXT' in out2, out2[-300:])
 check('报错里给出路径', '.claude-agent-env' in out2)
-check('报错里给出属主与权限', 'owner' in out2 or '属主' in out2 or '/' in out2)
+check('报错里给出属主与权限字段', ('owner' in out2) or ('属主' in out2) or ('所有者' in out2),
+      out2[-200:])
 check('报错里给出修复命令（sudo rm）', 'sudo rm' in out2, out2[-300:])
 
 print('::notice::正常情况')
