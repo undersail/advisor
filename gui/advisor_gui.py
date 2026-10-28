@@ -23,6 +23,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import threading
 import tkinter as tk
 import webbrowser
@@ -312,6 +313,20 @@ _S = {
         "ja": "起動できません",
         "en": "Could not start",
         "zh": "无法启动",
+    },
+    "key_save_denied": {
+        "ja": "設定ファイルに書き込めません:\n  {path}\n"
+              "（所有者 {owner} / 権限 {mode}）\n"
+              "別のユーザーが作ったファイルかもしれません（sudo で setup.sh を実行した等）。\n"
+              "ターミナルで次を実行してから、もう一度お試しください:\n  sudo rm {path}",
+        "en": "Cannot write the settings file:\n  {path}\n"
+              "(owner {owner} / mode {mode})\n"
+              "It may have been created by another user (e.g. running setup.sh with sudo).\n"
+              "Run this in Terminal, then try again:\n  sudo rm {path}",
+        "zh": "无法写入配置文件：\n  {path}\n"
+              "（属主 {owner} / 权限 {mode}）\n"
+              "这个文件可能是别的用户创建的（例如用 sudo 跑过 setup.sh）。\n"
+              "在终端执行下面的命令后再试一次：\n  sudo rm {path}",
     },
     "cannot_start_body": {
         "ja": "advisor を起動できませんでした:\n{err}",
@@ -774,6 +789,51 @@ def validate_api_key(provider, api_key, base_url="", model=""):
     return code.strip() == "200", code.strip()
 
 
+def env_file_diag(path):
+    """配置文件的属主与权限（报错时用，绝不读取文件内容）。"""
+    owner, mode = "?", "?"
+    try:
+        st = os.stat(path)
+        mode = oct(st.st_mode & 0o777)
+        try:
+            import pwd
+            owner = pwd.getpwuid(st.st_uid).pw_name
+        except Exception:
+            owner = str(st.st_uid)
+    except OSError:
+        pass
+    return owner, mode
+
+
+def write_env_atomic(lines):
+    """同目录临时文件 + os.replace。
+
+    只要求**目录**可写，不要求目标文件可写 —— 与 setup.sh 的 mv 语义一致。
+    直接 open(path,'w') 在「文件属于别人 / 只读」时会失败（GUI 曾报
+    「没权限」，而命令行 setup 却能正常写，就是这个差别）。
+    """
+    d = os.path.dirname(ENV_FILE_PATH) or "."
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=".claude-agent-env.", dir=d)
+    except OSError:
+        owner, mode = env_file_diag(ENV_FILE_PATH)
+        raise RuntimeError(L("key_save_denied", path=ENV_FILE_PATH,
+                             owner=owner, mode=mode))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, ENV_FILE_PATH)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        owner, mode = env_file_diag(ENV_FILE_PATH)
+        raise RuntimeError(L("key_save_denied", path=ENV_FILE_PATH,
+                             owner=owner, mode=mode))
+
+
 def save_onboard_env(provider, api_key):
     """選んだベンダーのキーだけを書き換える。
 
@@ -805,9 +865,7 @@ def save_onboard_env(provider, api_key):
     keep.append("export %s=%s\n" % (keyvar, api_key))
     if default_model:
         keep.append("export CLAUDE_MODEL=%s\n" % default_model)
-    with open(ENV_FILE_PATH, "w", encoding="utf-8") as f:
-        f.writelines(keep)
-    os.chmod(ENV_FILE_PATH, 0o600)
+    write_env_atomic(keep)
 
 
 def load_cfg():

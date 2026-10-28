@@ -16,6 +16,16 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _default_model(provider='deepseek'):
+    """从 providers.txt 取该厂商的默认模型（测试不要写死模型 id）。"""
+    with open(os.path.join(ROOT, 'providers.txt'), encoding='utf-8') as f:
+        for line in f:
+            parts = line.rstrip('\n').split('|')
+            if len(parts) > 2 and parts[0] == provider:
+                return parts[2].strip()
+    raise SystemExit('providers.txt 里找不到 %s 的默认模型' % provider)
+
 GATEWAY = os.path.join(ROOT, 'remote', 'gateway.pl')
 MODELS = os.path.join(ROOT, 'models.txt')
 REAL = '--real' in sys.argv
@@ -110,11 +120,11 @@ def make_home(model_port, relay_url, relay_token, allow='alice'):
     os.makedirs(os.path.join(home, '.claude-agent'), exist_ok=True)
     with open(os.path.join(home, '.claude-agent-env'), 'w', encoding='utf-8') as f:
         f.write('export CLAUDE_PROVIDER=deepseek\nexport DEEPSEEK_API_KEY=sk-local\n'
-                'export CLAUDE_MODEL=deepseek-chat\n')
+                'export CLAUDE_MODEL=%s\n' % _default_model())
     lines = []
     with open(MODELS, encoding='utf-8') as f:
         for line in f.read().split('\n'):
-            if line.startswith('deepseek-chat|'):
+            if line.startswith(_default_model() + '|'):
                 parts = line.split('|')
                 parts[5] = 'http://127.0.0.1:%d/v1' % model_port
                 line = '|'.join(parts)

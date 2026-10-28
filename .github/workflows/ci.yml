@@ -161,6 +161,13 @@ jobs:
           # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
           python3 scripts/test-relay.py
 
+      - name: GUI 密钥保存的权限路径（原子替换 + 可操作报错）
+        run: |
+          set -o pipefail
+          # 真机报障：GUI 输入 key 后提示「文件没权限」，而命令行 setup 却能写 ——
+          # 差别在 open(path,'w') 要文件可写、mv/os.replace 只要目录可写。
+          python3 scripts/test-gui-keyenv.py
+
       - name: 密钥策略（只在安装时输入，会话中不索要）
         run: |
           set -o pipefail

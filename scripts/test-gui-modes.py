@@ -21,6 +21,16 @@ import threading
 import http.server
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _default_model(provider='deepseek'):
+    """从 providers.txt 取该厂商的默认模型（测试不要写死模型 id）。"""
+    with open(os.path.join(ROOT, 'providers.txt'), encoding='utf-8') as f:
+        for line in f:
+            parts = line.rstrip('\n').split('|')
+            if len(parts) > 2 and parts[0] == provider:
+                return parts[2].strip()
+    raise SystemExit('providers.txt 里找不到 %s 的默认模型' % provider)
+
 sys.path.insert(0, os.path.join(ROOT, 'gui'))
 
 OK = 0
@@ -81,7 +91,7 @@ def main():
     with open(os.path.join(home, '.claude-agent-env'), 'w', encoding='utf-8') as f:
         f.write('export CLAUDE_PROVIDER=deepseek\n')
         f.write('export DEEPSEEK_API_KEY=dummy-gui-test\n')
-        f.write('export CLAUDE_MODEL=deepseek-chat\n')
+        f.write('export CLAUDE_MODEL=%s\n' % _default_model())
     os.chmod(os.path.join(home, '.claude-agent-env'), 0o600)
 
     port = free_port()
@@ -90,7 +100,7 @@ def main():
     os.environ.update({
         'CLAUDE_PROVIDER': 'deepseek',
         'DEEPSEEK_API_KEY': 'dummy-gui-test',
-        'CLAUDE_MODEL': 'deepseek-chat',
+        'CLAUDE_MODEL': _default_model(),
         'CLAUDE_BASE_URL': 'http://127.0.0.1:%d/v1' % port,
         'CLAUDE_NO_HISTORY': '1',
         'CLAUDE_LANG': 'zh',

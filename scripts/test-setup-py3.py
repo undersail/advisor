@@ -294,6 +294,26 @@ def main():
     check('未加引号的 heredoc 里没有反引号（否则安装时会去执行它）',
           not risky, '、'.join(risky[:4]))
 
+    # ---------------- 6. 模型名必须属于所选厂商（真机报障：400 被当成 key 错） ----------------
+    check('选定厂商后会校验 CLAUDE_MODEL 是否属于该厂商', '_MODEL_RESET' in src)
+    check('不属于该厂商时回落到该厂商默认模型',
+          'CLAUDE_MODEL="$DEFAULT_MODEL"' in src)
+    check('把 CLAUDE_MODEL 写回配置文件（避免厂商与模型漂移）',
+          'upsert_env "CLAUDE_MODEL"' in src)
+    check('回落时把模型名说给用户听（三语 model_reset_note）',
+          len(re.findall(r'\n\s*model_reset_note\)\s*fmt=', src)) == 3,
+          len(re.findall(r'\n\s*model_reset_note\)\s*fmt=', src)))
+    check('HTTP 400 且报文提到 model 时补一句「模型名可能不被支持」（三语）',
+          len(re.findall(r'\n\s*api_error_model_hint\)\s*fmt=', src)) == 3,
+          len(re.findall(r'\n\s*api_error_model_hint\)\s*fmt=', src)))
+    models = os.path.join(HERE, '..', 'models.txt')
+    with open(models, encoding='utf-8') as f:
+        mt = f.read()
+    check('models.txt 里 deepseek 用服务端支持的模型名',
+          'deepseek-flash' in mt and 'deepseek-chat' not in mt,
+          [l.split('|')[0] for l in mt.split('\n') if l.startswith('deepseek')])
+
+
     return finish()
 
 

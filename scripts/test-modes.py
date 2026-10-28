@@ -28,6 +28,16 @@ import time
 import http.server
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _default_model(provider='deepseek'):
+    """从 providers.txt 取该厂商的默认模型（测试不要写死模型 id）。"""
+    with open(os.path.join(ROOT, 'providers.txt'), encoding='utf-8') as f:
+        for line in f:
+            parts = line.rstrip('\n').split('|')
+            if len(parts) > 2 and parts[0] == provider:
+                return parts[2].strip()
+    raise SystemExit('providers.txt 里找不到 %s 的默认模型' % provider)
+
 AGENT = os.path.join(ROOT, 'agent', 'claude-agent.pl')
 
 OK = 0
@@ -115,7 +125,7 @@ class Agent:
             'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
             'CLAUDE_PROVIDER': 'deepseek',
             'DEEPSEEK_API_KEY': 'dummy-key-for-tests',
-            'CLAUDE_MODEL': 'deepseek-chat',
+            'CLAUDE_MODEL': _default_model(),
             'CLAUDE_BASE_URL': base_url,
             'CLAUDE_NO_HISTORY': '1',
             'CLAUDE_LANG': 'zh',
@@ -524,7 +534,7 @@ def case_bad_mode(tmp, base):
     print('::notice::[启动] 非法模式值直接报错，不静默回落')
     env = dict(os.environ)
     env.update({'HOME': tmp, 'CLAUDE_PROVIDER': 'deepseek', 'DEEPSEEK_API_KEY': 'dummy',
-                'CLAUDE_MODEL': 'deepseek-chat', 'CLAUDE_BASE_URL': base,
+                'CLAUDE_MODEL': _default_model(), 'CLAUDE_BASE_URL': base,
                 'CLAUDE_NO_HISTORY': '1', 'CLAUDE_LANG': 'zh', 'TERM': 'dumb'})
     env.pop('CLAUDE_MODE', None)
     p = subprocess.run(['perl', AGENT, '--mode=nonsense'], env=env, cwd=tmp,

@@ -38,12 +38,12 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 14 个，合计 **342 项**（modes 60 · **platform 46** · release-workflow 26 · audit-commands 27 · setup-py3 29 · **remote-notify 22** · relay-do 21 · remote 20 · mirror-drift 19 · gui-modes 18 · **key-policy 25** · hooks 10 · gui-recursion 8 · relay 7） |
-| CI | `ci.yml` **29 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
+| 测试脚本 | 15 个，合计 **356 项**（modes 60 · **platform 46** · release-workflow 26 · audit-commands 27 · setup-py3 35 · **gui-keyenv 8** · **remote-notify 22** · relay-do 21 · remote 20 · mirror-drift 19 · gui-modes 18 · **key-policy 25** · hooks 10 · gui-recursion 8 · relay 7） |
+| CI | `ci.yml` **30 步 × 2 平台**（ubuntu + macOS），`timeout-minutes` 按平台拆分（macOS 45 / ubuntu 15） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
-| 文案/注册表 | Perl `%S` 147 · GUI `_S` 65 · `setup.sh msg()` 46 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
-| 泄漏 | 66 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
+| 文案/注册表 | Perl `%S` 147 · GUI `_S` 66 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
+| 泄漏 | 67 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
 
 审计记录：`docs/audits/audit_advisor_v0.2.1.md`（v0.2.1 快照）、`docs/audits/audit_advisor_v0.2.1_r2.md`（之后的第二轮）。
 
@@ -52,7 +52,7 @@
 | 文件 | 作用 |
 |---|---|
 | `.editorconfig` | utf-8 / LF / 2 空格（`.pl` `.py` 为 4） |
-| `.github/workflows/ci.yml` | 29 个步骤：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、6 个卡口脚本、14 个测试脚本、泄漏 + 换行检查；矩阵 ubuntu + macos |
+| `.github/workflows/ci.yml` | 30 个步骤：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、6 个卡口脚本、15 个测试脚本、泄漏 + 换行检查；矩阵 ubuntu + macos |
 | `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；**推之前先跑反拉保护**（会覆盖对方提交就中止，见 §8.2）；凭据 `oauth2:`→`undersail:` 自动回退 |
 | `docs/design_doc_advisor.md` | 架构、JSON 行协议、加密密钥层级、已知限制、改动规则 |
 | `docs/releases/` | 发布说明，文件名 = tag 名 |
@@ -86,7 +86,7 @@
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
 | `agent/claude-agent.pl` → `my %S` | **147**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
-| `gui/advisor_gui.py` → `_S` | **65** | 同上，`L()` 里 `ja, en = _S[key]` |
+| `gui/advisor_gui.py` → `_S` | **66** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|日本語ラベル|English label` |
 | 文档 | README.md(ja) / README.en.md / release/ReadMe_JP.txt / ReadMe_EN.txt | 日英各一份 |
@@ -149,7 +149,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 65 条）
 - [x] `gui/advisor_gui.py`：硬编码文案扫一遍 —— 主题名原只有 `label`/`label_en`，zh 下会显示日文，已加 `label_zh` 并改 `theme_label()`
-- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 46 条（三语各 46）补中文，未命中落回原 en/ja
+- [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 48 条（三语各 48）补中文，未命中落回原 en/ja
 - [x] `models.txt`：4 列格式 + 5 个模型补中文标签（Perl 解析同步改限 4 段选列）
 - [x] `README.zh.md` + 三份 README 互链 + 语言说明改三语
 - [x] `release/ReadMe_ZH.txt`（ASCII 文件名）+ `build_standalone_app.sh` 打包列表

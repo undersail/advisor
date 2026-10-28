@@ -104,7 +104,9 @@ msg() {
       usage_select) fmt="  advisor --select-model    选择要用的模型" ;;
       usage_model) fmt="  advisor -m <ID>           仅本次指定模型" ;;
       usage_switch) fmt="  （对话中使用 /claude /gemini /deepseek /qwen /kimi /glm 切换 AI）" ;;
+      model_reset_note) fmt="（已把模型从 %s 改成 %s 的默认模型 %s —— 旧的模型名不属于这家厂商，用它请求会被服务端拒绝）" ;;
       api_error) fmt="API 错误（HTTP %s）。请确认密钥是否正确，" ;;
+      api_error_model_hint) fmt="如果服务器说模型名不被支持，请检查 models.txt 里该厂商的模型名（当前用的是 %s）" ;;
       api_error_body) fmt="--- 服务器返回的内容 ---" ;;
       *) : ;;
     esac
@@ -158,7 +160,9 @@ Press y to continue, or just Enter to keep using %s: " ;;
       usage_select) fmt="  advisor --select-model    choose which AI to use" ;;
       usage_model) fmt="  advisor -m <ID>           use a different AI for this session only" ;;
       usage_switch) fmt="  (mid-conversation: /claude /gemini /deepseek /qwen /kimi /glm to switch)" ;;
+      model_reset_note) fmt="(Model changed from %s to %s's default %s — the old id does not belong to this vendor and would be rejected)" ;;
       api_error) fmt="API error (HTTP %s). Please check that the key is correct, and" ;;
+      api_error_model_hint) fmt="If the server says the model name is unsupported, check that vendor's model id in models.txt (currently using %s)" ;;
       api_error_body) fmt="--- Response from the server ---" ;;
     esac
   fi
@@ -211,7 +215,9 @@ y で続行、Enter だけで %s のままにします: " ;;
       usage_select) fmt="  advisor --select-model    使うモデルを選ぶ" ;;
       usage_model) fmt="  advisor -m <ID>           このセッションだけモデルを指定" ;;
       usage_switch) fmt="  (会話中に /claude /gemini /deepseek /qwen /kimi /glm でAIを切り替え)" ;;
+      model_reset_note) fmt="（モデルを %s から %s の既定 %s に変更しました。旧いモデル名はこのベンダーのものではなく、そのままでは拒否されます）" ;;
       api_error) fmt="APIエラー(HTTP %s)。キーが正しいか、" ;;
+      api_error_model_hint) fmt="サーバーがモデル名を拒否している場合は models.txt の該当ベンダーのモデル名を確認してください（現在: %s）" ;;
       api_error_body) fmt="--- サーバーからの応答 ---" ;;
       *) fmt="$key" ;;
     esac
@@ -363,6 +369,25 @@ fi
 PROVIDER="${P_NAME[$PROVIDER_CHOICE]}"
 KEY_VAR="${P_KENV[$PROVIDER_CHOICE]}"
 DEFAULT_MODEL="${P_DMODEL[$PROVIDER_CHOICE]}"
+
+# 環境ファイルには前の厂商の CLAUDE_MODEL が残っていることがある（厂商を変えたら
+# そのモデル名は必ず無効）。属していないモデル名で叩くと 400 になり、
+# 「キーが違う」と誤解させるので、ここで必ず整合させる。
+_MODEL_RESET=0
+if [ -n "${CLAUDE_MODEL:-}" ]; then
+  if ! awk -F'|' -v m="$CLAUDE_MODEL" -v p="$PROVIDER" \
+        '$1==m && $5==p {found=1} END{exit !found}' "$SCRIPT_DIR/models.txt" 2>/dev/null; then
+    _MODEL_RESET=1
+  fi
+else
+  _MODEL_RESET=1
+fi
+if [ "$_MODEL_RESET" = "1" ]; then
+  if [ -n "${CLAUDE_MODEL:-}" ] && [ "$CLAUDE_MODEL" != "$DEFAULT_MODEL" ]; then
+    msg model_reset_note "$CLAUDE_MODEL" "${P_LABEL[$PROVIDER_CHOICE]}" "$DEFAULT_MODEL"
+  fi
+  CLAUDE_MODEL="$DEFAULT_MODEL"
+fi
 KEY_PAGE="${P_URL[$PROVIDER_CHOICE]}"
 msg using_provider "$PROVIDER"
 echo ""
@@ -416,6 +441,11 @@ else
 fi
 
 upsert_env "CLAUDE_PROVIDER" "$PROVIDER"
+# 厂商与模型必须是同一家的：否则下次启动会用「别家的模型名」去请求 → 400，
+# 看起来却像密钥失效。
+if [ -n "${CLAUDE_MODEL:-}" ]; then
+  upsert_env "CLAUDE_MODEL" "$CLAUDE_MODEL"
+fi
 
 # --- 3. エージェント本体を配置 ---
 mkdir -p "$BUILD_DIR"
@@ -929,7 +959,7 @@ fi
 #   anthropic … x-api-key + anthropic-version ヘッダ + /v1/messages
 #   それ以外  … Authorization: Bearer + <base_url>/chat/completions
 # この3分岐は agent/claude-agent.pl の %PROVIDERS の auth と対応している。
-TEST_MODEL="${CLAUDE_MODEL:-$DEFAULT_MODEL}"
+TEST_MODEL="${CLAUDE_MODEL:-$DEFAULT_MODEL}"   # 已在上面校验为当前厂商的模型
 BASE_URL="$(awk -F'|' -v m="$TEST_MODEL" '$1==m {print $6}' "$SCRIPT_DIR/models.txt" 2>/dev/null | head -1)"
 if [ -z "$BASE_URL" ]; then
   BASE_URL="$(awk -F'|' -v p="$PROVIDER" '$5==p && $6!="" {print $6}' "$SCRIPT_DIR/models.txt" 2>/dev/null | head -1)"
@@ -986,6 +1016,10 @@ else
   msg key_where "$KEY_PAGE"
   msg api_error_body
   cat "$RESPONSE_FILE"
+  if [ "$HTTP_CODE" = "400" ] && grep -qi 'model' "$RESPONSE_FILE" 2>/dev/null; then
+    echo ""
+    msg api_error_model_hint "$TEST_MODEL"
+  fi
   echo ""
 fi
 rm -f "$RESPONSE_FILE"
