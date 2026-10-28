@@ -399,7 +399,8 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 | ~~档③~~ | 双向实时（仅飞书） | 触发条件见 §7.2 | 10~15 人日 |
 
 > **M7（已完成）**：`.github/workflows/release.yml` —— tag `v*` 触发，在
-> `macos-latest` 上用 venv + py2app 打 standalone 包，`gh release create` 建
+> `macos-15-intel`（Intel 池；`macos-latest` 现在是 macOS 26 arm64，容量紧张时领不到机器）
+> 上用 venv + py2app 打 standalone 包，`gh release create` 建
 > Release，正文取 `docs/releases/<tag>.md`（缺失则警告并回退自动生成）。
 > 产物先过一次结构校验（内嵌 `claude-agent.pl` / `models.txt` / `providers.txt`
 > 与中文说明缺一不可），再算 SHA256。另有 `workflow_dispatch` 可手动演练

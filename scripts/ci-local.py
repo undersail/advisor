@@ -29,7 +29,7 @@ ap.add_argument('--only', default='', help='只跑名字里含该子串的步骤
 args = ap.parse_args()
 
 wf = yaml.safe_load(open('.github/workflows/ci.yml', encoding='utf-8'))
-OSES = ['ubuntu-latest', 'macos-latest']
+OSES = ['ubuntu-latest', 'macos-15-intel']   # 与 ci.yml 的矩阵保持一致（见那里的注释）
 fail = 0
 ran = 0
 skipped = 0

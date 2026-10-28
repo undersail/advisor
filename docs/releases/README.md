@@ -14,7 +14,8 @@ docs/releases/<tag>.md
 
 推 `v*` 形态的 tag 会触发发布流水线：
 
-1. `macos-latest` 上建 venv、装 py2app、跑 `release/build_standalone_app.sh`
+1. `macos-15-intel`（Intel 池，`macos-latest` 现在是 macOS 26 arm64、容量紧张会领不到机器）
+   上建 venv、装 py2app、跑 `release/build_standalone_app.sh`
    （版本号由 tag 传入，zip 名为 `Advisor-v<版本>-standalone.zip`）
 2. 校验 zip 里必须有内嵌的 `claude-agent.pl` / `models.txt` / `providers.txt`
    与中文说明 —— 缺一件就红，避免发出在别人机器上跑不起来的包

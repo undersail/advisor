@@ -241,7 +241,9 @@ def main():
     wf = open(WF, encoding='utf-8').read()
     check('tag 触发模式包含 v*', "tags:" in wf and "'v*'" in wf)
     check('需要 contents: write（建 Release 用）', 'contents: write' in wf)
-    check('只在 macOS 上构建（py2app 限制）', 'runs-on: macos-latest' in wf)
+    # 标签会变（`macos-latest` 曾经是 x64，现在是 macOS 26 arm64，arm64 池容量紧张时
+    # job 一直领不到机器）—— 所以只要求「是 macOS 的某个标签」，不钉死具体镜像名。
+    check('只在 macOS 上构建（py2app 限制）', re.search(r'runs-on:\s*macos[\w.-]*', wf) is not None)
     check('Release 只在 tag 触发时创建', "github.event_name == 'push'" in wf)
     check('有手动触发（可在发版前演练）', 'workflow_dispatch' in wf)
     check('发布说明缺失时给警告而不是静默', 'generate-notes' in wf and '::warning' in wf)
