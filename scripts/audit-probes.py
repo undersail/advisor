@@ -96,6 +96,12 @@ probe('GUI 焦点', 'gui/advisor_gui.py',
             pass   # probe""",
       ['xvfb-run', '-a', 'python3', 'scripts/test-gui-modes.py'])
 
+print('=== 6. Perl 版本兼容卡口：目标机 5.26 上编译不过的写法必须被拦住 ===')
+probe('perl 5.26 兼容', 'agent/claude-agent.pl',
+      'use strict;',
+      'use strict;\nmy $probe_obj = 1;\nif ($probe_obj isa Foo) { 1 }   # probe: 5.32 中缀 isa',
+      ['python3', 'scripts/check-perl-version-compat.py'])
+
 print()
 if FAIL:
     print('%d/%d 通过，失败：%s' % (OK, OK + FAIL, '、'.join(FAILS)))

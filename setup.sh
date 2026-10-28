@@ -58,6 +58,10 @@ msg() {
   if [ "$LANGCODE" = "zh" ]; then
     case "$key" in
       err_no_providers) fmt="找不到厂商表：%s（providers.txt 必须和 setup.sh 放在一起）" ;;
+      perl_reported) fmt="本机的 perl 是 %s。" ;;
+      perl_broken) fmt="claude-agent.pl 在这台机器的 perl 上编译不通过：" ;;
+      perl_broken_hint) fmt="上面是这台机器的 perl 给出的真实报错。装下去只会得到一个跑不起来的 advisor，所以先停在这里。请把这段发给维护者。" ;;
+      perl_missing) fmt="找不到 perl（macOS 自带 /usr/bin/perl，可能被系统改造过）。" ;;
       err_bad_choice) fmt="无效的编号（请输入 1~%s）。" ;;
       key_intro_generic) fmt="需要 %s 的 API 密钥。还没有的话，在浏览器里打开下面这个页面：" ;;
       key_where) fmt="  %s" ;;
@@ -114,6 +118,10 @@ msg() {
   if [ -z "$fmt" ] && [ "$IS_EN" = "1" ]; then
     case "$key" in
       err_no_providers) fmt="Provider table not found: %s (providers.txt must sit next to setup.sh)" ;;
+      perl_reported) fmt="Local perl is %s." ;;
+      perl_broken) fmt="claude-agent.pl does not compile with this machine's perl:" ;;
+      perl_broken_hint) fmt="That is the real error from your perl. Installing anyway only produces an advisor that cannot start, so stopping here. Please send this to the maintainer." ;;
+      perl_missing) fmt="perl not found (macOS ships /usr/bin/perl; this system looks modified)." ;;
       err_bad_choice) fmt="Invalid number (enter 1~%s)." ;;
       key_intro_generic) fmt="Needs a %s API key. If you do not have one, open this page in your browser:" ;;
       key_where) fmt="  %s" ;;
@@ -169,6 +177,10 @@ Press y to continue, or just Enter to keep using %s: " ;;
   if [ -z "$fmt" ]; then
     case "$key" in
       err_no_providers) fmt="プロバイダ表が見つかりません: %s（providers.txt は setup.sh と同じ場所に必要）" ;;
+      perl_reported) fmt="このマシンの perl は %s です。" ;;
+      perl_broken) fmt="claude-agent.pl がこのマシンの perl でコンパイルできません:" ;;
+      perl_broken_hint) fmt="上はこのマシンの perl が出した本当のエラーです。このまま入れると起動しない advisor ができるだけなので、ここで止めます。この内容を保守担当に送ってください。" ;;
+      perl_missing) fmt="perl が見つかりません（macOS には /usr/bin/perl が標準で入っています。システムが改造されている可能性）。" ;;
       err_bad_choice) fmt="番号が正しくありません（1~%s で入力してください）。" ;;
       key_intro_generic) fmt="%s の API キーが必要です。まだ無ければブラウザでこのページを開いてください:" ;;
       key_where) fmt="  %s" ;;
@@ -239,6 +251,33 @@ BIN_DIR="$HOME/bin"
 COMPLETION_FILE="$HOME/.advisor-completion.bash"
 APP_PATH="$HOME/Applications/Advisor.app"
 ICON_SRC="$SCRIPT_DIR/launcher/advisor.icns"
+
+# --- 0. 用**这台机器的 perl** 编译一遍（目标机 perl 5.26，CI 是 5.34/5.38）---
+# 为什么在写任何配置之前：编译不通过的话，后面只会装出一个跑不起来的 advisor，
+# 还顺带把 ~/.claude-agent-env 改成一半的状态。先验、再动手。
+PERL_BIN="$(command -v perl 2>/dev/null || true)"
+if [ -z "$PERL_BIN" ]; then
+  msg perl_missing
+  exit 1
+fi
+PERL_VER="$("$PERL_BIN" -e 'printf "%vd", $^V' 2>/dev/null || echo unknown)"
+# ★ 必须 || true：脚本开着 set -e，赋值里命令替换失败会**立刻退出**，
+#   连下面那段提示都打不出来（实测第一次就是这样，只留一个静默非 0 退出）。
+PERL_C_OUT="$("$PERL_BIN" -c "$SCRIPT_DIR/agent/claude-agent.pl" 2>&1 || true)"
+case "$PERL_C_OUT" in
+  *"syntax OK"*) : ;;
+  *)
+    msg perl_reported "$PERL_VER"
+    msg perl_broken
+    printf '%s\n' "$PERL_C_OUT" | tail -6
+    msg perl_broken_hint
+    exit 1
+    ;;
+esac
+# 顺便记一行版本：老机器上排查「为什么别人能用我不能用」时这就是第一手信息
+if [ -n "${ADVISOR_SETUP_VERBOSE:-}" ]; then
+  msg perl_reported "$PERL_VER"
+fi
 
 # ~/.claude-agent-env の1行を差し替える(無ければ追記)
 upsert_env() {

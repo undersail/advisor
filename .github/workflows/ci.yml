@@ -160,6 +160,22 @@ jobs:
             perl -c "$f" || { echo "::error::$f 语法错误"; exit 1; }
           done
 
+      - name: Perl 版本兼容卡口（目标机是 High Sierra 自带的 perl 5.26）
+        run: |
+          set -o pipefail
+          # CI 跑的是 5.34（macos-15-intel）/ 5.38（ubuntu），目标机是 5.26 ——
+          # 这个差距本身没有防线，写个 `builtin::` / `$x isa Foo` 就会「CI 全绿、
+          # 用户双击打不开」。先自检卡口自己会红，再真扫全仓。
+          python3 scripts/check-perl-version-compat.py --self-test
+          python3 scripts/check-perl-version-compat.py
+
+      - name: setup.sh 的 perl 自检（安装前用本机 perl 编译一遍）
+        run: |
+          set -o pipefail
+          # 静态卡口只能拦住我列出的新语法；真正的版本差异只有真 perl 编译才算数。
+          # 这里验两种情形：agent 编译不过时必须在**写配置之前**停下、正常仓库必须放行。
+          python3 scripts/test-setup-perl-check.py
+
       - name: 远程与本地解耦卡口
         run: |
           set -o pipefail

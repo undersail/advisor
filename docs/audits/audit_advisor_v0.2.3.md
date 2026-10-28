@@ -42,7 +42,7 @@
 | **合计** | **364** | 15 个脚本（发版前逐条实测，不是抄文档） |
 
 卡口 6 个：`check-secrets`（70 个已跟踪文件 + 全历史，0 命中）、`check-i18n`（Perl `%S` **147** /
-GUI `_S` **68** / `msg()` **48**，未译 0）、`check-models`（12 条模型 × 7 家）、`check-version`、
+GUI `_S` **68** / `msg()` **52**，未译 0）、`check-models`（12 条模型 × 7 家）、`check-version`、
 `check-decoupling`、`check-shell-var-glue`。
 
 ## 3. 反向探针（本轮新卡口全部验过"会红"）
@@ -159,6 +159,24 @@ GUI `_S` **68** / `msg()` **48**，未译 0）、`check-models`（12 条模型 �
 8. **CI 的 macOS 腿被误杀** —— `timeout-minutes: ${{ matrix.os == 'macos-latest' && 45 || 15 }}`
    实测没吃到 45（`df2e917` 的 macOS job `steps=0`、恰 15 分钟被取消）。改成矩阵里直接给数值
    （ubuntu 25 / macOS 90）。
+
+## 6.5 发版后追加（v0.2.3 已发布，改动随下一版走）
+
+用户追问「这个卡口为什么现在才发现需要加」后补的一条真盲区：**CI 的 perl 版本（5.34 / 5.38）
+与目标机 High Sierra 自带的 5.26 从来没有人比对过**。原审计方法里只有「`scripts/` 减 `ci.yml`」的
+覆盖面差集，没有「运行时版本差集」，所以这个问题是被用户的提问问出来的，不是审出来的。
+
+补了两件（都不改产品行为）：
+
+- `scripts/check-perl-version-compat.py`：扫已跟踪 `.pl/.pm`，拦 5.27+ 的写法（`use v5.28+`、
+  `use feature ':5.2x'`、`builtin::`、`try/catch`、中缀 `isa`、`class`/`method`），并带 `--self-test`
+  （6 正例 + 5 负例，验它自己会红且不误报 `->isa()` / 注释 / POD）。**今天真扫 0 命中**，属预防性卡口。
+- `setup.sh` 在**写任何配置之前**用本机 perl 编译一遍 agent：不通过就打印本机 perl 版本 + 真实报错
+  + 一句「装下去只会得到跑不起来的 advisor」，然后中止。这是唯一能覆盖版本*语义*差异的手段。
+  自己也踩了一个坑：脚本开着 `set -e`，命令替换失败会立刻退出、连提示都打不出来 →
+  `PERL_C_OUT="$(... || true)"`。
+- 回归：`scripts/test-setup-perl-check.py`（8 项：坏文件必须中止、且**不得**留下
+  `~/.claude-agent-env` 或 `~/bin/advisor`；正常仓库必须放行）；反向探针加第 6 条（18/18）。
 
 ## 7. 盲区（Linux 开发机验不到，别当成已验）
 
