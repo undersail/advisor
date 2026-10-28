@@ -79,7 +79,7 @@ class Mock(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
 
-def run(feed, mode='ok', port=None):
+def run(feed, mode='ok', port=None, args=()):
     """在 PTY 里跑一轮，feed 是 [(输入, 等待秒数), ...]，返回整段回显。"""
     Mock.mode = mode
     home = tempfile.mkdtemp(prefix='keypolicy-')
@@ -96,7 +96,7 @@ def run(feed, mode='ok', port=None):
         'CLAUDE_MODELS_FILE': os.path.join(ROOT, 'models.txt'),
     })
     master, slave = pty.openpty()
-    proc = subprocess.Popen(['perl', AGENT], cwd=ROOT, env=env,
+    proc = subprocess.Popen(['perl', AGENT] + list(args), cwd=ROOT, env=env,
                             stdin=slave, stdout=slave, stderr=slave,
                             close_fds=True, start_new_session=True)
     os.close(slave)
@@ -192,6 +192,17 @@ def main():
     check('不认识的厂商只报错、不索要输入',
           '不认识的厂商' in out5 and '粘贴后按回车' not in out5)
     check('不认识的厂商不会写配置文件', not saved5, saved5)
+
+    print('::notice::受限会话（--no-config）：只对话，不改配置')
+    out6, saved6, _ = run([('/key deepseek', 1.2), ('/mode bypass', 1.2),
+                           ('/allow-write /tmp', 1.2), ('/model 1', 1.5),
+                           ('你好', 3.0), ('exit', 1.0)], port=port, args=['--no-config'])
+    check('受限会话里 /key 被拒', out6.count('不能修改配置') >= 1, out6.count('不能修改配置'))
+    check('受限会话里四类配置命令全被拒', out6.count('不能修改配置') >= 4,
+          out6.count('不能修改配置'))
+    check('受限会话里不索要密钥', '粘贴后按回车' not in out6)
+    check('受限会话里没写配置文件', not saved6, saved6)
+    check('受限会话里普通对话照常', 'pong' in out6)
 
     srv.shutdown()
     print()

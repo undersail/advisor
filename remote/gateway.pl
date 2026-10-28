@@ -192,7 +192,9 @@ sub spawn_session {
     my ($in, $out);
     local %ENV = %env;
     my $pid = eval {
-        open3($in, $out, $errh, 'perl', $AGENT, '--rpc',
+        # --no-config：远程会话只对话。厂商/模型/模式/可写范围/密钥一律在本机配好，
+        # 这里连命令入口都不给（密钥更不该经第三方聊天平台转一圈）。
+        open3($in, $out, $errh, 'perl', $AGENT, '--rpc', '--no-config',
               '--tools=' . join(',', @REMOTE_TOOLS));
     };
     if (!$pid) {
@@ -244,7 +246,8 @@ sub spawn_session {
     select($prev);
 
     $SESS{$from} = { pid => $pid, in => $in, out => $out, err => $errh, conf => $conf };
-    audit('session_start', "from=$from", "pid=$pid", 'tools=' . join(',', @REMOTE_TOOLS));
+    audit('session_start', "from=$from", "pid=$pid", 'tools=' . join(',', @REMOTE_TOOLS),
+          'no_config=1');
     return $SESS{$from};
 }
 

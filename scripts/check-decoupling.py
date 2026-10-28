@@ -3,7 +3,7 @@
 """远程能力与本地核心的「解耦」卡口。
 
 为什么要有这道检查：
-    远程模式靠「核心的一个通用能力（--tools 收窄）」实现，而不是往核心
+    远程模式靠「核心的两个通用能力（--tools 收窄、--no-config 不许改配置）」实现，而不是往核心
     里塞 `if ($REMOTE) { ... }`。一旦有人为了省事在核心加远程分支，本地
     行为就会跟着远程的安全设定走 —— 那是不可接受的耦合。
     这道检查把那条界写死成机器可判的形式。
@@ -67,6 +67,11 @@ if re.search(r"\$conf->\{TOOLS\}|conf->\{ALLOW_TOOLS\}|ALLOW_TOOLS", gw):
 # 5) 网关必须真的把 --tools 传下去（连写形式，核心两种都认）
 if "--tools=" not in gw:
     errs.append('remote/gateway.pl 没有把 --tools=... 传给 agent，能力收窄不会生效')
+# 6) 网关必须把 --no-config 传下去：远程只对话，厂商/模型/模式/密钥都在本机配
+if "'--no-config'" not in gw:
+    errs.append('remote/gateway.pl 没有把 --no-config 传给 agent，远程就能改配置/收密钥了')
+if '--no-config' not in core:
+    errs.append('核心缺少 --no-config（受限会话不许改配置）')
 
 # 6) 远程历史目录必须写死在网关里，且与本地不同名
 if 'history-remote' not in gw:
@@ -106,5 +111,6 @@ if errs:
         print('  · ' + e)
     sys.exit(1)
 
-print('解耦检查通过：核心只有 --tools 通用收窄；远程逻辑全在 remote/；远程工具写死只读')
+print('解耦检查通过：核心只有 --tools 收窄与 --no-config 两个通用能力；'
+      '远程逻辑全在 remote/；远程工具写死只读、只对话')
 sys.exit(0)

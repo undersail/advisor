@@ -197,6 +197,19 @@ python3 scripts/live-check.py deepseek
 - [ ] 恢复会话（`advisor --resume` 或会话内恢复）之后，**不会再弹出厂商编号列表**
       让你可能误按（现在只打一行 `[厂商 / 模型]` 和一句「要换 AI 请输入 /model」）
 
+## 8.5 远程会话的权限边界（只对话）
+
+从企微/飞书发给 `gateway.pl` 的每条消息都会带 `--no-config` 起 agent，所以在手机上试这些：
+
+- [ ] 发 `/mode bypass` → 回「本次会话不能修改配置（厂商、模型、模式、可写范围、密钥）。
+      这些请在本机配置；对话本身照常可用。」本机 `~/.claude-agent-env` 与模式都不变
+- [ ] 发 `/model 1`、`/key deepseek` → 同样被拒；`/key` 不会在聊天里问你密钥
+      （密钥绝不能经聊天平台转一圈）
+- [ ] 发一句正常问题 → 照常回答；`read_file` / `list_dir` 仍可用，`run_shell` / `write_file`
+      依旧不存在（`--tools` 收窄）
+- [ ] 查 `~/.claude-agent/audit.log`：应有 `session_start … no_config=1`，
+      以及每次拒绝时的 `reply` 事件
+
 ## 9. 平台端收发（真机 + 真平台）
 
 本地已经把**确定性部分**验干净了，不需要你重复：

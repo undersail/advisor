@@ -167,6 +167,19 @@ def main():
         check('同一个发送者复用同一个 agent 进程',
               audit.count('session_start') == 1, 'session_start x%d' % audit.count('session_start'))
 
+        check('会话开始即带上 no_config（远程只对话）', 'no_config=1' in audit,
+              [l for l in audit.split('\n') if 'session_start' in l][-1:])
+
+        # 受限会话：远程连配置命令的入口都不给（密钥更不能经聊天平台转一圈）
+        p2 = run_gateway(home, '{"from":"ou_alice","text":"/mode bypass"}\n'
+                              '{"from":"ou_alice","text":"/key deepseek"}\n'
+                              '{"from":"ou_alice","text":"/model 1"}\n')
+        check('远程改模式被拒', '不能修改配置' in p2.stdout, p2.stdout[-300:])
+        check('远程 /key 被拒（密钥不进聊天平台）', p2.stdout.count('不能修改配置') >= 2,
+              p2.stdout.count('不能修改配置'))
+        check('远程 /model 也被拒（模型在本机配）', p2.stdout.count('不能修改配置') >= 3,
+              p2.stdout.count('不能修改配置'))
+
         tools = sorted({t['function']['name'] for r in MockModel.requests for t in (r.get('tools') or [])})
         check('advertised 工具只有 read_file / list_dir',
               tools == ['list_dir', 'read_file'], str(tools))

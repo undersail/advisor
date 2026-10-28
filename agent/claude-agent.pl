@@ -352,6 +352,16 @@ my %S = (
         en => "Not saved (only valid for this session).\n",
         zh => "未保存（只在本次会话内有效）。\n",
     },
+    # 受限会话（远程/嵌入式）：只对话，不改配置。
+    config_locked        => {
+        ja => "\nこの会话では設定を変更できません（ベンダー・モデル・モード・書き込み範囲・キー）。\n"
+            . "設定は advisor を動かしている端末側で行ってください。会話はそのまま続けられます。\n",
+        en => "\nSettings cannot be changed from this session "
+            . "(vendor / model / mode / writable roots / keys).\n"
+            . "Configure them on the machine running advisor. Chat itself keeps working.\n",
+        zh => "\n本次会话不能修改配置（厂商、模型、模式、可写范围、密钥）。\n"
+            . "这些请在本机配置；对话本身照常可用。\n",
+    },
     key_cmd_gui          => {
         ja => "GUI では開始画面（または設定）でキーを設定してください。ファイルを直接編集するなら %s\n",
         en => "In the GUI, set the key on the start screen (or Settings). Or edit %s directly.\n",
@@ -1003,6 +1013,7 @@ my $GUI            = 0;   # --gui: 端末用の表示をやめ、1行1件のJSON
 # 遠隔から使う場合はここで read_file,list_dir を渡す —— ただしその判断は
 # 呼び出し側の都合で決まる。本体は「ツールを絞れる」以上のことを知らない。
 my $TOOLS_ALLOW    = '';
+my $NO_CONFIG = 0;   # --no-config: 会话内の設定変更（厂商/模型/模式/可写/密钥）を拒む
 my @TOOLS_ALLOWED;   # 空 = 制限なし
 
 # ------------------------------------------------------------------
@@ -1069,6 +1080,9 @@ for my $arg (@ARGV) {
     # (GUI は画面が相手、rpc はプログラムが相手)。
     if ($arg eq '--rpc')               { $GUI = 1; }
     if ($arg =~ /^--tools=(.*)$/)      { $TOOLS_ALLOW = $1; }
+    # --no-config: 設定を変えるコマンドを一切受け付けない（能力の絞り込み）。
+    # 中継・埋め込みから使う想定で、キーの入力経路も同時に塞ぐ。
+    if ($arg eq '--no-config')         { $NO_CONFIG = 1; }
     if ($arg =~ /^--mode=(.*)$/)       { $MODE_ARG = $1; }
     if ($arg =~ /^--allow-write=(.*)$/) { push @WRITE_ROOTS_RAW, $1; }
 }
@@ -1137,6 +1151,7 @@ sub print_help {
       --change-passphrase 修改历史记录口令并退出
       --set-recovery    设置密保问题（找回口令用）并退出
       --tools=<a,b>     只用列出的工具（能力收窄；名字写错会报错退出）
+      --no-config       本次会话不接受配置类命令（厂商/模型/模式/可写范围/密钥）
       --mode=<名字>     交互模式：default / accept-edits / bypass（默认 default）
       --allow-write=<目录> 追加可写目录（可重复；默认只有当前目录与临时目录）
       --rpc             与 --gui 相同的 JSON 行协议（给程序化前端用）
@@ -1176,6 +1191,7 @@ EOH
       --change-passphrase 履歴パスフレーズを変更して終了
       --set-recovery    合言葉(復旧用の秘密の質問)を設定して終了
       --tools=<a,b>     指定したツールだけ使う (絞る方向のみ。名前を間違えると終了)
+      --no-config       設定系コマンドを受け付けない (厂商/モデル/モード/書き込み範囲/キー)
       --mode=<名前>     対話モード: default / accept-edits / bypass (既定 default)
       --allow-write=<dir> 書き込みを許すディレクトリを追加 (複数可。既定は現在地と一時領域)
       --rpc             --gui と同じ JSON 行プロトコル (プログラム向け)
@@ -3943,6 +3959,18 @@ sub handle_turn {
     dbg("turn start: msgs=" . scalar(@messages) . " input=" . substr($input, 0, 80));
 
     return 'quit' if $input eq 'exit';
+
+    # 制限付きセッションでは設定系コマンドを受け付けない（对话は通す）。
+    if ($NO_CONFIG) {
+        my $pcmd = ($input =~ m{^/([a-z][a-z0-9_]*)\s*$}) ? provider_from_command($1) : '';
+        if ($pcmd ne '' || $input =~ m{^/(?:model|models|mode|allow-write|key)\b}) {
+            # 受限会话（远程/嵌入式）里这是一句"给对面看的回答"，不是本地提示，
+            # 所以走 text 事件：网关与平台只把 text / error 当回复带走。
+            if ($GUI) { gui_send({ t => 'text', text => L('config_locked') }); }
+            else      { print L('config_locked'); }
+            return;
+        }
+    }
 
     # bypass へ切り替える前の「yes と打ってもらう」待ち。
     # /mode bypass 1 回で即座に切り替わると、指が滑っただけで無確認実行が
