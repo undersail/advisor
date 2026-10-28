@@ -24,19 +24,16 @@ jobs:
   gates:
     name: 卡口 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # ★ 超时要按平台分开，而且**不要用 `cond && A || B` 这种表达式**：
-    #   实测 df2e917 的 macOS 腿是 15 分钟整被取消、steps=0（一步没跑），
-    #   说明表达式没吃到 45，仍然按 15 处理。改成矩阵里直接给每行一个数值。
-    #   macOS runner 排队 + 镜像准备能有 10~30 分钟，给足 90。
-    timeout-minutes: ${{ matrix.timeout }}
+    # ★ 超时写成字面量，不走任何表达式。
+    #   事实：df2e917 / f4f96f9 / 924a91a 三次的 macOS 腿都是**恰好 15.0 分**被取消、
+    #   steps=0、runner_name 为空 —— 说明它一步没跑就被掐掉，不是测试失败。
+    #   先排除「我们的配置」这一嫌疑：这里给一个明显不同的字面量 300，
+    #   如果 macOS 腿仍然在 15 分被取消，那就是 GitHub 侧的排队/资源问题，不是我们的配置。
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            timeout: 25
-          - os: macos-latest
-            timeout: 90
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - name: 检出代码
@@ -217,19 +214,16 @@ jobs:
   core:
     name: 慢测·核心 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # ★ 超时要按平台分开，而且**不要用 `cond && A || B` 这种表达式**：
-    #   实测 df2e917 的 macOS 腿是 15 分钟整被取消、steps=0（一步没跑），
-    #   说明表达式没吃到 45，仍然按 15 处理。改成矩阵里直接给每行一个数值。
-    #   macOS runner 排队 + 镜像准备能有 10~30 分钟，给足 90。
-    timeout-minutes: ${{ matrix.timeout }}
+    # ★ 超时写成字面量，不走任何表达式。
+    #   事实：df2e917 / f4f96f9 / 924a91a 三次的 macOS 腿都是**恰好 15.0 分**被取消、
+    #   steps=0、runner_name 为空 —— 说明它一步没跑就被掐掉，不是测试失败。
+    #   先排除「我们的配置」这一嫌疑：这里给一个明显不同的字面量 300，
+    #   如果 macOS 腿仍然在 15 分被取消，那就是 GitHub 侧的排队/资源问题，不是我们的配置。
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            timeout: 25
-          - os: macos-latest
-            timeout: 90
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - name: 检出代码
@@ -287,19 +281,16 @@ jobs:
   io:
     name: 慢测·输入输出 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # ★ 超时要按平台分开，而且**不要用 `cond && A || B` 这种表达式**：
-    #   实测 df2e917 的 macOS 腿是 15 分钟整被取消、steps=0（一步没跑），
-    #   说明表达式没吃到 45，仍然按 15 处理。改成矩阵里直接给每行一个数值。
-    #   macOS runner 排队 + 镜像准备能有 10~30 分钟，给足 90。
-    timeout-minutes: ${{ matrix.timeout }}
+    # ★ 超时写成字面量，不走任何表达式。
+    #   事实：df2e917 / f4f96f9 / 924a91a 三次的 macOS 腿都是**恰好 15.0 分**被取消、
+    #   steps=0、runner_name 为空 —— 说明它一步没跑就被掐掉，不是测试失败。
+    #   先排除「我们的配置」这一嫌疑：这里给一个明显不同的字面量 300，
+    #   如果 macOS 腿仍然在 15 分被取消，那就是 GitHub 侧的排队/资源问题，不是我们的配置。
+    timeout-minutes: 300
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            timeout: 25
-          - os: macos-latest
-            timeout: 90
+        os: [ubuntu-latest, macos-latest]
 
     steps:
       - name: 检出代码
