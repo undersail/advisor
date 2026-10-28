@@ -101,7 +101,10 @@ faces depending on your mood.
   `~/.claude-agent` (where keys and the audit log live) **stay refused even if you add them**.
 - **Remote access (optional)** — drive it from outside through a read-only gateway; results can
   be pushed to WeCom / Feishu (see `remote/README.md`). **Remote has no write or execute
-  capability** — it only ever gets the two read-only tools.
+  capability** — it only ever gets the two read-only tools. Remote is **chat only**: vendor,
+  model, mode, writable roots and keys are all configured on the local machine, and
+  `/model` `/mode` `/key` coming from the chat side are refused (a key must never travel
+  through a third-party chat platform).
 
 ## Supported OS tiers
 
@@ -214,7 +217,8 @@ Available mid-conversation:
 |---|---|
 | `1`–`5` (a number) | switch to that AI (provider switches automatically too, and it's remembered next time) |
 | `/model` or `?` | show the AI list again |
-| `/claude` / `/gemini` | switch provider only |
+| `/claude` / `/gemini` | Switch provider only |
+| `/key <vendor>` | Set that vendor's API key (the only way to enter a key in a session) |
 | `exit` / Ctrl-D | quit |
 
 Shell-level options (only when you need them):

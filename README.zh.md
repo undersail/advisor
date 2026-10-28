@@ -76,6 +76,8 @@ Gemini（Google）。
   **即使显式加入也拒绝**。
 - **远程接入（可选）** —— 经只读网关从外面派活，结果可推到企业微信 / 飞书（配置见
   `remote/README.md`）。**远程侧没有写入和执行能力**，工具固定为两个只读的。
+  而且**远程只对话**：厂商、模型、模式、可写范围、密钥都只能在本机配置，聊天端发
+  `/model` `/mode` `/key` 会被直接拒绝（密钥绝不该经第三方聊天平台转一圈）。
 
 ## 支持的 OS 层级
 
@@ -171,6 +173,7 @@ AI 在 `setup.sh` 里选一次就够了。之后切换就是**输入列表里的
 | `1`–`5`（编号） | 切换到该 AI（厂商也会自动跟着切，并记住到下次）|
 | `/model` 或 `?` | 再次显示 AI 列表 |
 | `/claude` / `/gemini` | 只切换厂商 |
+| `/key <厂商>` | 配置某家厂商的密钥（会话中唯一的密钥入口，会隐藏输入并保存） |
 | `exit` / Ctrl-D | 退出 |
 
 Shell 层选项（需要时才用）：
@@ -289,14 +292,16 @@ Advisor 会检查 Mac 的系统语言（`defaults read -g AppleLocale`），并�
 
 ## 支持的 AI 与自定义模型
 
-内置 7 个厂商，各自读自己的环境变量（`/deepseek` 之类的命令会在对话中提示你粘贴）：
+内置 7 个厂商，各自读自己的环境变量。**密钥只在两处输入**：安装时（`setup.sh`），
+或会话中的专门命令 `/key <厂商>`；切换模型（`/model`、`/deepseek` 这些）不会问你要密钥，
+缺密钥只会告诉你「用 `/key deepseek` 配」：
 
 | 厂商 | 命令 | 环境变量 | 默认模型 |
 |---|---|---|---|
 | Anthropic | `/claude` | `ANTHROPIC_API_KEY` | `claude-sonnet-5` |
 | Google | `/gemini` | `GEMINI_API_KEY` | `gemini-3.5-flash-lite` |
 | OpenAI | `/openai` | `OPENAI_API_KEY` | `gpt-4o` |
-| DeepSeek | `/deepseek` | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| DeepSeek | `/deepseek` | `DEEPSEEK_API_KEY` | `deepseek-flash` |
 | 通义千问（阿里云） | `/qwen` | `DASHSCOPE_API_KEY` | `qwen-plus` |
 | Kimi（月之暗面） | `/kimi` | `MOONSHOT_API_KEY` | `kimi-k2-0905-preview` |
 | GLM（智谱） | `/glm` | `ZHIPU_API_KEY` | `glm-4.6` |
