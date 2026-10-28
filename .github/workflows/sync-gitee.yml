@@ -21,6 +21,9 @@ name: Sync to Gitee Mirror
 on:
   push:
     branches: [main]
+    # ★ 也要在「推 tag」时同步：否则发版后 Gitee 镜像永远缺这个 tag
+    #   （v0.2.3 就这么漏过一次 —— 分支同步是绿的，Gitee 上 tags 只到 v0.2.2）。
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       force:

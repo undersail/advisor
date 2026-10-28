@@ -96,6 +96,18 @@ def main():
         return finish()
     check('守卫脚本存在且可执行', True)
 
+    # 工作流本身也要覆盖 tag：分支同步绿 ≠ tag 同步了。
+    # 真实事故：v0.2.3 打完 tag 后 Gitee 上 tags 只到 v0.2.2 —— 因为 workflow
+    # 只在 push main 时触发，而 tag 是那次 push 之后才创建的。
+    wf = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                      '.github', 'workflows', 'sync-gitee.yml')
+    try:
+        wf_txt = open(wf, encoding='utf-8').read()
+    except OSError:
+        wf_txt = ''
+    check('镜像工作流在推 tag 时也会同步（否则发版后镜像缺 tag）',
+          "tags: ['v*']" in wf_txt, wf)
+
     work = tempfile.mkdtemp(prefix='drift-')
     try:
         # ---- A) 一致 → 放行
