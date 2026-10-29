@@ -318,6 +318,60 @@ def main():
             dlg2.destroy()
             root.update()
 
+    # ---------------- 后台服务：状态显示 + 启动/停止 ----------------
+    import time as _t
+    # 上面那轮已经把面板关掉重开过一次，这里再开一个干净的来验服务启停
+    for w in list(root.winfo_children()):
+        try:
+            w.destroy()
+        except Exception:
+            pass
+    root.update()
+    gui.AdvisorGUI._open_remote_dialog(dummy)
+    root.update()
+    dlg = find_dialog(root, gui.L('remote_title'))
+    if dlg is None:
+        root.destroy(); shutil.rmtree(tmp, ignore_errors=True); return finish()
+    check('面板有「启动服务」按钮', find_button(dlg, gui.L('remote_start')) is not None)
+    check('面板有「停止服务」按钮', find_button(dlg, gui.L('remote_stop')) is not None)
+    st0 = gui.remote_service_status()
+    check('没启动时状态是「没在跑」', st0['running'] is False, st0)
+
+    start_btn = find_button(dlg, gui.L('remote_start'))
+    stop_btn2 = find_button(dlg, gui.L('remote_stop'))
+    if start_btn is not None:
+        start_btn.invoke()
+        for _ in range(40):
+            root.update()
+            if gui.remote_service_status()['running']:
+                break
+            _t.sleep(0.2)
+        st1 = gui.remote_service_status()
+        check('点「启动服务」后真的起来了（pid 文件 + 进程活着）', st1['running'] is True, st1)
+        check('状态里读得到档位（跟配置一致，不靠猜）',
+              st1['mode'] in ('accept-edits', 'default'), st1)
+        texts = '\n'.join(find_label_texts(dlg))
+        check('面板上写明了运行中', 'pid' in texts.lower() or str(st1['pid']) in texts,
+              texts[-160:])
+        check('启动的就是命令行那个服务（同一个 pid 文件路径）',
+              gui.WECOM_WS_PID_PATH == os.path.join(agent_dir, 'wecom-ws.pid'),
+              gui.WECOM_WS_PID_PATH)
+
+        if stop_btn2 is not None:
+            stop_btn2.invoke()
+            for _ in range(40):
+                root.update()
+                if not gui.remote_service_status()['running']:
+                    break
+                _t.sleep(0.2)
+            check('点「停止服务」后真的停了', gui.remote_service_status()['running'] is False,
+                  gui.remote_service_status())
+            check('停止后 pid 文件被清理（不留残留）',
+                  not os.path.exists(gui.WECOM_WS_PID_PATH))
+            a = os.path.join(agent_dir, 'audit.log')
+            at = open(a, encoding='utf-8').read() if os.path.exists(a) else ''
+            check('停止走了优雅退出（审计里有 ws_stop）', 'ws_stop' in at, at[-160:])
+
     try:
         dlg.destroy()
     except Exception:

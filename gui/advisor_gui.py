@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from tkinter import font as tkfont
@@ -523,6 +524,31 @@ _S = {
         "en": "Bypass (dangerous commands still ask)",
         "ja": "制限なし（危険なコマンドは確認）",
     },
+    "remote_svc_running": {
+        "zh": "后台服务：运行中（pid %(pid)s，档位 %(mode)s）",
+        "en": "Service: running (pid %(pid)s, mode %(mode)s)",
+        "ja": "常駐サービス：稼働中（pid %(pid)s、モード %(mode)s）",
+    },
+    "remote_svc_stopped": {
+        "zh": "后台服务：没有在跑（点「启动服务」就开始，或重启电脑后手动启动）",
+        "en": "Service: not running (click \"Start service\", or start it again after a reboot)",
+        "ja": "常駐サービス：停止中（「サービス開始」を押すか、再起動後に手動で起動してください）",
+    },
+    "remote_start": {
+        "zh": "启动服务",
+        "en": "Start service",
+        "ja": "サービス開始",
+    },
+    "remote_stop": {
+        "zh": "停止服务",
+        "en": "Stop service",
+        "ja": "サービス停止",
+    },
+    "remote_no_script_start": {
+        "zh": "找不到 remote/wecom-ws.pl，无法启动（这台机器上没部署远程组件）",
+        "en": "Cannot start: remote/wecom-ws.pl not found on this machine.",
+        "ja": "起動できません：この環境に remote/wecom-ws.pl がありません。",
+    },
     "remote_status_none": {"ja": "未設定：まだ接続情報がありません。",
                            "en": "Not configured: no connection settings yet.",
                            "zh": "未配置：还没有连接信息。"},
@@ -677,6 +703,8 @@ ENV_FILE_PATH = os.path.expanduser("~/.claude-agent-env")
 WECOM_WS_CONF_PATH = os.path.expanduser("~/.claude-agent/wecom-ws.conf")
 REMOTE_CONF_PATH = os.path.expanduser("~/.claude-agent/remote.conf")
 AUDIT_LOG_PATH = os.path.expanduser("~/.claude-agent/audit.log")
+WECOM_WS_PID_PATH = os.path.expanduser("~/.claude-agent/wecom-ws.pid")
+WECOM_WS_LOG_PATH = os.path.expanduser("~/.claude-agent/wecom-ws.log")
 
 
 def read_kv_conf(path):
@@ -753,6 +781,85 @@ def remote_status():
             pass
     return {"configured": has_cred, "last_activity": when,
             "allow": read_kv_conf(REMOTE_CONF_PATH).get("ALLOW", "")}
+
+
+def remote_service_status():
+    """远程服务是否在跑 —— 只读 wecom-ws.pl 自己写的 pid 文件，不猜、不另立状态。"""
+    info = {"running": False, "pid": 0, "mode": "", "allow": "", "started": ""}
+    try:
+        if not os.path.exists(WECOM_WS_PID_PATH):
+            return info
+        with open(WECOM_WS_PID_PATH, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k == "pid":
+                    info["pid"] = int(v) if v.isdigit() else 0
+                elif k == "mode":
+                    info["mode"] = v
+                elif k == "allow_write":
+                    info["allow"] = "" if v == "-" else v
+                elif k == "started":
+                    info["started"] = v
+    except Exception:
+        return info
+    if info["pid"] <= 0:
+        return info
+    try:
+        os.kill(info["pid"], 0)          # 只探活，不发送信号
+        info["running"] = True
+    except OSError:
+        info["running"] = False          # 残留文件（上次被 SIGKILL）
+    return info
+
+
+def start_remote_service(script, mode="default", allow=""):
+    """在后台起 wecom-ws.pl --serve。返回 (ok, 提示)。不把 Secret 放进 argv。"""
+    args = ["perl", script, "--serve"]
+    if mode and mode != "default":
+        args.append("--mode=" + mode)
+    if allow:
+        args.append("--allow-write=" + allow)
+    try:
+        os.makedirs(os.path.dirname(WECOM_WS_LOG_PATH), exist_ok=True)
+        logf = open(WECOM_WS_LOG_PATH, "ab")
+        p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=logf,
+                             stderr=logf, start_new_session=True, cwd=os.path.dirname(script))
+        # 起来后等一小会儿：真起来会写出 pid 文件，被拒（已有实例）会立刻退出
+        for _ in range(20):
+            time.sleep(0.1)
+            st = remote_service_status()
+            if st["running"]:
+                return True, "已启动：pid=%d 档位=%s" % (st["pid"], st["mode"] or mode)
+            if p.poll() is not None:
+                return False, "启动失败（退出码 %s），看日志：%s" % (p.returncode, WECOM_WS_LOG_PATH)
+        return True, "已启动（pid 稍后写入）"
+    except Exception as e:
+        return False, "启动失败：%s" % e
+
+
+def stop_remote_service(timeout=6.0):
+    """停掉正在跑的远程服务：先 TERM（它会写 ws_stop 并清理 pid），再 KILL。"""
+    st = remote_service_status()
+    if not st["running"]:
+        return False, "没有在跑的服务"
+    pid = st["pid"]
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError as e:
+        return False, "发送 SIGTERM 失败：%s" % e
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(0.2)
+        if not remote_service_status()["running"]:
+            return True, "已停止（pid=%d）" % pid
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+    return True, "已强制停止（pid=%d，未响应 SIGTERM）" % pid
 
 
 def find_wecom_ws_script():
@@ -2433,6 +2540,42 @@ class AdvisorGUI:
         status_lbl = tk.Label(dlg, textvariable=status_var, anchor="w", justify=tk.LEFT,
                               wraplength=470)
 
+        svc_var = tk.StringVar()
+        svc_lbl = tk.Label(dlg, textvariable=svc_var, anchor="w", justify=tk.LEFT,
+                           wraplength=470, fg="#0055aa")
+        svc_lbl.pack(padx=16, anchor="w")
+
+        def refresh_service():
+            st = remote_service_status()
+            if st["running"]:
+                svc_var.set(L("remote_svc_running", pid=st["pid"],
+                               mode=st["mode"] or "default"))
+            else:
+                svc_var.set(L("remote_svc_stopped"))
+            try:
+                start_btn.configure(state=tk.DISABLED if st["running"] else tk.NORMAL)
+                stop_btn.configure(state=tk.NORMAL if st["running"] else tk.DISABLED)
+            except Exception:
+                pass
+
+        def do_start():
+            script = find_wecom_ws_script()
+            if not script:
+                res_var.set(L("remote_no_script_start")); res_lbl.pack(padx=16, anchor="w")
+                return
+            # 用面板里当前选的档位（已经保存过才算数：读文件里的真值）
+            cur = read_kv_conf(WECOM_WS_CONF_PATH)
+            ok, msg = start_remote_service(
+                script, cur.get("REMOTE_MODE", "default") or "default",
+                cur.get("REMOTE_ALLOW_WRITE", ""))
+            res_var.set(msg); res_lbl.pack(padx=16, anchor="w")
+            refresh_service()
+
+        def do_stop():
+            ok, msg = stop_remote_service()
+            res_var.set(msg); res_lbl.pack(padx=16, anchor="w")
+            refresh_service()
+
         def refresh_status():
             cur = remote_status()
             if not cur["configured"]:
@@ -2444,6 +2587,7 @@ class AdvisorGUI:
             status_lbl.pack(padx=16, anchor="w")
 
         refresh_status()
+        refresh_service()
 
         res_var = tk.StringVar()
         res_lbl = tk.Label(dlg, textvariable=res_var, justify=tk.LEFT, wraplength=470)
@@ -2525,6 +2669,10 @@ class AdvisorGUI:
 
         test_btn = tk.Button(btns, text=L("remote_test"), command=do_test)
         tk.Button(btns, text=L("remote_save"), command=do_save).pack(side=tk.LEFT, padx=4)
+        start_btn = tk.Button(btns, text=L("remote_start"), command=do_start)
+        start_btn.pack(side=tk.LEFT, padx=4)
+        stop_btn = tk.Button(btns, text=L("remote_stop"), command=do_stop)
+        stop_btn.pack(side=tk.LEFT, padx=4)
         test_btn.pack(side=tk.LEFT, padx=4)
         tk.Button(btns, text=L("remote_close"), command=dlg.destroy).pack(side=tk.LEFT, padx=4)
         tk.Label(dlg, text=L("remote_ok_hint"), justify=tk.LEFT,

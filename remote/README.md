@@ -46,6 +46,9 @@ perl remote/gateway.pl --once --from alice --text "列一下当前目录"
 echo '{"from":"alice","text":"你好"}' | perl remote/gateway.pl --stdin
 ```
 
+**操作手册（启动 / 选档 / 多启动保护 / 保活 / 退出 / 排错 / 开机自启）**：
+[`docs/ops_remote.md`](../docs/ops_remote.md)
+
 ## 远程权限：启动时定，手机端改不了
 
 默认**只读**。要放开，在 Mac 启动远程服务时显式写出来：

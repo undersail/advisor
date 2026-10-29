@@ -533,6 +533,44 @@ def main():
     a5 = open(a5p, encoding='utf-8').read() if os.path.exists(a5p) else ''
     check('断开原因写进了审计（ws_session_end）', 'ws_session_end' in a5, a5[-200:])
 
+    # ---------------- 场景 6：单实例保护 + 优雅退出 ----------------
+    # 两个 --serve 同时跑会把同一条消息各回一遍（钱和文件都可能被操作两次），必须挡住
+    home6 = os.path.join(tmp, 'home6')
+    os.makedirs(os.path.join(home6, '.claude-agent'), exist_ok=True)
+    write_conf(home6, BOT_ID='bot-1', BOT_SECRET='sec-1', WS_URL='ws://127.0.0.1:9',
+               REMOTE_MODE='accept-edits')
+    env6 = dict(os.environ, HOME=home6)
+    pid_path = os.path.join(home6, '.claude-agent', 'wecom-ws.pid')
+    first = subprocess.Popen(['perl', WS_PL, '--serve', '--mode=accept-edits'],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             stdin=subprocess.DEVNULL, env=env6)
+    wait_for(lambda: os.path.exists(pid_path), seconds=20)
+    check('启动后写出 pid 文件（GUI/脚本据此显示状态）', os.path.exists(pid_path),
+          pid_path)
+    pid_txt = open(pid_path, encoding='utf-8').read() if os.path.exists(pid_path) else ''
+    check('pid 文件里写的是真 pid', ('pid=%d' % first.pid) in pid_txt, pid_txt[:120])
+    check('pid 文件里写了档位（状态同步，不用猜）',
+          'mode=accept-edits' in pid_txt, pid_txt[:120])
+    check('pid 文件权限 0600',
+          os.path.exists(pid_path) and oct(os.stat(pid_path).st_mode & 0o777) == '0o600', '')
+
+    second = subprocess.run(['perl', WS_PL, '--serve'], env=env6,
+                            capture_output=True, text=True, timeout=30)
+    check('第二个实例被拒绝（退出码 3）', second.returncode == 3, second.returncode)
+    check('拒绝时说明已有实例并给出 pid',
+          '已经有一个远程服务在跑' in (second.stderr or ''), (second.stderr or '')[-120:])
+
+    first.terminate()
+    try:
+        first.wait(10)
+    except subprocess.TimeoutExpired:
+        first.kill()
+    wait_for(lambda: not os.path.exists(pid_path), seconds=10)
+    check('SIGTERM 后 pid 文件被清理（不留残留）', not os.path.exists(pid_path), '')
+    a6p = os.path.join(home6, '.claude-agent', 'audit.log')
+    a6 = open(a6p, encoding='utf-8').read() if os.path.exists(a6p) else ''
+    check('优雅退出写进审计（ws_stop）', 'ws_stop' in a6, a6[-200:])
+
     shutil.rmtree(tmp, ignore_errors=True)
     return finish()
 

@@ -369,6 +369,11 @@ Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=/Users/Jac
 | 确认必须转给手机，不许静默拒绝（否则写操作会一路超时） | 卡口断言 `sub ask_remote` 存在 |
 | 回应键必须是 `reply`，超时按拒绝 | 单测 `test-gateway-write` 里 y / n / 超时 三条 |
 
+**单实例与退出**：`--serve` 在 `~/.claude-agent/wecom-ws.pid` 上加 `flock` 独占，
+第二个实例立刻以退出码 3 被拒（两个实例会把同一条消息各处理一遍，文件和钱都可能动两次）；
+pid 文件里写 `pid` / `mode` / `allow_write` / `started`（不含密钥），GUI 的状态行只读它。
+INT / TERM / HUP 都走优雅退出：审计 `ws_stop`、删 pid、放锁。细节见 `docs/ops_remote.md`。
+
 **代价（写在这里，别忘）**：开 `accept-edits` 之后，手机 = 一份能改代码的凭据（白名单内的人）。
 手机丢了的风险从「只能读」变成「能改」。所以默认仍是只读，放宽必须显式在启动时写出来；
 危险命令三档都还要确认（`bypass` 也不豁免），审计里记 `mode=` / `roots=` / `confirm_asked` /

@@ -336,6 +336,16 @@ BotID + Secret，不需要任何云资源，也不需要维护第二个服务。
 4. 发一条**不回**的确认（比如执行 `rm -rf /tmp/xxx`）→ 等两分钟 → 应回「超时按拒绝」，审计里能看到 `timeout=1`
 5. 手机发 `/mode bypass` → 应被拒绝（远程改不了档位）
 
+**多启动保护与退出（1 分钟）**：
+
+1. 服务跑着的时候再开一个终端跑 `perl remote/wecom-ws.pl --serve` →
+   应打印「已经有一个远程服务在跑（pid=… 档位=…）」并以**退出码 3** 结束
+2. `cat ~/.claude-agent/wecom-ws.pid` → 能看到 pid / 档位 / 可写目录 / 启动时间（没有密钥）
+3. 在服务那个终端按 **Ctrl-C** → 应打印「收到 INT，正在退出」；
+   `ls ~/.claude-agent/wecom-ws.pid` 应已不存在；`tail ~/.claude-agent/audit.log` 里应有 `ws_stop`
+
+完整操作手册见 **`docs/ops_remote.md`**（含保活参数、排错表、launchd 开机自启）。
+
 **前置**：企业微信 → 工作台 → 智能机器人 → 创建机器人 → API 模式 → **使用长连接**，
 记下给你的 `BotID` 和 `Secret`（Secret 只显示一次）。
 

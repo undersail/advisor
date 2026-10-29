@@ -49,6 +49,9 @@ my $AGENT_DIR  = ($ENV{HOME} || '') . '/.claude-agent';
 my $CONF_PATH  = $ENV{WECOM_WS_CONF} || "$AGENT_DIR/wecom-ws.conf";
 my $AUDIT_PATH = $ENV{AUDIT_LOG} || "$AGENT_DIR/audit.log";
 my $DEFAULT_URL = 'wss://openws.work.weixin.qq.com';
+# ★ 单实例保护与状态同步：--serve 起来时独占这个锁文件，并把「我是谁、什么档位」
+#   写进 pid 文件（不含任何密钥）。GUI 只读它来显示状态，不另立一套真相。
+my $PID_PATH    = $ENV{WECOM_WS_PID} || "$AGENT_DIR/wecom-ws.pid";
 my $GATEWAY = $ENV{GATEWAY_CMD} || "$^X $SCRIPT_DIR/gateway.pl";
 
 # ★ 远程权限只在**启动时**定：命令行 > 配置文件（GUI 写的那份）。
@@ -80,6 +83,44 @@ sub audit {
 }
 
 sub logmsg { print STDERR strftime('%H:%M:%S', localtime) . " $_[0]\n" }
+
+# ---------------------------------------------------------------- 单实例
+# 用 flock 独占：两个 --serve 同时跑会把同一条消息各回一遍（各起一个 agent），
+# 用户看到的是重复回复、钱和文件都可能被操作两次 —— 必须挡住。
+sub acquire_instance_lock {
+    my ($mode, $allow) = @_;
+    require Fcntl;
+    sysopen(my $fh, $PID_PATH, Fcntl::O_RDWR() | Fcntl::O_CREAT(), 0600)
+        or die "打不开锁文件 $PID_PATH：$!\n";
+    chmod 0600, $PID_PATH;
+    unless (flock($fh, Fcntl::LOCK_EX() | Fcntl::LOCK_NB())) {
+        # 已经有实例：把它的 pid / 档位读出来告诉用户，别只说「起不来」
+        my $old = do { local $/; <$fh> } // '';
+        close $fh;
+        my ($opid, $omode);
+        ($opid)  = $old =~ /^pid=(\d+)$/m;
+        ($omode) = $old =~ /^mode=(\S+)$/m;
+        my $who = defined $opid ? "pid=$opid" : 'pid=未知';
+        my $m = defined $omode ? "档位=$omode" : '';
+        die "已经有一个远程服务在跑（$who $m）。要重启就先停掉它：kill $opid\n"
+            if defined $opid;
+        die "已经有一个远程服务在跑（锁文件被占用）。先停掉它再启动\n";
+    }
+    truncate($fh, 0);
+    seek($fh, 0, 0);
+    printf $fh "pid=%d\nmode=%s\nallow_write=%s\nstarted=%s\nversion=%s\n",
+        $$, ($mode ne '' ? $mode : 'default'), ($allow ne '' ? $allow : '-'),
+        scalar(localtime), $VERSION;
+    $fh->flush if $fh->can('flush');
+    return $fh;      # 句柄要一直被持有，进程退出才释放锁
+}
+
+sub release_instance_lock {
+    my ($fh) = @_;
+    return unless $fh;
+    eval { truncate($fh, 0); close($fh); };   # 关掉即释放 flock
+    eval { unlink($PID_PATH); };              # 别留空文件让 GUI 以为还在跑
+}
 
 sub load_conf {
     my %c;
@@ -450,17 +491,30 @@ sub gw_spawn {
     return $state->{gw}{$sender};
 }
 
+# 档位的唯一来源：命令行 > 配置文件；两边都没有就是 default（只读）
+sub effective_mode {
+    my ($c) = @_;
+    return $REMOTE_MODE if $REMOTE_MODE ne '';
+    return $c->{REMOTE_MODE} if ref $c eq 'HASH' && defined $c->{REMOTE_MODE} && $c->{REMOTE_MODE} ne '';
+    return 'default';
+}
+
+sub effective_allow {
+    my ($c) = @_;
+    return $REMOTE_ALLOW if $REMOTE_ALLOW ne '';
+    return $c->{REMOTE_ALLOW_WRITE}
+        if ref $c eq 'HASH' && defined $c->{REMOTE_ALLOW_WRITE};
+    return '';
+}
+
 # 启动时定下来的权限，转成 gateway 的参数
 sub remote_extra_args {
     my ($state) = @_;
-    my $mode  = $REMOTE_MODE;
-    my $allow = $REMOTE_ALLOW;
+    my $conf  = (ref $state eq 'HASH' && ref $state->{conf} eq 'HASH') ? $state->{conf} : {};
+    my $mode  = effective_mode($conf);
+    my $allow = effective_allow($conf);
+    $mode = '' if $mode eq 'default';      # default 不用传给 gateway
     my $wait  = $CONFIRM_WAIT;
-    if (ref $state eq 'HASH' && ref $state->{conf} eq 'HASH') {
-        my $c = $state->{conf};
-        $mode  = $c->{REMOTE_MODE}        if $mode  eq '' && defined $c->{REMOTE_MODE};
-        $allow = $c->{REMOTE_ALLOW_WRITE} if $allow eq '' && defined $c->{REMOTE_ALLOW_WRITE};
-    }
     my @a;
     push @a, '--mode=' . $mode if defined $mode && $mode ne '';
     push @a, '--allow-write=' . $allow if defined $allow && $allow ne '';
@@ -799,6 +853,28 @@ sub cmd_check {
 sub cmd_serve {
     my ($c) = @_;
     die "还没有配置：$CONF_PATH（先跑 --init）\n" unless $c->{BOT_ID} && $c->{BOT_SECRET};
+    my $mode  = effective_mode($c);
+    my $allow = effective_allow($c);
+    my $lock = eval { acquire_instance_lock($mode, $allow) };
+    if (!$lock) {
+        # 退出码 3 = 「已经有一个在跑」。GUI / 脚本据此显示状态，不用去猜。
+        print STDERR $@;
+        exit 3;
+    }
+    audit('ws_start', "pid=$$ mode=$mode allow=" . ($allow ne '' ? $allow : '-'));
+    logmsg("远程服务已启动：pid=$$ 档位=$mode"
+        . ($allow ne '' ? " 可写目录=$allow" : ''));
+    # Ctrl-C / kill 都走优雅退出：写一条审计、删 pid、把锁放掉
+    my $quit = sub {
+        my ($sig) = @_;
+        audit('ws_stop', "pid=$$ signal=$sig");
+        logmsg("收到 $sig，正在退出");
+        release_instance_lock($lock);
+        exit 0;
+    };
+    $SIG{INT}  = sub { $quit->('INT') };
+    $SIG{TERM} = sub { $quit->('TERM') };
+    $SIG{HUP}  = sub { $quit->('HUP') };
     my $attempt = 0;
     my $auth_fail = 0;
     while (1) {
@@ -833,6 +909,8 @@ wecom-ws.pl $VERSION — 企业微信智能机器人长连接（API 模式 · �
   --init     录入 BotID / Secret（隐藏输入，写 $CONF_PATH 0600）
   --check    连一次，验证凭据能订阅成功
   --serve    常驻：收消息 → 复用 gateway.pl（白名单/权限/审计）→ 回复
+             单实例：pid 文件 $PID_PATH 上 flock，重复启动会被拒绝
+             退出：Ctrl-C / kill（INT/TERM/HUP）都会写审计 ws_stop 并清理 pid
 
 远程权限（只在启动时定，手机端改不了）：
   --mode=default|accept-edits|bypass   默认 default=只读

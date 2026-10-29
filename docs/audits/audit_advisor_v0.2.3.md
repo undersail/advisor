@@ -268,3 +268,25 @@ GUI `_S` **68** / `msg()` **52**，未译 0）、`check-models`（12 条模型 �
 （确认发到手机、⚠ 标注、回 y 后跑完）；`test-gui-remote` 24 → **34 项**
 （下拉入口、默认只读、矛盾配置拦截、档位与目录落盘、重开面板读回、Secret 不回填）。
 CI 35 → **36 步**（io 10 → 11）。
+
+### 6.5.4 追加：单实例保护、优雅退出、GUI 启停与操作手册
+
+用户问「命令行和 GUI 都可以启动远程模式是吧？启动的是同一个服务吧，有避免多启保护和状态同步吧？
+启动时如何选择交互模式，如何保活和退出？是不是补充一个操作手册？」—— 核对结果：**同一个服务**，
+但**多启动保护、状态同步、优雅退出、GUI 启停都没有**，补上。
+
+- `remote/wecom-ws.pl`：`--serve` 起来时在 `~/.claude-agent/wecom-ws.pid` 上加 `flock` 独占；
+  第二个实例立刻 **exit 3** 并告出「已经有一个远程服务在跑（pid=… 档位=…）」；
+  pid 文件写 `pid/mode/allow_write/started/version`（**不含密钥**、0600）；
+  退出时先 truncate 再 unlink，不留残留
+- 信号：`INT` / `TERM` / `HUP` → 审计 `ws_stop`、删 pid、放锁、exit 0（优雅退出）
+- `effective_mode()` / `effective_allow()` 抽出为唯一来源（命令行 > 配置文件 > `default`），
+  `remote_extra_args()` 复用它，避免「两处各判一次」
+- GUI：`remote_service_status()` 只读 pid 文件 + `kill(pid,0)` 判活；
+  `start_remote_service()` / `stop_remote_service()`（TERM → 6 秒后 KILL）；
+  面板加服务状态行与「启动服务」「停止服务」按钮，按状态互相禁用
+- 新文档 `docs/ops_remote.md`：启动 / 三档 / 手机确认 / 多启动保护 / 保活（心跳、退避、SIGPIPE）/
+  退出 / 状态与排错 / launchd 开机自启 / 9 步验收清单
+- 测试：`test-wecom-ws` 39 → **47 项**（pid 文件内容与权限、第二实例 exit 3、
+  SIGTERM 后 pid 清理、审计 `ws_stop`）；`test-gui-remote` 34 → **44 项**
+  （状态未运行 → 点启动 → 运行中且档位一致 → 点停止 → 已停 + pid 清理 + `ws_stop`）
