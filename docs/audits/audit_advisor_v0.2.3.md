@@ -377,3 +377,43 @@ unable to get local issuer certificate … HTTP/1.1 101 Switching Protocols`，�
 测试：`test-gateway-write` 22 → **27 项**，新增场景「假 agent 起不来」：
 手机能收到一句话、话里点明去哪看、审计带子进程真实报错、终端也打出、中文不乱码。
 文档：`user_manual` §8.2 排错表新增 `session_not_ready` 一行、`design_doc` §4.5.3。
+
+### 6.5.9 配置自检：err=请设置 ANTHROPIC_API_KEY 的真实原因
+
+加了 stderr 透出后，真机报出真正原因：`session_not_ready err=请设置 ANTHROPIC_API_KEY`。
+用户配的是 DeepSeek 且 `DEEPSEEK_API_KEY` 在文件里 —— 说明 `CLAUDE_PROVIDER` **在文件里但值是空的**，
+agent 于是回退到 anthropic，于是要 `ANTHROPIC_API_KEY`。这类「看起来像密钥没配、其实是厂商没定」
+的报错只有一层信息，用户无从判断。
+
+修法：`gateway.pl` 启动时跑 `config_sanity()`：
+- env 文件不存在 → 直接说
+- `CLAUDE_PROVIDER` 为空 → 明说「这解释了为什么会报 ANTHROPIC」
+- `CLAUDE_PROVIDER` 值不认识 → 列出可选值（对照 `providers.txt`）
+- 该厂商对应的 `*_API_KEY` 为空 → 点名是哪个变量
+输出：终端一行「配置自检：…」+ 审计 `config_warn`；**只报存在与否，绝不打印值**；
+配置正常时完全静默。
+
+测试：`test-gateway-write` 27 → **33 项**，新增：厂商为空要告警、告警点名
+`CLAUDE_PROVIDER` 并解释 ANTHROPIC、审计留 `config_warn`、**绝不打印密钥值**、
+厂商名不认识时列出可选值、配置正常时不告警。文档：`user_manual` §8.2 排错表、
+`design_doc` §4.5.3。
+
+### 6.5.10 根因收口：env 文件解析太严，把厂商整行吃掉
+
+顺着代码正向看：`agent/claude-agent.pl:1630` 是
+`configure_provider($ENV{CLAUDE_PROVIDER} || 'anthropic')` —— 进程里没有厂商就**默认 anthropic**，
+然后 `configure_provider` 找不到 `ANTHROPIC_API_KEY` 就 die 出「请设置 ANTHROPIC_API_KEY」。
+所以这句话的因果不是「密钥没配」，而是「厂商没传到 agent」。
+
+厂商从哪来：远程模式下 agent 由 `gateway.pl` 起，`CLAUDE_PROVIDER` 只能由 gateway 从
+`~/.claude-agent-env` 读出来再注入。而 `read_agent_env()` 原来的正则只认
+`^\s*export\s+NAME=value`（**等号两边不许有空格**）：
+`export CLAUDE_PROVIDER = deepseek`、`CLAUDE_PROVIDER=deepseek`（没 export）、
+值带引号、行尾注释、CRLF —— 全都被**整行丢弃**，于是 agent 只能回退 anthropic。
+
+修法：宽容解析（export 可有可无 / 等号两边可有空格 / 引号 / ` #注释` / CRLF）。
+注意「宽容解析 ≠ 不检查」：真没有厂商那一行时 `config_sanity` 仍然告警。
+测试：`test-gateway-write` 33 → **36 项**（七种写法 + CRLF + 真没厂商）。
+
+同时记一笔教训：本机自查命令 `grep -o '^export [A-Za-z0-9_]*'` 只能证明**变量名在**，
+证明不了**值有效**；以后给用户的自查命令要能看出「值长度/是否为空」而绝不打印值本身。

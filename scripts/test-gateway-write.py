@@ -78,6 +78,9 @@ def make_home():
     agent = os.path.join(home, 'fake_agent.pl')
     with open(agent, 'w', encoding='utf-8') as f:
         f.write(FAKE_AGENT)
+    # 一份「正常」的本机配置：厂商有效 + 该厂商的密钥非空（config_sanity 才不告警）
+    with open(os.path.join(home, '.claude-agent-env'), 'w', encoding='utf-8') as f:
+        f.write('export CLAUDE_PROVIDER=deepseek\nexport DEEPSEEK_API_KEY=sk-fake-test\n')
     return home, agent
 
 
@@ -234,6 +237,69 @@ def main():
           '模型名 xyz 不存在' in (r['err'] or ''), (r['err'] or '')[-300:])
     check('中文报错没变乱码（stderr 按 UTF-8 解码）',
           'è' not in (r['err'] or ''), (r['err'] or '')[-200:])
+
+    print('\u2466 配置自检：厂商没定下来时，启动就说清楚（别等手机发消息才失败）')
+    _h1, _ = make_home()
+    with open(os.path.join(_h1, '.claude-agent-env'), 'w', encoding='utf-8') as f:
+        f.write('export DEEPSEEK_API_KEY=sk-fake-test\nexport CLAUDE_PROVIDER=\n')
+    r = drive([], '你好', wait=25.0, home=_h1)
+    check('厂商值为空：启动就打配置自检告警', '配置自检' in (r['err'] or ''), (r['err'] or '')[-300:])
+    check('告警点名 CLAUDE_PROVIDER（并解释为何报 ANTHROPIC）',
+          'CLAUDE_PROVIDER' in (r['err'] or '') and 'ANTHROPIC' in (r['err'] or ''),
+          (r['err'] or '')[-300:])
+    check('告警也写进审计（config_warn）', 'config_warn' in r['audit'], r['audit'][-300:])
+    check('自检从不打印密钥值', 'sk-fake-test' not in (r['err'] or ''), (r['err'] or '')[-200:])
+
+    _h2, _ = make_home()
+    with open(os.path.join(_h2, '.claude-agent-env'), 'w', encoding='utf-8') as f:
+        f.write('export CLAUDE_PROVIDER=DeepSeek\nexport DEEPSEEK_API_KEY=sk-fake-test\n')
+    r = drive([], '你好', wait=25.0, home=_h2)
+    check('厂商名不认识：告警里列出可选择的名字',
+          '不认识' in (r['err'] or '') and 'deepseek' in (r['err'] or ''),
+          (r['err'] or '')[-300:])
+
+    _h3, _ = make_home()
+    r = drive([], '你好', wait=25.0, home=_h3)
+    check('配置正常时不自检告警（不制造噪声）', '配置自检' not in (r['err'] or ''),
+          (r['err'] or '')[-300:])
+
+    print('\u2467 env 文件的各种写法都要认（别把用户配好的厂商整行吃掉）')
+    # 原来只认 `export NAME=value`（等号两边不许有空格），于是
+    # `export CLAUDE_PROVIDER = deepseek` / `CLAUDE_PROVIDER=deepseek`（没 export）
+    # 都被整行丢弃 → agent 回退 anthropic → 报「请设置 ANTHROPIC_API_KEY」。
+    shapes = [
+        'export CLAUDE_PROVIDER=deepseek',
+        'export CLAUDE_PROVIDER = deepseek',
+        'CLAUDE_PROVIDER=deepseek',
+        'export CLAUDE_PROVIDER="deepseek"',
+        "export CLAUDE_PROVIDER='deepseek'",
+        'export CLAUDE_PROVIDER=deepseek   # 主要用这个',
+        'export CLAUDE_PROVIDER="deepseek"  # 主要用这个',
+    ]
+    bad_shapes = []
+    for shape in shapes:
+        _h, _ = make_home()
+        with open(os.path.join(_h, '.claude-agent-env'), 'w', encoding='utf-8') as f:
+            f.write(shape + '\nexport DEEPSEEK_API_KEY=sk-fake-test\n')
+        r = drive([], '你好', wait=25.0, home=_h)
+        if '配置自检' in (r['err'] or ''):
+            bad_shapes.append((shape, (r['err'] or '')[-160:]))
+    check('七种常见写法都能读出 CLAUDE_PROVIDER（不被整行吃掉）',
+          bad_shapes == [], str(bad_shapes[:2]))
+
+    _h, _ = make_home()
+    with open(os.path.join(_h, '.claude-agent-env'), 'w', encoding='utf-8') as f:
+        f.write('export CLAUDE_PROVIDER=deepseek\r\nexport DEEPSEEK_API_KEY=sk-fake-test\r\n')
+    r = drive([], '你好', wait=25.0, home=_h)
+    check('CRLF（Windows 编辑器存过的文件）也能认',
+          '配置自检' not in (r['err'] or ''), (r['err'] or '')[-200:])
+
+    _h, _ = make_home()
+    with open(os.path.join(_h, '.claude-agent-env'), 'w', encoding='utf-8') as f:
+        f.write('export DEEPSEEK_API_KEY=sk-fake-test\n')      # 干脆没有厂商这一行
+    r = drive([], '你好', wait=25.0, home=_h)
+    check('真没有厂商时仍然要告警（宽容解析不等于不检查）',
+          '配置自检' in (r['err'] or ''), (r['err'] or '')[-200:])
 
     print('%d/%d 通过' % (PASS, PASS + FAIL))
     return 0

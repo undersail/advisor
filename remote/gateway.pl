@@ -142,16 +142,39 @@ sub allow_set {
 }
 
 # ~/.claude-agent-env の export K=V を読む（agent に渡すモデル/キー）
+# 读本机的 agent 环境文件（~/.claude-agent-env，形如 `export KEY=value`）。
+#
+# ★ 这里必须宽容：它本质是「shell 能 source 的片段」，而用户的手写习惯、不同版本的
+#   写入方都会变点花样。原来只认 `^\s*export\s+NAME=value`（等号两边不能有空格），
+#   于是 `export CLAUDE_PROVIDER = deepseek` / `CLAUDE_PROVIDER=deepseek`（没 export）
+#   / `export CLAUDE_PROVIDER`（只有名字）这几种写法会被**整行丢掉**，
+#   agent 那边就只能回退到 anthropic，然后报一句「请设置 ANTHROPIC_API_KEY」——
+#   看起来像密钥没配，实际是厂商这一项被我们吃掉了（真机踩过）。
+#
+#   现在接受：export 可有可无、等号两边可有空格、值可有引号、行尾注释、CRLF。
 sub read_agent_env {
     my ($path) = @_;
     my %e;
     open(my $fh, '<:encoding(UTF-8)', $path) or return \%e;
     while (my $l = <$fh>) {
-        chomp $l;
-        next unless $l =~ /^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=(.*)$/;
+        $l =~ s/\r?\n$//;
+        next if $l =~ /^\s*#/;                 # 整行注释
+        next if $l !~ /\S/;                    # 空行
+        $l =~ s/^\s*export\s+//;               # export 可有可无
+        next unless $l =~ /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
         my ($k, $v) = ($1, $2);
-        $v =~ s/^["']//;
-        $v =~ s/["']$//;
+        $v =~ s/^\s+//;
+        $v =~ s/\s+$//;
+        # 先看有没有引号包裹（引号后的 ` #注释` 一律当注释丢掉）
+        if ($v =~ /^"(.*?)"/s) {
+            $v = $1;
+        } elsif ($v =~ /^'(.*?)'/s) {
+            $v = $1;
+        } else {
+            # 未加引号：去掉行尾 ` #注释`
+            $v =~ s/\s+#.*$//;
+            $v =~ s/\s+$//;
+        }
         $e{$k} = $v;
     }
     close $fh;
@@ -194,6 +217,58 @@ sub json_unescape {
 # 送信者ごとに agent プロセスを1本持つ（会話の文脈を保つため）。
 # 落ちていたら作り直す。
 my %SESS;
+
+# 配置自检：远程会话能不能起来，取决 ~/.claude-agent-env 里有没有「厂商 + 该厂商的密钥」。
+# 真机上踩过：文件里 CLAUDE_PROVIDER 在、但值是空的（或只有 ANTHROPIC_API_KEY），
+# agent 于是回退到 anthropic 并报「请设置 ANTHROPIC_API_KEY」—— 看起来像密钥没配，
+# 实际是厂商没定下来。这里在启动时就把话说清楚（只报有没有，绝不打印任何值）。
+sub config_sanity {
+    my ($conf) = @_;
+    my $envfile = $conf->{AGENT_ENV_FILE} || "$ENV{HOME}/.claude-agent-env";
+    my $e = read_agent_env($envfile);
+    my @warn;
+    push @warn, "找不到 $envfile（远程会话起来时会没有可用密钥）" unless -e $envfile;
+    my $prov = $e->{CLAUDE_PROVIDER} // '';
+    my %known;
+    my $here = dirname(__FILE__);
+    my $provfile = '';
+    for my $cand ("$here/../providers.txt", "$here/providers.txt") {
+        if (-r $cand) { $provfile = $cand; last }
+    }
+    if ($provfile ne '' && open(my $pf, '<:encoding(UTF-8)', $provfile)) {
+        while (my $l = <$pf>) {
+            next if $l =~ /^\s*#/ || $l !~ /\S/;
+            my ($name) = split /\|/, $l;
+            $name =~ s/\s+//g;
+            $known{$name} = 1 if $name ne '';
+        }
+        close $pf;
+    }
+    if ($prov eq '') {
+        push @warn, "$envfile 里没有有效的 CLAUDE_PROVIDER（这就解释了「请设置 ANTHROPIC_API_KEY」："
+                  . "没定厂商就会回退到 Anthropic）";
+    } elsif (%known && !$known{$prov}) {
+        push @warn, "CLAUDE_PROVIDER 的值 '$prov' 不认识（可选："
+                  . join(' / ', sort keys %known) . "）";
+    }
+    # 该厂商要的密钥变量有没有、是不是空的
+    my %KEYOF = (
+        anthropic => 'ANTHROPIC_API_KEY', gemini => 'GEMINI_API_KEY',
+        openai => 'OPENAI_API_KEY', deepseek => 'DEEPSEEK_API_KEY',
+        dashscope => 'DASHSCOPE_API_KEY', moonshot => 'MOONSHOT_API_KEY',
+        zhipu => 'ZHIPU_API_KEY',
+    );
+    if ($prov ne '' && $KEYOF{$prov}) {
+        my $k = $KEYOF{$prov};
+        my $v = $e->{$k} // ($ENV{$k} // '');
+        push @warn, "$envfile 里 $k 是空的（$prov 用这个变量）" if $v eq '';
+    }
+    for my $w (@warn) {
+        audit('config_warn', $w);
+        print STDERR "配置自检：$w\n";
+    }
+    return \@warn;
+}
 
 sub spawn_session {
     my ($from, $conf) = @_;
@@ -483,6 +558,8 @@ sub gate {
     audit('inbound', "from=$from", 'len=' . length($text // ''));
     return 1;
 }
+
+config_sanity($conf);
 
 if ($MODE eq 'once') {
     if (!gate($ONCE_FROM, $ONCE_TEXT)) {

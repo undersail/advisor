@@ -385,6 +385,20 @@ Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj
 `errcode≠0` 时**不清零** missed 计数 —— 这三条原本就与官方一致，复核后保留。
 退避基数/上限可用 `WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` 覆盖（仅供测试压到毫秒级）。
 
+**读 env 文件必须宽容（同一条真机的根因）**：`read_agent_env()` 原来只认
+`^\s*export\s+NAME=value`（等号两边不许有空格）。于是 `export CLAUDE_PROVIDER = deepseek`、
+`CLAUDE_PROVIDER=deepseek`（没 `export`）、带引号、行尾注释、CRLF 这些**常见写法会被整行丢掉**，
+agent 那侧只好回退 anthropic，报「请设置 ANTHROPIC_API_KEY」。现在接受：`export` 可有可无、
+等号两边可有空格、值可带引号（引号后才出现的 ` #` 当注释）、CRLF；未加引号时去掉行尾 ` #注释`。
+`test-gateway-write` 用七种写法 + CRLF + 「真没有厂商」各断言一遍。
+
+**配置自检（真机 err=请设置 ANTHROPIC_API_KEY）**：真机上 `~/.claude-agent-env` 里
+`CLAUDE_PROVIDER` 在、但**值是空的**，agent 于是回退到 anthropic 并报「请设置
+ANTHROPIC_API_KEY」—— 看起来像密钥问题，实际是厂商没定下来。`gateway.pl` 现在启动时跑
+`config_sanity()`：检查 env 文件在不在、`CLAUDE_PROVIDER` 有没有值/认不认识（对照
+`providers.txt`）、该厂商对应的 `*_API_KEY` 是否为空；有问题就打 `配置自检：…` 到终端并记
+`config_warn` 审计。**只报有没有，绝不打印任何值**。配置正常时保持沉默，不制造噪声。
+
 **会话起不来不能静默（真机 session_not_ready）**：`gateway.pl` 起 agent 后等 `{"t":"ready"}`，
 等不到就返回 undef。原来这里只记一句 `session_not_ready`，**子进程 stderr 直接丢掉**，
 于是真机表现成「手机发消息完全没反应」，日志里也看不出任何原因。现在：
