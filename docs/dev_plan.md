@@ -18,8 +18,8 @@
 | 两级模型菜单（终端数字 / GUI `/model <id>`） | ✅ 已实现（M4）|
 | **远程只读网关**（白名单 / 审计 / 工具写死只读） | ✅ 本 fork 已实现（M5）|
 | **档① 出站通知**（企微群机器人 / 飞书自定义机器人） | ✅ 本 fork 已实现（M5）|
-| **档② 轮询中继**（Worker + Durable Object 队列 + 老 Mac 轮询端 + 平台端入队/回推） | ✅ 全通（M6）|
-| **档② 平台端收发**（企微/飞书回调 → 派活 → 回复推回手机） | ✅ 本 fork 已实现（M6 第二批，`remote/platform.pl`）|
+| ~~档② 轮询中继（Cloudflare Worker + Durable Object）~~ | ❌ **已移除**（长连接更轻，见下条；CF 维护面与部署成本不划算）|
+| **平台端收发**（企微/飞书回调 → 派活 → 回复推回手机） | ✅ 本 fork 已实现（`remote/platform.pl`，需公网域名）|
 | **企微智能机器人长连接**（API 模式 · BotID + Secret；**不用公网域名、不用 Cloudflare**） | ✅ 本 fork 已实现（`remote/wecom-ws.pl`）|
 | **发布链路**（tag → macOS 打包 → Release） | ✅ 本 fork 已实现（M7）|
 | standalone zip 分发 | ✅ 已实现（未签名，首次启动需右键打开）|
@@ -39,7 +39,7 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 17 个，合计 **407 项**（modes 60 · platform 46 · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 8 · remote-notify 22 · relay-do 21 · **remote 24** · **mirror-drift 20** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · relay 7 · **setup-perl-check 8** · **wecom-ws 35**） |
+| 测试脚本 | 15 个，合计 **375 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 8 · remote-notify 22 · **remote 24** · **mirror-drift 20** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 35**） |
 | CI | `ci.yml` **3 个 job × 34 步 × 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
@@ -53,7 +53,7 @@
 | 文件 | 作用 |
 |---|---|
 | `.editorconfig` | utf-8 / LF / 2 空格（`.pl` `.py` 为 4） |
-| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 37 步：perl -c（含 remote 四个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**17 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
+| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 35 步：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**15 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
 | `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；**推之前先跑反拉保护**（会覆盖对方提交就中止，见 §8.2）；凭据 `oauth2:`→`undersail:` 自动回退 |
 | `docs/design_doc_advisor.md` | 架构、JSON 行协议、加密密钥层级、已知限制、改动规则 |
 | `docs/releases/` | 发布说明，文件名 = tag 名 |
@@ -323,17 +323,21 @@ advisor 现在是**单机单用户**的 CLI + GUI，没有任何网络服务端�
 
 价值：先跑通链路与凭据，且即使档②做不成，这个也一直有用。
 
-#### 档② 轮询式中继（约 3~5 人日）✅ 采用
+#### ~~档② 轮询式中继（Cloudflare Worker）~~ ❌ 已实现后移除
 ```
 老 Mac（NAT 后）  ──轮询──>  中继（Cloudflare Worker / VPS）  <──回调──  企微/飞书
        └──────────── POST 结果 ────────┘
 ```
-- 老 Mac **主动轮询**取待处理消息，处理完 POST 回结果
-  → **无需公网入站、无需端口映射、NAT 后面也能用**
+- 老 Mac **主动轮询**取待处理消息，处理完 POST 回结果 → 无需公网入站（这一条成立）
 - 平台回调仍要有公网 URL，但落在**中继**上（Cloudflare Worker 免费额度够）
 - 代价：延迟（3~5 秒轮询间隔）、需维护一个中继服务、多一处信任边界
 
-> 体验：像"发消息，过几秒回信"。这是**没有公网 IP 也能双向派活**的现实解。
+> **为什么删掉**：企微「智能机器人 · API 模式 · 使用长连接」（`remote/wecom-ws.pl`）把同一条
+> 需求用更轻的方式解决了 —— 本机连出去，凭据只有 BotID + Secret，**不需要 CF 账号、不需要部署
+> Worker、不需要维护第二个服务**，延迟还是实时的（不是 3~5 秒轮询）。CF 方案的额外能力只有
+> 「一台 Mac 挂在没有企业微信的环境里」，项目用不到。
+> 保留一条历史：`relay/worker.js` 与两条 relay 测试（7 + 21 项）已随本次提交删除，
+> 需要时可从 git 历史取回（`git log --diff-filter=D`）。
 
 #### 档③ 双向实时（逐字流式，约 10~15 人日）⏸ 暂缓
 - 飞书自建应用的**长连接模式**理论上不用公网 IP，但 wss 客户端在零 CPAN Perl 里
@@ -374,13 +378,14 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 - [ ] `--rpc` 模式：复用 JSON 行协议，作为第三前端
 - [ ] 网关进程：接收平台消息 → 转 `--rpc` → 回推结果
 - [ ] 档① 出站通知（企微群机器人 + 飞书自定义机器人）
-- [ ] 档② 轮询中继（Cloudflare Worker + 老 Mac 轮询端）
+- [x] ~~档② 轮询中继（Cloudflare Worker + 老 Mac 轮询端）~~ → 已由企微长连接取代，代码已删
+- [ ] 飞书长连接（方案已记录在 `design_doc` §4.5.2，**暂不实现**）
 - [ ] 只读工具集 + 白名单 + 审计日志（**先于**任何远程能力上线）
 - [ ] 远程模式的独立口令与独立历史目录
 - [ ] ~~档③ 双向实时~~（暂缓，见 §5.2）
 - [ ] ~~微信接入~~（已排除）
 
-**规模**：档① 1~2 人日；档② 3~5 人日。**风险中高**：主要在中继的可用性
+**规模**：档① 1~2 人日；~~档② 3~5 人日（已删）~~。**风险中低**：不需要再维护中继服务；主要成本在
 与安全边界；平台审核（企微需企业主体、飞书需自建应用权限）需提前确认。
 
 ---
@@ -394,7 +399,7 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 | **M3** ✅ | 方向二 · 提供商注册表重构（只做抽象，不加新厂商） | 无 | 已完成 |
 | **M4** ✅ | 方向二 · OpenAI 适配器 + 首批四家 + 两级菜单 + GUI onboarding + setup.sh 七家 | M3 | 已完成 |
 | **M5** ✅ | 方向三 · 远程网关（白名单 / 审计 / 只读硬关）+ 档① 出站通知 | M2, M4 | 已完成 |
-| **M6** 🚧 | 方向三 · 档② 轮询中继（队列 + 轮询端已完成；平台收发未做） | M5 ✅ | 剩平台凭据相关部分 |
+| **M6** ✅→🗑 | 方向三 · 档② 轮询中继（曾全通，后因长连接更轻而整段删除） | M5 ✅ | 已由 `remote/wecom-ws.pl` 取代 |
 | **M7** ✅ | 发布链路（tag → Release → macOS runner 打 standalone zip） | M2 | 已完成 |
 | **M8** | Tier A（10.6~10.8 toolchain） | 独立 | 未估（最重） |
 | ~~档③~~ | 双向实时（仅飞书） | 触发条件见 §7.2 | 10~15 人日 |
@@ -412,11 +417,10 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 > 校验的正例通过、缺文件必红），17/17。**py2app 打包与 `gh release create`
 > 只能在 macOS runner 上验** —— 这一层本会话无法验证，首次真发布见分晓。
 
-> **M6 第一批（已完成）**：`remote/relay/worker.js`（Worker + **Durable Object** 队列：`/push`、
-> `/pull` 取走即删、`/result`、`/outbox`、`/health`；定长比较校验令牌）+ 网关
-> `--poll` 模式（只拉白名单信箱，`--max-msgs` 便于测试）。
-> 验证：`scripts/test-relay.py` 对「同契约本地假中继」7/7，对**真 Worker**
-> （`wrangler dev --local`）同样 7/7。
+> **M6（历史，代码已删）**：`remote/relay/worker.js`（Worker + Durable Object 队列）+
+> 网关 `--poll` 模式曾全通（`test-relay.py` 7/7、`test-relay-do.mjs` 21/21）。
+> 已被 `remote/wecom-ws.pl`（企微长连接）取代并整段移除 —— 同一需求用更轻的方式解决，
+> 不必再要求用户开 Cloudflare 账号、部署 Worker、维护第二个服务。
 >
 > **M6 剩余**：把结果真正推回手机需要平台自建应用凭据（企微 corp secret /
 > 飞书 app token），且接收端要做回调验签与 AES 解密 —— 这两件都要拿真凭据联调，
@@ -466,8 +470,8 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 | 1 | 中文化默认语言 | **跟随系统**：中文 Mac 自动出中文，上游 ja/en 行为不变 |
 | 2 | 国产模型首批 | **DeepSeek + 通义千问 + Kimi + 智谱** 四家内置；其余靠 `CLAUDE_BASE_URL` 手填 |
 | 3 | 远程平台范围 | **微信排除**（认证主体 + 公网回调 + 5 秒限制，性价比最低）；只做**企业微信 + 飞书** |
-| 4 | 远程档位 | **做档①（出站通知）+ 档②（轮询中继）**；档③ 双向实时**暂缓** |
-| 5 | 中继服务 | **接受维护**（Cloudflare Worker，免费额度足够） |
+| 4 | 远程档位 | **做档①（出站通知）+ 企微长连接**；CF 中继已删；飞书长连接暂缓 |
+| 5 | 中继服务 | **不再需要**（长连接由本机连出，没有中继要维护） |
 | 6 | 远程写权限 | **只读**：只开 `read_file` / `list_dir`；`write_file` / `run_shell` 远程模式硬关 |
 | 7 | 本地预演 CI 的方式 | **必须执行 `ci.yml` 本身**（`python3 scripts/ci-local.py`），不许手抄检查逻辑。教训：M2 把 models.txt 改成 4 列、M4 又改成 6 列，手抄的复现脚本两次都写的是旧规则，本地"全绿"而线上红 / 险些红 |
 | 8 | 交互模式档位 | **三档都做**：`default` / `accept-edits` / `bypass`；`accept-edits` 只放宽写文件，`run_shell` 仍逐次确认 |
@@ -478,7 +482,7 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 
 | 项 | 何时再做 |
 |---|---|
-| 档③ 双向实时（仅飞书） | 档② 的 3~5 秒延迟**实际用起来不够**时再上 |
+| 飞书长连接 | 企微长连接跑稳、且确实需要飞书无公网接入时再做（协议要照 SDK 反向实现） |
 | 微信接入 | 除非出现"必须有微信"的硬需求，否则不做 |
 | Tier A（10.6~10.8） | 等方向一二三落地后再评估，需要交叉编译 toolchain |
 

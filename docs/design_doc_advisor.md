@@ -292,8 +292,7 @@ flush；`read_line_interactive` 会把终端切 raw 模式，因此 `restore_tty
 
 ### 4.5.1 第三种入站形态：企微长连接（`remote/wecom-ws.pl`）
 
-回调模式（`platform.pl --serve`）与中继模式（`relay/`）都在绕同一个前提：**家里的 Mac
-没有公网可达地址**。企微智能机器人的「API 模式 · 使用长连接」把方向反过来——**本机连出去**：
+回调模式（`platform.pl --serve`）在绕一个前提：**家里的 Mac 没有公网可达地址**。企微智能机器人的「API 模式 · 使用长连接」把方向反过来——**本机连出去**：
 
 ```
 手机 ──(企微长连接 wss)──> wecom-ws.pl ──(--stdin)──> gateway.pl ──> agent
@@ -307,6 +306,35 @@ flush；`read_line_interactive` 会把终端切 raw 模式，因此 `restore_tty
 代价写在明处：零 CPAN 约束下 perl 核心没有 TLS，wss 借用 `openssl s_client` 子进程当管道，
 WebSocket 帧（mask / 分片 / ping-pong / close）手写实现。这一段无法在 CI 里连真平台，
 所以自动化只覆盖协议与业务（本机假服务端 35 项），真连验收放到 `manual_test_mac.md` §9.8。
+
+### 4.5.2 飞书长连接：方案已记录，**暂不实现**
+
+飞书开放平台同样提供「使用长连接接收事件」：与开放平台建一条 WebSocket 全双工通道，
+**建连时鉴权一次，之后的事件是明文**，不需要公网 IP、不需要 EncryptKey 解密、不需要验签。
+方向与企微长连接完全一致。
+
+**为什么先不做**：
+
+1. 飞书把它定义为「**SDK 内提供的能力**」，没有发布独立的协议规范（企微相反：文档 101463
+   直接把 `cmd` / `headers` / `body` 逐字段写死，照文档就能实现）。
+2. 零 CPAN 意味着不能用官方 SDK，只能照着某个 SDK 的源码反向实现握手、鉴权与帧格式。
+   一旦哪天飞书改了内部细节，我们没有文档可依，只能靠读新版 SDK 猜。
+3. 企微这一条已经覆盖了「手机 → 家里 Mac」的主场景；飞书目前仍可用回调模式（`platform.pl`，
+   需要公网域名）。
+
+**真要做时怎么落**（保持同一套分层）：
+
+```
+飞书长连接 wss ──> remote/feishu-ws.pl ──(--stdin)──> gateway.pl ──> agent
+                        ↑ 只做传输：握手、鉴权、帧、心跳、重连
+```
+
+- 配置独立：`~/.claude-agent/feishu-ws.conf`（0600，App ID + App Secret）
+- 复用现成零件：TLS 管道（`openssl s_client`）、WebSocket 帧编解码、心跳与重连退避、
+  pending 回执表 —— 这些在 `wecom-ws.pl` 里已经验证过，可以抽成 `remote/lib/` 共享，
+  **但抽之前要先确认企微那条仍然全绿**（先抽再改是最容易把两条都弄坏的顺序）
+- 判定一律仍然只在 `gateway.pl`；`check-decoupling.py` 里那条断言同样适用于新文件
+- 验收步骤照 §9.8 的形状写一份，第一条仍然是「只验凭据、不启动 agent」
 
 **为什么只读是硬编码而不是开关**：远程没有人在旁边按 y/n。一个"临时打开"
 的开关，迟早会被常开。所以 `check-decoupling.py` 把"远程工具只能是

@@ -22,9 +22,6 @@
 #   HIST_RECOVERY = 问题|答案        远程历史的密保问题（两者都配才会真的写历史）
 #   AGENT_ENV_FILE = /path         agent 的模型/密钥来源，默认 ~/.claude-agent-env
 #   LANG = zh                      agent 的回复语言（zh/en/ja，默认 zh）
-#   RELAY_URL = https://...        档② 中继地址（Worker）
-#   RELAY_TOKEN = ...              中继令牌（Worker 那边用 secret put 配的同一个）
-#   POLL_INTERVAL = 4              轮询间隔秒数（默认 4）
 #
 # ★ 安全上「写死、不可配置」的部分（这是刻意的，不做成开关）：
 #     · 工具集固定为 read_file, list_dir —— 远程没有本地那个人按 y/n
@@ -321,80 +318,6 @@ sub handle_message {
     return $reply;
 }
 
-# ---------------------------------------------------------------- 中继（档②）
-# token 同样是凭据：走 curl -K - 的 stdin，不进 argv、不进 ps、不进日志。
-sub _relay_curl {
-    my ($conf, $method, $path, $body) = @_;
-    my $base = $conf->{RELAY_URL} || '';
-    return (undef, 'RELAY_URL 未配置') unless $base =~ m{^https?://};
-    my $token = $conf->{RELAY_TOKEN} || $ENV{CLAUDE_RELAY_TOKEN} || '';
-    return (undef, 'RELAY_TOKEN 未配置') unless $token =~ /\S/;
-
-    my $url = $base;
-    $url =~ s{/+$}{};
-    $url .= $path;
-
-    my $cfg = qq{url = "$url"\n};
-    $cfg .= qq{header = "authorization: Bearer $token"\n};
-    $cfg .= qq{silent\nmax-time = "20"\nshow-error\n};
-
-    my @extra;
-    my $tmp;
-    if (defined $body) {
-        $tmp = sprintf('%s/.relay-body.%d.%d', dirname($CONF_PATH), $$, int(rand(100000)));
-        open(my $bf, '>:encoding(UTF-8)', $tmp) or return (undef, "临时文件写入失败: $!");
-        print $bf $body;
-        close $bf;
-        chmod 0600, $tmp;
-        push @extra, '--data-binary', '@' . $tmp;
-        push @extra, '-H', 'content-type: application/json';
-    }
-    push @extra, '-X', $method unless $method eq 'GET';
-
-    my $errh = gensym;
-    my ($in, $out);
-    my $pid = eval {
-        open3($in, $out, $errh, ($ENV{CLAUDE_CURL} || 'curl'),
-              '-K', '-', @extra, '-w', "\n%{http_code}");
-    };
-    unless ($pid) {
-        unlink $tmp if defined $tmp;
-        return (undef, "无法执行 curl: $@");
-    }
-    print $in $cfg;
-    close $in;
-    my $resp = do { local $/; <$out> };
-    close $out;
-    my $errs = do { local $/; <$errh> };
-    close $errh;
-    waitpid($pid, 0);
-    unlink $tmp if defined $tmp;
-    $resp = '' unless defined $resp;
-    $errs = '' unless defined $errs;
-    $resp =~ s/\n([0-9]{3})\s*$//;
-    my $code = defined $1 ? $1 : '';
-    $code = '' unless defined $code;
-    return (undef, 'curl: ' . substr($errs, 0, 160)) if $code eq '' && $errs =~ /\S/;
-    return ($resp, "HTTP $code") unless $code eq '200';
-    return ($resp, undef);
-}
-
-# 配列の中の平坦なオブジェクトを取り出す（この用途では入れ子が無い）
-sub json_objects {
-    my ($resp) = @_;
-    my @objs;
-    return \@objs unless defined $resp;
-    while ($resp =~ /(\{[^{}]*\})/g) {
-        my $o = $1;
-        my %h;
-        while ($o =~ /"([a-z_]+)"\s*:\s*"((?:[^"\\]|\\.)*)"/g) {
-            $h{$1} = json_unescape($2);
-        }
-        push @objs, \%h if exists $h{id} || exists $h{text} || exists $h{reply};
-    }
-    return \@objs;
-}
-
 # ---------------------------------------------------------------- 通知
 sub push_notify {
     my ($text) = @_;
@@ -409,16 +332,14 @@ sub push_notify {
 }
 
 # ---------------------------------------------------------------- 入口
-my ($MODE, $ONCE_FROM, $ONCE_TEXT, $MAX_MSGS) = ('', '', '', 0);
+my ($MODE, $ONCE_FROM, $ONCE_TEXT) = ('', '', '');
 while (my $a = shift @ARGV) {
     if    ($a eq '--stdin')        { $MODE = 'stdin'; }
     elsif ($a eq '--once')         { $MODE = 'once'; }
-    elsif ($a eq '--poll')         { $MODE = 'poll'; }
-    elsif ($a eq '--max-msgs')     { $MAX_MSGS = shift @ARGV; }
     elsif ($a eq '--from')         { $ONCE_FROM = shift @ARGV; }
     elsif ($a eq '--text')         { $ONCE_TEXT = shift @ARGV; }
     elsif ($a eq '--help' || $a eq '-h') {
-        print "用法: gateway.pl --stdin | --once --from ID --text \"...\" | --poll [--max-msgs N]\n";
+        print "用法: gateway.pl --stdin | --once --from ID --text \"...\"\n";
         exit 0;
     }
     else {
@@ -479,55 +400,5 @@ if ($MODE eq 'stdin') {
     exit 0;
 }
 
-if ($MODE eq 'poll') {
-    unless (($conf->{RELAY_URL} || '') =~ m{^https?://}) {
-        print STDERR "RELAY_URL 未配置：$CONF_PATH 里需要 RELAY_URL = https://...\n";
-        exit 2;
-    }
-    my $interval = ($conf->{POLL_INTERVAL} && $conf->{POLL_INTERVAL} =~ /^\d+$/)
-        ? $conf->{POLL_INTERVAL} : 4;
-    $interval = 1 if $interval < 1;
-    # 中継は「宛先」で引く。誰の分を取りに行くかは ALLOW の並びを使う
-    # （一人用なら ALLOW に自分の ID を一つ書けばよい）。
-    my @boxes = sort keys %$allow;
-    unless (@boxes) {
-        print STDERR "白名单为空：没有可取的对象。\n";
-        exit 2;
-    }
-    audit('poll_start', 'boxes=' . join(',', @boxes), "interval=$interval");
-    my $processed = 0;
-    while (1) {
-        for my $box (@boxes) {
-            my ($resp, $err) = _relay_curl($conf, 'GET', "/pull?to=$box&limit=10", undef);
-            if (defined $err) {
-                audit('poll_error', "box=$box", "err=$err");
-                next;
-            }
-            my $objs = json_objects($resp);
-            for my $o (@$objs) {
-                my $from = $o->{from} // '';
-                my $text = $o->{text} // '';
-                next unless $text =~ /\S/;
-                unless (gate($from, $text)) {
-                    # 中継経由で来た場合も同じ規則：返さず捨てる
-                    next;
-                }
-                my $reply = handle_message($from, $text, $conf);
-                $reply = '(no reply)' unless defined $reply;
-                my ($r, $perr) = _relay_curl($conf, 'POST', '/result',
-                    sprintf('{"from":"%s","reply":"%s"}', json_escape($from), json_escape($reply)));
-                audit('relay_result', "from=$from", (defined $perr ? "err=$perr" : 'ok'));
-                push_notify($reply) if $notify_on;
-                $processed++;
-                if ($MAX_MSGS && $processed >= $MAX_MSGS) {
-                    audit('poll_end', "processed=$processed");
-                    exit 0;
-                }
-            }
-        }
-        sleep $interval;
-    }
-}
-
-print STDERR "模式未指定。用 --stdin / --once / --poll。\n";
+print STDERR "模式未指定。用 --stdin / --once。\n";
 exit 2;

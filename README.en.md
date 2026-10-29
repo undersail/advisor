@@ -1,10 +1,10 @@
 # Advisor
 
 > **About cloud services**: this is a purely local desktop tool. No hosted service is
-> provided. The optional remote relay (`remote/relay/`) must be deployed with **your own**
-> Cloudflare account; the repository contains no account IDs, tokens, cloud resource IDs
-> or workers.dev subdomains belonging to anyone. The queue is a Durable Object, so there is
-> **no ID to create and none to fill in**.
+> provided, and **you do not need to provision any cloud resources**. Remote access only
+> uses WeCom/Lark open-platform credentials: WeCom runs in "smart bot · long connection"
+> mode (just a BotID + Secret, no public URL), Lark uses a callback (you supply a public
+> address). The repository contains no account IDs, tokens or cloud resource IDs.
 
 ## 🇯🇵 [日本語版はこちらから読めます →](README.md) · 🇨🇳 [中文版请读这里 →](README.zh.md)
 

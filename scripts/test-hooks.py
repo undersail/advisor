@@ -42,8 +42,7 @@ def make_repo(tmp):
     git(tmp, 'config', 'core.hooksPath', HOOKS)      # 直接用仓库里那份 hook
     os.makedirs(os.path.join(tmp, 'scripts'), exist_ok=True)
     shutil.copy(os.path.join(HERE, 'check-secrets.py'), os.path.join(tmp, 'scripts'))
-    # check-secrets.py 还会核对 .gitignore 是否覆盖了敏感路径（wrangler.local.toml 等），
-    # 所以临时仓库也要带上仓库自己的 .gitignore，否则「干净内容」也会因为缺 .gitignore 被拦。
+    # 临时仓库也带上仓库自己的 .gitignore：hook 里跑的是同一份检查，配置要一致。
     gi = os.path.join(REPO, '.gitignore')
     if os.path.exists(gi):
         shutil.copy(gi, os.path.join(tmp, '.gitignore'))

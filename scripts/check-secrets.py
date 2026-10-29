@@ -7,7 +7,7 @@
     · 带真实 token 的 webhook 地址
     · 本机绝对路径（/home/<name>/、/Users/<name>/、C:\\Users\\…）
     · 个人标识（邮箱、微信 ID、chat id）
-    · 本机生成的工具状态目录（.wrangler/、node_modules 之类）
+    · 本机生成的工具状态目录（node_modules 之类）
 
     python3 scripts/check-secrets.py            # 扫已跟踪文件
     python3 scripts/check-secrets.py --history  # 连带扫提交历史（慢）
@@ -142,16 +142,6 @@ def main():
             if buf and cur not in SKIP_FILES and not cur.endswith(SKIP_EXT):
                 scan_text('commit %s:%s' % (sha[:8], cur), '\n'.join(buf), hits)
 
-    # 使用者的本地配置与 wrangler 状态：必须被忽略，不能入库
-    unignored = must_be_ignored(['remote/relay/wrangler.local.toml',
-                                 'remote/relay/.wrangler/',
-                                 'remote/relay/.dev.vars'])
-    if unignored:
-        print('这些路径没有被 .gitignore 覆盖，使用者填了自己的账号信息就会被提交：')
-        for p in unignored:
-            print('  · ' + p)
-        return 1
-
     if hits:
         print('发现可能泄漏的内容（%d 处）：' % len(hits))
         for where, line_no, name, text in hits[:40]:
@@ -164,16 +154,6 @@ def main():
 
     print('泄漏检查通过：%d 个已跟踪文件%s' % (len(files), '，含提交历史' if '--history' in sys.argv else ''))
     return 0
-
-
-def must_be_ignored(paths):
-    """这些路径必须在 .gitignore 里：一旦被跟踪，使用者的账号信息就会跟着提交。"""
-    bad = []
-    for p in paths:
-        r = subprocess.run(['git', 'check-ignore', '-q', p], cwd=ROOT)
-        if r.returncode != 0:
-            bad.append(p)
-    return bad
 
 
 if __name__ == '__main__':

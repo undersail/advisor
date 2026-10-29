@@ -2,11 +2,10 @@
 
 本地功能不依赖这个目录。**删掉 `remote/`，本地行为一字不变**（`scripts/check-decoupling.py` 守着这条界）。
 
-> **这台软件是纯本地的**：不提供任何后端或托管服务。`relay/` 里的 Cloudflare
-> Worker 只是一个**可选**的中继，**必须用你自己的 Cloudflare 账号部署**。
-> 仓库里不含任何人的账号、令牌、存储 id 或 workers.dev 子域。
+> **这台软件是纯本地的**：不提供任何后端或托管服务，也**不需要**你申请任何云资源。
+> 远程接入只依赖企业微信/飞书自己的开放平台凭据，仓库里不含任何人的账号或令牌。
 
-## 五个文件
+## 四个文件
 
 | 文件 | 作用 | 什么时候用 |
 |---|---|---|
@@ -14,7 +13,6 @@
 | `gateway.pl` | 远程入口：白名单 / 审计 / 驱动 agent | 要远程派活时 |
 | `notify.pl` | 档① 出站通知（企微群机器人 / 飞书自定义机器人） | 只想"跑完了喊我一声" |
 | `wecom-ws.pl` | 企微智能机器人 **长连接**（API 模式）：本机连出去，不收回调 | **没有公网域名**、又不想开 Cloudflare 时，首选这个 |
-| `relay/` | 档② 轮询中继（Cloudflare Worker + Durable Object 队列） | 老 Mac 在 NAT 后、手机要在外面派活 |
 
 ## 配置 `~/.claude-agent/remote.conf`
 
@@ -31,11 +29,6 @@ HIST_RECOVERY = 你养的第一只宠物叫什么|旺财
 # 档① 通知（企微群 → 群机器人；飞书群 → 自定义机器人）
 WECOM_WEBHOOK = https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...
 FEISHU_WEBHOOK = https://open.feishu.cn/open-apis/bot/v2/hook/...
-
-# 档② 中继
-RELAY_URL = https://advisor-relay.<子域>.workers.dev
-RELAY_TOKEN = 与 Worker 的 secret 同一个值
-POLL_INTERVAL = 4
 ```
 
 这个文件建议 `chmod 600` —— 里面有 webhook 和令牌。
@@ -51,10 +44,6 @@ perl remote/gateway.pl --once --from alice --text "列一下当前目录"
 
 # 从标准输入读 JSON 行（脚本化/调试）
 echo '{"from":"alice","text":"你好"}' | perl remote/gateway.pl --stdin
-
-# 档②：一直轮询中继
-perl remote/gateway.pl --poll
-perl remote/gateway.pl --poll --max-msgs 5     # 处理 5 条就退出（测试用）
 ```
 
 ## 安全边界（写死的，不是开关）
@@ -65,7 +54,7 @@ perl remote/gateway.pl --poll --max-msgs 5     # 处理 5 条就退出（测试�
   机器人存在），只留审计。
 - 审计 `~/.claude-agent/audit.log`：只追加、`0600`。记录入站/丢弃/工具/超时/结果。
 - 远程历史目录固定 `~/.claude-agent/history-remote`，与本地历史分开；口令独立。
-- webhook URL 与 RELAY_TOKEN 都是凭据：一律走 `curl -K -` 的 stdin，不进 argv、
+- webhook URL 是凭据：一律走 `curl -K -` 的 stdin，不进 argv、
   不进 `ps`、不进日志；输出里只打名字（如 `WECOM_WEBHOOK`）。
 - 单轮 180 秒超时：子进程沉默就杀掉重建，不会永久卡住。
 
@@ -77,7 +66,6 @@ perl remote/gateway.pl --poll --max-msgs 5     # 处理 5 条就退出（测试�
 | `platform.pl`（企微 / 飞书回调收 + 发） | `scripts/test-platform.py` **46 项** | **一次都没连过真实平台** |
 | `notify.pl`（档① 出站通知） | `scripts/test-remote-notify.py` **22 项** | 同上：只对假 webhook 发过 |
 | `wecom-ws.pl`（长连接收 + 发） | `scripts/test-wecom-ws.py` **35 项**（本机假服务端，逐个字段对协议） | 除 wss/TLS 那一段外全验；真连需你的 BotID + Secret |
-| `relay/worker.js`（Worker + DO 队列） | `test-relay.py` 7 项 + `test-relay-do.mjs` 21 项 | 只跑过 `wrangler dev --local`，**没在你的 CF 账号上部署过** |
 
 自动化覆盖到的是**确定性部分**：验签（企微 `sha1(sort(token,ts,nonce,encrypt))`、飞书
 `sha256(ts+nonce+key+body)`）、AES-256-CBC 解密、PKCS#7 去填充、企微 ReceiveId 完整性、
@@ -108,8 +96,8 @@ perl remote/platform.pl --test-push "测试" --to <你的ID>   # 验凭据与网
 
 ## 企微智能机器人长连接（API 模式 · 使用长连接）
 
-前两种入站方式（HTTP 回调 / CF 中继）都在解决同一个难题：**家里的 Mac 没有公网 IP**。
-长连接把方向反过来——**本机主动连出去**，所以：不用域名、不用内网穿透、不用 Cloudflare，
+HTTP 回调模式在解决一个难题：**平台要主动 POST 到你机器上，而家里的 Mac 没有公网 IP**。
+长连接把方向反过来——**本机主动连出去**，所以：不用域名、不用内网穿透、不用云服务，
 凭据只有 **BotID + Secret**，也没有 AES / 验签那些活。
 
 ```

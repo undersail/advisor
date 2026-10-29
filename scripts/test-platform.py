@@ -164,47 +164,6 @@ def write_conf(home, conf, name='platform.conf'):
     return p
 
 
-class FakeRelay:
-    """最小中继：POST /push 收消息，GET /outbox?to= 吐结果。"""
-    def __init__(self):
-        self.pushed = []
-        self.auth_headers = []
-        self.replies_for = {}
-        outer = self
-        class H(BaseHTTPRequestHandler):
-            def do_POST(self):
-                n = int(self.headers.get('content-length') or 0)
-                body = json.loads(self.rfile.read(n) or b'{}')
-                outer.auth_headers.append(self.headers.get('authorization') or '')
-                if not (self.headers.get('authorization') or '').startswith('Bearer '):
-                    self.send_response(401); self.end_headers(); return
-                outer.pushed.append(body)
-                self._json({'ok': True, 'id': '%08d' % len(outer.pushed)})
-            def do_GET(self):
-                if not (self.headers.get('authorization') or '').startswith('Bearer '):
-                    self.send_response(401); self.end_headers(); return
-                to = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get('to', [''])[0]
-                items = outer.replies_for.pop(to, [])
-                self._json({'ok': True, 'replies': [{'id': '%08d' % (i + 1), 'from': to, 'reply': r}
-                                                    for i, r in enumerate(items)]})
-            def _json(self, obj):
-                b = json.dumps(obj, ensure_ascii=False).encode()
-                self.send_response(200)
-                self.send_header('content-type', 'application/json')
-                self.send_header('content-length', str(len(b)))
-                self.end_headers()
-                self.wfile.write(b)
-            def log_message(self, *a):
-                pass
-        self.srv = ThreadingHTTPServer(('127.0.0.1', 0), H)
-        self.port = self.srv.server_address[1]
-        self.url = 'http://127.0.0.1:%d' % self.port
-        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
-
-    def close(self):
-        self.srv.shutdown()
-
-
 def fake_gateway(home):
     """模拟真网关 --stdin 的行为：一行请求进，一行 JSON（含 reply）出，
     进程常驻（同一个发送者应当复用同一个进程）。"""
@@ -548,49 +507,6 @@ def main():
     check('白名单外的人：网关审计里留下 drop_sender', 'drop_sender' in audit_txt,
           audit_txt[-300:])
     stop(proc2)
-
-    # =============================== 中继模式（Mac 在 NAT 后面） ===============================
-    # 拓扑：手机 → 平台 → platform.pl（公网）→ 中继队列 → Mac 上的 gateway --poll
-    #       → /result → platform.pl 取回结果 → 推给手机
-    # 这里把「中继」和「Mac」都用假的顶替，验的是 platform.pl 这一段接得对不对。
-    relay = FakeRelay()
-    home_rl = tempfile.mkdtemp(prefix='plat-relay-')
-    port_rl = free_port()
-    conf_rl, aes_rl, token_rl = make_wecom_conf(home_rl, port_rl, api_base)
-    write_conf(home_rl, conf_rl + 'RELAY_URL = %s\nRELAY_TOKEN = tk\nRELAY_POLL = 1\n' % relay.url)
-    proc_rl = start_platform(home_rl, api_base, fake_gateway(home_rl))
-    base_rl = 'http://127.0.0.1:%d/wecom' % port_rl
-    wait_for(lambda: http_get(base_rl + '?msg_signature=x&timestamp=1&nonce=2&echostr=y')[0] == 403)
-
-    wait_quiet()
-    PUSHES.clear()
-    xml_rl = ('<xml><FromUserName><![CDATA[zhangsan]]></FromUserName>'
-              '<MsgType><![CDATA[text]]></MsgType>'
-              '<Content><![CDATA[帮我看看这个报错]]></Content><MsgId>555001</MsgId></xml>')
-    enc_rl = wecom_encrypt(aes_rl, xml_rl)
-    ts_rl = str(int(time.time()))
-    sig_rl = wecom_sig(token_rl, ts_rl, 'nr', enc_rl)
-    http_post('%s?msg_signature=%s&timestamp=%s&nonce=%s' % (base_rl, sig_rl, ts_rl, 'nr'),
-              '<xml><Encrypt><![CDATA[%s]]></Encrypt></xml>' % enc_rl)
-    queued = wait_for(lambda: relay.pushed or None, seconds=12)
-    check('中继模式：消息被投进了队列（不是本地起网关）',
-          bool(queued) and '帮我看看这个报错' in queued[0]['text'],
-          'pushed=%s' % (relay.pushed[:1],))
-    check('中继模式：投递时没在本地起网关', not os.path.exists(os.path.join(home_rl, 'gw_in.txt')))
-    # 中继端只认 Bearer <token>；头里没有 token（或写错）时 /push 会 401，
-    # 消息就沉在平台侧 —— 这类错在真机上表现为「手机上永远没反应」，很难查。
-    bad_auth = [h for h in getattr(relay, 'auth_headers', []) if h != 'Bearer tk']
-    check('中继：投递带的是 Bearer <token>（不是占位）',
-          bool(getattr(relay, 'auth_headers', [])) and not bad_auth,
-          'auth=%s' % (getattr(relay, 'auth_headers', [])[:3],))
-
-    # 模拟 NAT 后面的 Mac：从队列取走，处理，把结果写回
-    relay.replies_for['zhangsan'] = ['这是 agent 处理后的结果']
-    got = wait_for(lambda: [x for x in PUSHES if 'agent 处理后的结果' in x[2]], seconds=15)
-    check('中继模式：从队列取回结果并推给手机', bool(got), 'pushes=%d' % len(PUSHES))
-    stop(proc_rl)
-    relay.close()
-    shutil.rmtree(home_rl, ignore_errors=True)
 
     # =============================== 处理中提示 ===============================
     home_ack = tempfile.mkdtemp(prefix='plat-ack-')

@@ -60,11 +60,6 @@ my $GW_IDLE     = 1800;           # 秒：常驻网关空闲这么久就回收
 my %TEXT_LIMIT  = (wecom => 1900, feishu => 3800);
 my $ACK_AFTER   = 3;              # 秒：超过这么久还没结果就先回一句"处理中"
 my $ACK_TEXT    = '收到，正在处理…（完成后把结果发给你）';
-# 中继模式：platform.pl 跑在公网服务器上、真正干活的 Mac 在 NAT 后面时用。
-# 配了 RELAY_URL + RELAY_TOKEN 就不再本地起网关，改走中继队列。
-my ($RELAY_URL, $RELAY_TOKEN) = ('', '');
-my $RELAY_POLL  = 3;              # 秒：多久问一次中继有没有结果
-my %RL_PENDING;                   # sender => 已投进中继但还没拿到结果的消息数
 my $DEFAULT_BIND = '127.0.0.1';   # 默认只听本机：对外要靠穿透/反代，别把明文撒到局域网
 my %GW;            # sender => { in, out, errh, pid, last }
 our ($JOB_R, $JOB_W);   # 主进程 → 工作进程 的任务管道
@@ -469,40 +464,6 @@ sub json_list_items {
     return @items;
 }
 
-sub relay_on { return ($RELAY_URL ne '' && $RELAY_TOKEN ne '') ? 1 : 0 }
-
-sub relay_push {
-    my ($sender, $text) = @_;
-    my ($ok, $payload, $err) = http_post($RELAY_URL . '/push',
-        '{"from":' . json_esc($sender) . ',"text":' . json_esc($text) . '}',
-        'authorization: Bearer ' . $RELAY_TOKEN);
-    if (!$ok) { audit('relay_push_fail', 'err=' . $err); return 0 }
-    audit('relay_push', "from=$sender");
-    return 1;
-}
-
-# 取回结果并推给手机。返回取到的条数。
-sub relay_drain {
-    my ($c) = @_;
-    my $n = 0;
-    for my $sender (keys %RL_PENDING) {
-        my ($ok, $payload, $err) = http_get(
-            $RELAY_URL . '/outbox?to=' . urlenc($sender),
-            'authorization: Bearer ' . $RELAY_TOKEN);
-        next unless $ok;
-        for my $r (json_list_items($payload, 'replies')) {
-            my $reply = json_get($r, 'reply');
-            next unless defined $reply && $reply =~ /\S/;
-            send_text($c, $sender, $reply);
-            $n++;
-            $RL_PENDING{$sender}--;
-            delete $RL_PENDING{$sender} if ($RL_PENDING{$sender} // 0) <= 0;
-        }
-        audit('relay_drain_fail', 'err=' . $err) unless $ok;
-    }
-    return $n;
-}
-
 sub wecom_send {
     my ($c, $to, $text) = @_;
     my $tok = wecom_token($c) or return 0;
@@ -702,30 +663,6 @@ sub worker_loop {
     my ($c) = @_;
     binmode($JOB_R, ':encoding(UTF-8)');
     $SIG{CHLD} = 'DEFAULT';
-    if (relay_on()) {
-        # 中继模式：平台的回调打到这台机器，真正干活的 Mac 在 NAT 后面。
-        # 这里只做「投递 + 取结果」，不碰网关。
-        audit('relay_mode', 'queue=' . $RELAY_URL);
-        my $sel = IO::Select->new($JOB_R);
-        while (1) {
-            if ($sel->can_read($RELAY_POLL)) {
-                my $line = <$JOB_R>;
-                last unless defined $line;
-                chomp $line;
-                my ($fs, $ts) = split(/\t/, $line, 2);
-                my $sender = json_unescape_str($fs // '');
-                my $text   = json_unescape_str($ts // '');
-                next unless $sender =~ /\S/ && $text =~ /\S/;
-                if (relay_push($sender, $text)) {
-                    $RL_PENDING{$sender} = ($RL_PENDING{$sender} // 0) + 1;
-                    $QUEUE_N--;
-                }
-                next;
-            }
-            relay_drain($c);                      # 没新任务就问问结果
-        }
-        return;
-    }
     while (my $line = <$JOB_R>) {
         chomp $line;
         my ($fs, $ts) = split(/\t/, $line, 2);
@@ -979,12 +916,7 @@ sub serve {
     print "监听 $bind:$port（platform=" . ($c->{PLATFORM} // '?') . "）\n";
     print "注意：默认只监听本机。要让平台回调进来，请用穿透/反向代理转发到 $bind:$port。\n"
         if $bind eq '127.0.0.1';
-    if (relay_on()) {
-        print "中继模式：消息投到 $RELAY_URL，每 $RELAY_POLL 秒取一次结果。\n";
-        print "（本地网关不启动；真正处理消息的机器跑 gateway.pl --poll）\n";
-    } else {
-        print "每个发送者一个常驻网关进程：多轮对话连续。\n";
-    }
+    print "每个发送者一个常驻网关进程：多轮对话连续。\n";
     # 子进程退出会送 SIGCHLD，它会打断阻塞中的 accept()，让 accept 返回 undef —
     # 直接把服务退出掉（实测：第二条消息一到，服务就干净地 exit 0 了）。
     # 所以 accept 失败时先看是不是 EINTR，是就重试。
@@ -1113,9 +1045,6 @@ if ($MODE eq 'serve') {
     # 允许在配置里调整（0 = 关掉"处理中"提示）
     $ACK_AFTER = $c->{ACK_AFTER} if ($c->{ACK_AFTER} // '') =~ /^\d+$/;
     $ACK_TEXT  = $c->{ACK_TEXT}  if defined $c->{ACK_TEXT} && $c->{ACK_TEXT} =~ /\S/;
-    $RELAY_URL   = $c->{RELAY_URL}   if ($c->{RELAY_URL} // '')   =~ m{^https?://};
-    $RELAY_TOKEN = $c->{RELAY_TOKEN} if defined $c->{RELAY_TOKEN};
-    $RELAY_POLL  = $c->{RELAY_POLL}  if ($c->{RELAY_POLL} // '') =~ /^\d+$/ && $c->{RELAY_POLL} > 0;
     my @miss = missing_keys($c);
     if (@miss) { print STDERR "配置不完整，缺少：@miss（先 --init）\n"; exit 1 }
     serve($c);

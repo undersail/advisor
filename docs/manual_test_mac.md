@@ -227,12 +227,13 @@ python3 scripts/live-check.py deepseek
 
 | 脚本 | 项数 | 覆盖 |
 |---|---|---|
-| `scripts/test-platform.py` | 46 | 验签、AES 解密、ReceiveId、防重放、去重、超长切分、报文形态、0600、只听 127.0.0.1、中继投递 |
+| `scripts/test-platform.py` | 42 | 验签、AES 解密、ReceiveId、防重放、去重、超长切分、报文形态、0600、只听 127.0.0.1 |
 | `scripts/test-remote-notify.py` | 22 | 企微 markdown / 飞书 text 报文、转义、平台报错退出码、`http://` 明文被拒 |
-| `scripts/test-remote.py` / `test-relay.py` / `test-relay-do.mjs` | 20 / 7 / 21 | 网关白名单与只读、中继契约、DO 队列语义 |
+| `scripts/test-remote.py` | 24 | 网关白名单与只读、审计、超时 |
+| `scripts/test-wecom-ws.py` | 35 | 企微长连接：订阅帧、白名单外零回复、分片、心跳、重连 |
 
 所以要你验的是**自动化覆盖不到的那一层**：凭据真不真、回调地址通不通、白名单里的
-ID 对不对、你 CF 账号上的真实部署、以及手机上真实的观感。按下面顺序做，每步都有
+ID 对不对、以及手机上真实的观感。按下面顺序做，每步都有
 「期望」和「不对时先看哪里」。
 
 ### 9.0 先备齐三样（缺一样后面都走不通）
@@ -285,30 +286,17 @@ ID 对不对、你 CF 账号上的真实部署、以及手机上真实的观感�
 - [ ] **凭据文件权限**：`ls -l ~/.claude-agent/platform.conf`
       期望：`-rw-------`（0600）
 
-### 9.4 中继模式（家里 Mac 在 NAT 后面，不在本机验）
+### 9.4 ~~中继模式（Cloudflare Worker）~~ 已删除
 
-先把**真的 CF Worker 部署一次**（这是自动化完全没碰过的一段）：
+这一节原本要求你开自己的 Cloudflare 账号、`wrangler deploy` 一个 Worker + Durable Object 队列、
+再 `wrangler secret put` 配令牌 —— 用来让 NAT 后面的 Mac 也能收到消息。
 
-- [ ] `cd remote/relay && npx wrangler login`（用你自己的 Cloudflare 账号）
-- [ ] `npx wrangler deploy`
-      期望：输出里有 `https://advisor-relay.<你的子域>.workers.dev`
-      （Durable Object 不用手建、不用填 id：`wrangler.toml` 里只有绑定名）
-- [ ] `npx wrangler secret put RELAY_TOKEN`（随便一串长随机）
-- [ ] `curl https://<你的 workers.dev>/health`
-      期望：`{"ok":true,...,"backend":"durable-object"}`
-- [ ] `curl -X POST https://<你的>/push -H "authorization: Bearer <刚才的 RELAY_TOKEN>" ...`
-      不带这个头时**必须是 401**（说明鉴权没被绕过）
+**已整段移除**：企微长连接（§9.8）用更轻的方式解决了同一件事——本机连出去，凭据只有
+BotID + Secret，不需要任何云资源，也不需要维护第二个服务。
 
-再接起来（平台端在公网机器 / Mac 端在家里）：
-
-- [ ] 平台端 `platform.conf` 加 `RELAY_URL = https://<你的>/ push 前缀` + `RELAY_TOKEN = <同一串>` + `RELAY_POLL = 3`
-- [ ] `platform.pl --check` 提示「中继模式」，`--serve` 后**不再本地起网关**
-- [ ] 家里 Mac：`perl remote/gateway.pl --poll`（白名单、审计、只读仍在这一侧）
-- [ ] 手机发一条
-      期望：平台端不出现 `gateway.pl --stdin`；Mac 侧 `--poll` 取到并处理后，手机收到结果
-
-本机可以先不花钱预演一遍（`npx wrangler dev --local` + `node scripts/test-relay-do.mjs`），
-但那**证明不了**你账号上的部署与 secret 配置对不对。
+代码已删（`remote/relay/`、`gateway.pl --poll`、`RELAY_*` 配置、两条 relay 测试）。
+**不需要你做任何迁移**：如果你之前配过 `RELAY_URL` / `RELAY_TOKEN`，它们在配置里只是被忽略，
+可以顺手删掉这两行。
 
 ### 9.5 出站通知（档①，1 分钟，随时可验）
 
@@ -327,8 +315,6 @@ ID 对不对、你 CF 账号上的真实部署、以及手机上真实的观感�
 | 手机发了没反应、日志里没有 `inbound` | 穿透/反代 | 回调没真正打到本机 8099 |
 | 日志有 `inbound` 但没有 `gateway_done` | 本机 agent | 本机 key 失效或模型不通（先本地跑一次 `advisor`） |
 | 有 `gateway_done` 但手机没收到 | `audit.log` 的 `wecom_send_fail` / `feishu_send_fail` | 发送权限没开（飞书要「以应用身份发消息」）、`--to` 的 ID 不是 UserID/open_id |
-| 中继 `/push` 一直 401 | Worker 的 `RELAY_TOKEN` | 两端的 token 不一致 |
-| 手机收到的字是 `\u4f60\u597d` 这样的转义 | 中继侧 | 中继返回的 JSON 必须是 UTF-8 原文，不能 `\u` 转义 |
 
 ### 9.7 这一轮新增的两处加固（顺手记一下，不必单独验）
 

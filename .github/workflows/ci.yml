@@ -287,14 +287,6 @@ jobs:
           # 不需要任何真实 token：EncodingAESKey、回调 Token、Encrypt Key 全是现场生成的。
           python3 scripts/test-platform.py
 
-      - name: 中继队列（Durable Object）逻辑测试
-        run: |
-          set -o pipefail
-          # 直接 import 真实的 remote/relay/worker.js，用假 storage 验队列语义：
-          # 取走即删、先进先出、序号只增、鉴权 fail-closed。
-          # 需要 Cloudflare 账号的那一步（wrangler dev --local / deploy）CI 里跑不了。
-          node scripts/test-relay-do.mjs
-
       - name: git hook 测试（真的 commit 一次，验证拦截有效）
         run: |
           set -o pipefail
@@ -352,12 +344,6 @@ jobs:
           # 断言的是"发出去的报文对不对"：企微 markdown / 飞书 text 的字段形态、
           # 中文与转义、平台报错时的退出码、以及 http:// 明文地址必须被拒。
           python3 scripts/test-remote-notify.py
-
-      - name: 中继端到端测试（假中继，同契约）
-        run: |
-          set -o pipefail
-          # 真 Worker 要 wrangler 与账号，CI 里只跑同契约的本地假中继。
-          python3 scripts/test-relay.py
 
       - name: 远程端到端测试（假模型 + 假 webhook）
         run: |
