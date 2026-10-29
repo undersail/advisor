@@ -385,6 +385,16 @@ Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj
 `errcode≠0` 时**不清零** missed 计数 —— 这三条原本就与官方一致，复核后保留。
 退避基数/上限可用 `WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` 覆盖（仅供测试压到毫秒级）。
 
+**回复消息必须是 stream（真机 40008）**：`aibot_respond_msg` 的 `body.msgtype` 只认
+`stream`（`{stream:{id,finish,content}}`），`msgtype:text` 只对**欢迎语**
+（`aibot_respond_welcome_msg`）合法。原来回复用 text，真机直接被服务端拒：
+`errcode=40008 invalid message type` —— 本地假服务端不校验，所以一直没暴露。
+现在：回复走 `msgtype:stream`，`id` 取回调的 `msgid`（同一 id 刷新同一条气泡），
+单条 `finish:true`；「正在处理，请稍等…」用 `finish:false`，最终结果用同一 id
+`finish:true` 顶掉它；长回复分片时第 1 片沿用该 id、后续各用 `${id}_n`。
+`test-wecom-ws` 的假服务端现在**照真服务端校验** `msgtype`，非 stream 就回 40008 ——
+这类「本地全绿、真机全废」的问题从此会红在 CI 上。
+
 **wss 的证书校验（真机暴露的两个 bug）**：macOS 上跑出
 `握手被拒：verify error:num=20 … HTTP/1.1 101 Switching Protocols` —— 连接其实通了。两处都修了：
 

@@ -718,10 +718,17 @@ sub ping_frame {
     return sprintf('{"cmd":"ping","headers":{"req_id":%s}}', json_esc(gen_req_id('ping')));
 }
 
+# ★ 官方规定：aibot_respond_msg 的 msgtype 只能是 stream（流式），msgtype=text 只对
+#   「欢迎语」(aibot_respond_welcome_msg) 合法。用 text 回复真机直接被拒：
+#   errcode=40008 invalid message type（2026-10 真机踩到，本地假服务端不校验所以没暴露）。
+#   stream 的 id 首次回复时给，后续用同一个 id 刷新同一条气泡；finish=1 表示这条结束了。
 sub reply_frame {
-    my ($req_id, $content) = @_;
-    return sprintf('{"cmd":"aibot_respond_msg","headers":{"req_id":%s},"body":{"msgtype":"text","text":{"content":%s}}}',
-        json_esc($req_id), json_esc($content));
+    my ($req_id, $content, $sid, $finish) = @_;
+    $finish = 1 unless defined $finish;
+    $sid = $req_id unless defined $sid && $sid ne '';
+    return sprintf('{"cmd":"aibot_respond_msg","headers":{"req_id":%s},'
+                 . '"body":{"msgtype":"stream","stream":{"id":%s,"finish":%s,"content":%s}}}',
+        json_esc($req_id), json_esc($sid), ($finish ? 'true' : 'false'), json_esc($content));
 }
 
 sub welcome_frame {
@@ -777,21 +784,28 @@ sub handle_msg {
     my $sender  = $body->{from}{userid} // '';
     my $msgtype = $body->{msgtype} // '';
     my $text    = $body->{text}{content} // '';
+    # 流式消息的 id：首次回复带上，之后用同一个 id 刷新同一条气泡
+    my $sid     = $body->{msgid} // '';
+    $sid = $req_id if $sid eq '';
     audit('ws_inbound', "from=$sender type=$msgtype len=" . length($text));
 
     my $limit = $state->{text_limit};
     # ★ 发完就走，不在这里等回执。旧写法「每发一片就 wait_ack 10 秒」有两个后果：
     #   ① 分片之间白等 ② 等回执期间到达的新消息会被丢掉。回执统一交给主循环（pending 表）。
     my $reply_to = sub {
-        my ($content) = @_;
+        my ($content, $final) = @_;
+        $final = 1 unless defined $final;
         my @parts = split_text($content, $limit - 60);
         my $i = 0;
         for my $p (@parts) {
             $i++;
             my $payload = @parts > 1 ? sprintf('（%d/%d）%s', $i, scalar(@parts), $p) : $p;
-            ws_send_text($t, reply_frame($req_id, $payload));
+            # 第 1 片段沿用 $sid（顺便顶掉「正在处理…」那条），后续片段各用新 id
+            my $id = $i == 1 ? $sid : "${sid}_$i";
+            ws_send_text($t, reply_frame($req_id, $payload, $id, $final));
             $state->{pending}{$req_id} = ($state->{pending}{$req_id} || 0) + 1;
-            audit('ws_sent', "to=$sender part=$i/" . scalar(@parts) . ' len=' . length($p));
+            audit('ws_sent', "to=$sender part=$i/" . scalar(@parts) . ' len=' . length($p)
+                           . ($final ? '' : ' progress=1'));
         }
     };
 
@@ -802,7 +816,7 @@ sub handle_msg {
     }
     if (!length $text) { return }
 
-    my $on_slow = sub { $reply_to->('正在处理，请稍等…') };
+    my $on_slow = sub { $reply_to->('正在处理，请稍等…', 0) };
     # 网关把 agent 的 y/n 问题转过来，这里原样交给用户；不回就超时按拒绝
     my $on_ask = sub {
         my ($prompt, $danger) = @_;

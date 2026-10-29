@@ -197,15 +197,35 @@ class WSServer(threading.Thread):
                 except ValueError:
                     continue
                 got['replies'].append(obj)
+                # ★ 真服务端会校验回复体：msgtype 必须是 stream（text 只对欢迎语合法），
+                #   真机踩过 errcode=40008 invalid message type。这里照真服务端回执，
+                #   一旦有人把回复改回 text，客户端会记 ws_send_err，测试立即发现。
+                if obj.get('cmd') == 'aibot_respond_msg':
+                    rid = (obj.get('headers') or {}).get('req_id', '')
+                    bb = obj.get('body') or {}
+                    st = bb.get('stream') or {}
+                    body_ok = (bb.get('msgtype') == 'stream'
+                               and isinstance(st.get('id'), str) and st['id'] != ''
+                               and 'finish' in st
+                               and isinstance(st.get('content'), str))
+                    self.send_json(conn, {'headers': {'req_id': rid},
+                                          'errcode': 0 if body_ok else 40008,
+                                          'errmsg': 'ok' if body_ok else 'invalid message type'})
                 # 长回复是多片的：收到「最后一片」才算收全，别在第一片上就收工
                 if (obj.get('headers') or {}).get('req_id') == 'msg4':
-                    parts = [((r.get('body') or {}).get('text') or {}).get('content', '')
-                             for r in replies_for(got, 'msg4')]
+                    parts = [reply_text(r) for r in replies_for(got, 'msg4')]
                     m = re.match(r'^（(\d+)/(\d+)）', parts[-1] or '')
                     if (m and m.group(1) == m.group(2)) or '收尾' in (parts[-1] or ''):
                         return
         finally:
             conn.settimeout(old_timeout)
+
+
+def reply_text(r):
+    """取回复正文：stream 型读 stream.content，兼容旧 text 型（欢迎语）。"""
+    b = r.get('body') or {}
+    return ((b.get('stream') or {}).get('content')
+            or (b.get('text') or {}).get('content') or '')
 
 
 def replies_for(got, req_id):
@@ -336,8 +356,7 @@ def main():
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                             stdin=subprocess.DEVNULL, env=env)
     # 等到「最后一条」的结果回来再收工：早停会把后面的阶段掐掉，表现成「客户端没回」
-    wait_for(lambda: any('REPLY:answer=' in (((r.get('body') or {}).get('text') or {})
-                                          .get('content', '')) for r in got['replies']), seconds=60)
+    wait_for(lambda: any('REPLY:answer=' in reply_text(r) for r in got['replies']), seconds=60)
     proc.terminate()
     try:
         proc.wait(10)
@@ -365,17 +384,23 @@ def main():
         check('回复沿用回调的 req_id', (r1[0].get('headers') or {}).get('req_id') == 'msg1',
               r1[0].get('headers'))
         check('回复内容来自网关',
-              'REPLY:你好' in ((r1[0].get('body') or {}).get('text') or {}).get('content', ''),
+              'REPLY:你好' in reply_text(r1[0]),
               r1[0].get('body'))
-        check('回复体是 text 类型', (r1[0].get('body') or {}).get('msgtype') == 'text',
-              r1[0].get('body'))
+        _b1 = r1[0].get('body') or {}
+        _st1 = _b1.get('stream') or {}
+        check('回复体是 stream 类型（官方只认这个，text 只有欢迎语能用）',
+              _b1.get('msgtype') == 'stream', _b1.get('msgtype'))
+        check('回复体带非空 stream.id（同一 id 刷新同一条气泡）',
+              isinstance(_st1.get('id'), str) and _st1.get('id') != '', _st1.get('id'))
+        check('单条回复用 finish=true 收尾', _st1.get('finish') is True, _st1.get('finish'))
+        check('回复正文在 stream.content 里', reply_text(r1[0]) == 'REPLY:你好', reply_text(r1[0]))
 
     r3 = replies_for(got, 'msg3')
     check('非文本消息：明确回一句而不是静默吞', bool(r3),
           [x.get('headers') for x in got['replies']])
     if r3:
         check('非文本消息的提示文案正确',
-              '暂只支持文本' in ((r3[0].get('body') or {}).get('text') or {}).get('content', ''),
+              '暂只支持文本' in reply_text(r3[0]),
               r3[0].get('body'))
 
     check('白名单外的人：不发任何回复', not replies_for(got, 'msg2'),
@@ -385,27 +410,27 @@ def main():
     r4 = replies_for(got, 'msg4')
     check('长回复被拆成多条', len(r4) >= 2, len(r4))
     if r4:
-        parts = [((r.get('body') or {}).get('text') or {}).get('content', '') for r in r4]
+        parts = [reply_text(r) for r in r4]
         check('长回复每片都不超过上限（含「（n/m）」前缀）',
               all(len(p.encode()) <= 1900 for p in parts), [len(p.encode()) for p in parts])
         check('长回复带分片编号', all(p.startswith('（') for p in parts), parts[0][:8])
         check('长回复分片后内容没丢（含结尾）', '收尾' in ''.join(parts), parts[-1][-20:])
 
     r5 = replies_for(got, 'msg5')
-    texts5 = [((r.get('body') or {}).get('text') or {}).get('content', '') for r in r5]
+    texts5 = [reply_text(r) for r in r5]
     check('慢回复：先回一句「正在处理」（人不会干等）',
           any('正在处理' in t for t in texts5), texts5[:2])
     check('慢回复：处理完仍然把真正的结果发出来',
           any('REPLY:SLOW' in t for t in texts5), texts5)
 
     r6 = replies_for(got, 'msg6')
-    texts6 = [((r.get('body') or {}).get('text') or {}).get('content', '') for r in r6]
+    texts6 = [reply_text(r) for r in r6]
     check('需要确认时：把问题发到手机', any('需要你' in t and '确认' in t for t in texts6), texts6[:2])
     check('需要确认时：告诉用户怎么回（y / n）',
           any('y' in t and 'n' in t for t in texts6), texts6[:2])
     check('危险操作会标出来（⚠）', any('⚠' in t for t in texts6), texts6[:2])
     r7 = replies_for(got, 'msg7')
-    texts7 = [((r.get('body') or {}).get('text') or {}).get('content', '') for r in r7]
+    texts7 = [reply_text(r) for r in r7]
     check('手机回 y 之后：网关收到 y 并继续跑完', any('REPLY:answer=y' in t for t in texts7), texts7[:3])
 
     cf = os.path.join(home, '.claude-agent', 'wecom-ws.conf')

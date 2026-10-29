@@ -339,3 +339,21 @@ unable to get local issuer certificate … HTTP/1.1 101 Switching Protocols`，�
 不设 `SSL_CERT_FILE` 时也能自己找到系统证书包。CI 加一步（36 → 37 步，测试脚本 17 → 18、453 →
 … 现 471 项）。文档：`user_manual` §8.3 + 排错表退出码 4/5、`manual_test_mac` §7.5 查 `ws_ca`、
 `design_doc` §4.5.3。
+
+### 6.5.7 回复体 msgtype 用错：真机 errcode=40008
+
+真机日志：`ws_sent to=Jack part=1/1 len=444` 之后紧跟
+`ws_send_err req=… errcode=40008 errmsg=invalid message type` —— 消息发出去了、服务端拒收。
+
+原因：`aibot_respond_msg` 的 `body.msgtype` 只接受 `stream`（`{stream:{id,finish,content}}`）；
+`msgtype:text` 只对**欢迎语** `aibot_respond_welcome_msg` 合法。原来回复用 text，
+本地假服务端不校验所以测试全绿，真机直接废。
+
+修法：回复改 `msgtype:stream`，`stream.id` 取回调的 `msgid`（同 id 刷新同一气泡），
+单条 `finish:true`；「正在处理，请稍等…」用 `finish:false`，最终结果用同一 id 顶掉；
+分片时第 1 片沿用该 id、后续 `${id}_n`。
+
+防回归：`test-wecom-ws` 的假服务端现在像真服务端一样校验 `msgtype`/`stream.id`/`finish`/
+`content`，不合规就回 40008 —— 客户端会记 `ws_send_err`，CI 即可发现。测试 56 → **59 项**
+（新增 stream 类型、非空 id、finish=true、正文在 stream.content 四条断言，去掉一条 text 断言）。
+文档：`design_doc` §4.5.1、`user_manual` §8.2 排错表（40008 / 无 ws_inbound / 无 ws_sent 三行）。
