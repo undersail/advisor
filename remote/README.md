@@ -6,13 +6,14 @@
 > Worker 只是一个**可选**的中继，**必须用你自己的 Cloudflare 账号部署**。
 > 仓库里不含任何人的账号、令牌、存储 id 或 workers.dev 子域。
 
-## 四个文件
+## 五个文件
 
 | 文件 | 作用 | 什么时候用 |
 |---|---|---|
 | `platform.pl` | 企业微信 / 飞书 **回调服务**：验签、AES 解密、把回复推回手机 |
 | `gateway.pl` | 远程入口：白名单 / 审计 / 驱动 agent | 要远程派活时 |
 | `notify.pl` | 档① 出站通知（企微群机器人 / 飞书自定义机器人） | 只想"跑完了喊我一声" |
+| `wecom-ws.pl` | 企微智能机器人 **长连接**（API 模式）：本机连出去，不收回调 | **没有公网域名**、又不想开 Cloudflare 时，首选这个 |
 | `relay/` | 档② 轮询中继（Cloudflare Worker + Durable Object 队列） | 老 Mac 在 NAT 后、手机要在外面派活 |
 
 ## 配置 `~/.claude-agent/remote.conf`
@@ -75,6 +76,7 @@ perl remote/gateway.pl --poll --max-msgs 5     # 处理 5 条就退出（测试�
 | `gateway.pl`（白名单 / 审计 / 只读） | `scripts/test-remote.py` 20 项 | 本地假模型 + 假 webhook 全过 |
 | `platform.pl`（企微 / 飞书回调收 + 发） | `scripts/test-platform.py` **46 项** | **一次都没连过真实平台** |
 | `notify.pl`（档① 出站通知） | `scripts/test-remote-notify.py` **22 项** | 同上：只对假 webhook 发过 |
+| `wecom-ws.pl`（长连接收 + 发） | `scripts/test-wecom-ws.py` **35 项**（本机假服务端，逐个字段对协议） | 除 wss/TLS 那一段外全验；真连需你的 BotID + Secret |
 | `relay/worker.js`（Worker + DO 队列） | `test-relay.py` 7 项 + `test-relay-do.mjs` 21 项 | 只跑过 `wrangler dev --local`，**没在你的 CF 账号上部署过** |
 
 自动化覆盖到的是**确定性部分**：验签（企微 `sha1(sort(token,ts,nonce,encrypt))`、飞书
@@ -103,3 +105,35 @@ perl remote/platform.pl --test-push "测试" --to <你的ID>   # 验凭据与网
   platform.pl 自己不判白名单 —— 判定与审计只有一处
 - 企微要核对明文尾部的 ReceiveId 是否等于本企业 CorpID（规范里的完整性校验），对不上就拒绝
 - 凭据只在这台机器上；仓库里不含任何人的 corp id / secret / AESKey
+
+## 企微智能机器人长连接（API 模式 · 使用长连接）
+
+前两种入站方式（HTTP 回调 / CF 中继）都在解决同一个难题：**家里的 Mac 没有公网 IP**。
+长连接把方向反过来——**本机主动连出去**，所以：不用域名、不用内网穿透、不用 Cloudflare，
+凭据只有 **BotID + Secret**，也没有 AES / 验签那些活。
+
+```
+手机 ──(企业微信长连接)──> wecom-ws.pl ──(--stdin)──> gateway.pl ──> agent
+                              ↑ 只有传输：握手、帧、心跳、重连
+```
+
+```bash
+perl remote/wecom-ws.pl --init     # 录入 BotID / Secret（隐藏输入，写 ~/.claude-agent/wecom-ws.conf 0600）
+perl remote/wecom-ws.pl --check    # 只连一次：验凭据能不能订阅成功（不启动 agent）
+perl remote/wecom-ws.pl --serve    # 常驻：收消息 → 跑 agent → 回消息（Ctrl-C 结束）
+```
+
+- 凭据位置在 **企业微信 → 工作台 → 智能机器人 → 创建机器人 → API 模式 → 使用长连接**
+  （给你的就是 BotID + Secret 两个值）
+- 配置 `~/.claude-agent/wecom-ws.conf`（0600）：`BOT_ID` / `BOT_SECRET` / `WS_URL`
+  （默认 `wss://openws.work.weixin.qq.com`）/ `HEARTBEAT`（默认 30 秒）/ `TEXT_LIMIT`（默认 1900 字节）/
+  `ACK_AFTER`（超过这么多秒没出结果就先回一句「正在处理」）
+- **协议**：握手后先发 `aibot_subscribe`（带 BotID + Secret）→ 收到 `aibot_msg_callback` →
+  回 `aibot_respond_msg`（沿用回调的 `req_id`，否则平台不知道你在回哪条消息）→
+  每 30 秒发一次 `ping` 心跳，连续两次没回执判死重连（退避 1→30 秒）
+- **白名单、审计、只读工具集一律仍由 `gateway.pl` 负责**，本文件不自己判任何人
+  （`scripts/check-decoupling.py` 会拦住"在这里读 ALLOW"的写法）
+- 只做文本消息；图片/文件等先回一句「暂只支持文本消息」，不静默吞
+- 超长回复按字节分片，每片带「（n/m）」前缀
+- 零 CPAN：perl 核心没有 TLS，wss 走 `openssl s_client` 子进程当管道，WebSocket 帧在本文件里手写编解码
+- 想开机常驻：用 `launchd`（macOS）或 `nohup ... &`，路径写绝对路径即可；本工具不写任何系统配置

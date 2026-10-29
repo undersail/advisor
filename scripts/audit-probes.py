@@ -102,6 +102,12 @@ probe('perl 5.26 兼容', 'agent/claude-agent.pl',
       'use strict;\nmy $probe_obj = 1;\nif ($probe_obj isa Foo) { 1 }   # probe: 5.32 中缀 isa',
       ['python3', 'scripts/check-perl-version-compat.py'])
 
+print('=== 7. 解耦卡口：长连接客户端不许自己判白名单 ===')
+probe('长连接自己判白名单', 'remote/wecom-ws.pl',
+      'sub audit {',
+      "my $probe_allow = $conf->{ALLOW};   # probe: 抢走网关的判定权\nsub audit {",
+      ['python3', 'scripts/check-decoupling.py'])
+
 print()
 if FAIL:
     print('%d/%d 通过，失败：%s' % (OK, OK + FAIL, '、'.join(FAILS)))

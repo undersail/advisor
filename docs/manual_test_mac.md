@@ -337,6 +337,80 @@ ID 对不对、你 CF 账号上的真实部署、以及手机上真实的观感�
   `Bearer <token>`（不是占位）」。
 - 新增 `scripts/test-remote-notify.py`（22 项）——`notify.pl` 之前只有语法检查。
 
+### 9.8 企微智能机器人长连接（API 模式 · 使用长连接）
+
+这一条和前两条的区别：**不用公网域名、不用内网穿透、不用 Cloudflare**。本机主动连出去，
+凭据只有 BotID + Secret，在家里普通宽带上就能跑。
+
+**前置**：企业微信 → 工作台 → 智能机器人 → 创建机器人 → API 模式 → **使用长连接**，
+记下给你的 `BotID` 和 `Secret`（Secret 只显示一次）。
+
+1. **录入凭据**（输入不回显，直接写 0600 文件，不进 shell 历史、不进 argv）
+
+   ```bash
+   cd ~/claude-build
+   perl remote/wecom-ws.pl --init
+   ls -l ~/.claude-agent/wecom-ws.conf      # 应该是 -rw------- 
+   ```
+
+2. **只验凭据**（不会启动 agent，20 秒内出结果）
+
+   ```bash
+   perl remote/wecom-ws.pl --check
+   ```
+
+   - 期望：`成功：订阅通过，凭据可用。`
+   - 失败：`失败：errcode=xxxxx errmsg=...（检查 BotID / Secret）` —— 九成是 Secret 复制多了空格，
+     或者机器人建的是"回调模式"而不是"长连接"
+
+3. **起服务**（前台跑，Ctrl-C 结束；先别急着开机自启）
+
+   ```bash
+   perl remote/wecom-ws.pl --serve
+   ```
+
+   手机企业在微信里找到这个机器人，发一句「你好」。期望：几秒内收到回复。
+   手机端看到「正在处理，请稍等…」也是正常的（agent 慢的时候先给个回音，不让你干等）。
+
+4. **验白名单**（最该验的一条）
+
+   用一个**不在** `~/.claude-agent/remote.conf` 的 `ALLOW` 里的账号发消息。
+   期望：**毫无反应**（不是"无权限"）。审计里应该有 `ws_inbound`，但**没有** `ws_sent`。
+   理由：回"无权限"等于告诉外面"这台机器人存在且认得你"。
+
+5. **验只读**
+
+   发：「把 ~/notes.txt 的内容改成 hello」。期望：说明远程只能读文件、不能写，
+   而不是"答应了但没做"（远程没有人按 y/n，写和跑命令都不存在）。
+
+6. **验心跳与重连**
+
+   把 Wi-Fi 关掉 40 秒再打开。期望：日志里出现 `ws_dead`（连续两次心跳没回执）和
+   `ws_reconnect`，然后手机再发消息又能通。这一条是长连接最容易被忽略的失败方式——
+   连接"看起来还在"其实早就死了。
+
+7. **验审计**
+
+   ```bash
+   tail -n 20 ~/.claude-agent/audit.log        # 每条第三列是 ws
+   ls -l ~/.claude-agent/audit.log             # -rw------- 只追加
+   ```
+
+   应该能看到 `ws_subscribe_ok` / `ws_inbound` / `gateway_spawn` / `gateway_done` / `ws_sent`。
+
+8. **不对时按症状查**
+
+   | 症状 | 先看哪里 |
+   |---|---|
+   | `--check` 说订阅被拒 | BotID / Secret 抄错（含空格）；或机器人建成了回调模式 |
+   | `--check` 一直连不上 / 握手超时 | 公司网络或代理挡了 `openws.work.weixin.qq.com:443`；`curl -Iv https://openws.work.weixin.qq.com` 看一眼 |
+   | 手机发消息没反应，但审计里有 `ws_inbound` | 白名单（`ALLOW` 里要填企微的 UserID）或 agent 侧没配模型密钥 |
+   | 一直只回「正在处理」 | agent 上一轮没结束；看审计里的 `gateway_done` 有没有出现 |
+   | 过一段时间就断 | 心跳被中间设备掐了；把 `HEARTBEAT` 调小（如 20 秒）再试 |
+
+> 自动化能覆盖到协议与业务（本机假服务端 35 项），**wss/TLS 这一段只有在真机上才能验**，
+> 所以第 1~3 步是最小闭环，务必先跑通再谈常驻。
+
 ## 10. 双击 Advisor.app 打不开
 
 Finder 双击启动时 stderr 没有地方显示，失败表现为「弹一下就没了」或完全没反应。

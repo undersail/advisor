@@ -187,3 +187,25 @@ GUI `_S` **68** / `msg()` **52**，未译 0）、`check-models`（12 条模型 �
 - **macOS 命名管道与 IME 行为**：输入法对 `<<Modified>>` 的影响只能人工试
 
 真机清单见 `../manual_test_mac.md`（§8.4 密钥策略、§8.5 远程边界、§9 远程接入）。
+
+### 6.5.1 追加：企微智能机器人长连接（`remote/wecom-ws.pl`）
+
+用户报障（不是审出来的）：他的企微机器人账号给的是「API 模式 · 使用长连接」，凭据只有
+**BotID + Secret**。而当时 `remote/` 只有回调模式（要公网 HTTPS + Token + EncodingAESKey）
+与 CF 中继（要 CF 账号）。两者都建立在「家里 Mac 有公网可达地址」这个前提前提上。
+
+长连接把方向反过来：本机连出去，于是**不需要公网域名、不需要内网穿透、不需要 CF**，
+也没有 AES 与验签。这是一条新的入站形态，落在 `remote/`，核心一行未改。
+
+- `remote/wecom-ws.pl`（748 行）：`--init` / `--check` / `--serve`；握手 → `aibot_subscribe`
+  → `aibot_msg_callback` → `aibot_respond_msg`（沿用回调 `req_id`）；30 秒 ping 心跳，
+  连续两次无回执判死，退避 1→30 秒重连；订阅被拒（errcode≠0）连三次即停，不无限撞墙
+- 判定一律不在这个文件里：白名单 / 审计 / 只读工具集仍由 `gateway.pl --stdin` 决定，
+  `check-decoupling.py` 新增断言（读 `{ALLOW}` 或自己起 agent 即红）
+- `scripts/test-wecom-ws.py` **35 项**：本机假服务端（明文 ws、127.0.0.1）逐字段验协议、
+  白名单外不回、非文本明确回一句、长回复分片不丢字、ping→pong、心跳缺失重连、审计 0600、
+  Secret 不出现在输出
+- **未能覆盖**：wss/TLS 那一段（`openssl s_client` 管道）只能在真机上验；真连步骤见
+  `docs/manual_test_mac.md` §9.8
+- 踩过的坑：`use utf8` 缺失导致中文提示二次编码；`ws_send_text` 对已是 JSON 的文本又套了一层引号；
+  「每片发完就等回执」会丢掉等待期间到达的新消息（改为 pending 表 + 主循环统一处理）

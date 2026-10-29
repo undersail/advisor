@@ -20,6 +20,7 @@
 | **档① 出站通知**（企微群机器人 / 飞书自定义机器人） | ✅ 本 fork 已实现（M5）|
 | **档② 轮询中继**（Worker + Durable Object 队列 + 老 Mac 轮询端 + 平台端入队/回推） | ✅ 全通（M6）|
 | **档② 平台端收发**（企微/飞书回调 → 派活 → 回复推回手机） | ✅ 本 fork 已实现（M6 第二批，`remote/platform.pl`）|
+| **企微智能机器人长连接**（API 模式 · BotID + Secret；**不用公网域名、不用 Cloudflare**） | ✅ 本 fork 已实现（`remote/wecom-ws.pl`）|
 | **发布链路**（tag → macOS 打包 → Release） | ✅ 本 fork 已实现（M7）|
 | standalone zip 分发 | ✅ 已实现（未签名，首次启动需右键打开）|
 | CI / Gitee 镜像 / 文档骨架 | ✅ 本仓已落位（§1）|
@@ -38,7 +39,7 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 15 个，合计 **372 项**（modes 60 · platform 46 · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 8 · remote-notify 22 · relay-do 21 · **remote 24** · **mirror-drift 20** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · relay 7 · **setup-perl-check 8**） |
+| 测试脚本 | 17 个，合计 **407 项**（modes 60 · platform 46 · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 8 · remote-notify 22 · relay-do 21 · **remote 24** · **mirror-drift 20** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · relay 7 · **setup-perl-check 8** · **wecom-ws 35**） |
 | CI | `ci.yml` **3 个 job × 34 步 × 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
@@ -52,7 +53,7 @@
 | 文件 | 作用 |
 |---|---|
 | `.editorconfig` | utf-8 / LF / 2 空格（`.pl` `.py` 为 4） |
-| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 36 步：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**16 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
+| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 37 步：perl -c（含 remote 四个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**17 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
 | `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；**推之前先跑反拉保护**（会覆盖对方提交就中止，见 §8.2）；凭据 `oauth2:`→`undersail:` 自动回退 |
 | `docs/design_doc_advisor.md` | 架构、JSON 行协议、加密密钥层级、已知限制、改动规则 |
 | `docs/releases/` | 发布说明，文件名 = tag 名 |

@@ -383,6 +383,11 @@ jobs:
           # 差别在 open(path,'w') 要文件可写、mv/os.replace 只要目录可写。
           python3 scripts/test-gui-keyenv.py
 
+      - name: 企业微信长连接端到端（假服务端，不碰真网络）
+        run: |
+          set -o pipefail
+          python3 scripts/test-wecom-ws.py 2>&1 | tee /tmp/wecom-ws.log
+
       - name: setup.sh 的 python3 探测与 GUI 前置条件
         run: |
           set -o pipefail

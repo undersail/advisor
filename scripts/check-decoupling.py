@@ -19,6 +19,7 @@ CORE = os.path.join(ROOT, 'agent', 'claude-agent.pl')
 PLATFORM = os.path.join(ROOT, 'remote', 'platform.pl')
 GATEWAY = os.path.join(ROOT, 'remote', 'gateway.pl')
 NOTIFY = os.path.join(ROOT, 'remote', 'notify.pl')
+WECOM_WS = os.path.join(ROOT, 'remote', 'wecom-ws.pl')
 
 errs = []
 
@@ -28,13 +29,24 @@ def read(p):
         return f.read()
 
 
+def perl_code_only(src):
+    """去掉行尾注释：# 之后的内容。注释里提到 remote.conf / 白名单 是正常说明，不算违规。"""
+    out = []
+    for line in src.split('\n'):
+        i = line.find('#')
+        out.append(line if i < 0 else line[:i])
+    return '\n'.join(out)
+
+
 core = read(CORE)
 gw = read(GATEWAY)
 plat = read(PLATFORM)
 note = read(NOTIFY)
+wecom_ws = read(WECOM_WS) if os.path.exists(WECOM_WS) else ''
 
 # 1) 核心里不能出现远程开关/远程字样（注释也算，免得被"顺手"接上）
-for pat in (r'\$REMOTE\w*', r'remote/', r'REMOTE_TOOLS'):
+for pat in (r'\$REMOTE\w*', r'remote/', r'REMOTE_TOOLS',
+            r'aibot_', r'openws\.work\.weixin', r'WebSocket'):
     m = re.search(pat, core)
     if m:
         line = core[:m.start()].count('\n') + 1
@@ -93,6 +105,22 @@ if not audit_opens:
 elif not all("'>>" in a for a in audit_opens):
     errs.append('remote/gateway.pl 的审计日志不是追加打开（只追加才有意义）')
 
+# 9) 企微长连接（API 模式）客户端：只做传输，判定一律复用网关
+wecom_ws_code = perl_code_only(wecom_ws)
+if wecom_ws:
+    if "'--stdin'" not in wecom_ws_code:
+        errs.append('remote/wecom-ws.pl 没有把消息交给 gateway.pl --stdin —— 白名单/只读/审计不许自己重新实现一遍')
+    # 自己读白名单配置 = 把判定权从网关手里抢走了（注释里出现「白名单」三个字不算）
+    # 只认「真去取白名单这个键」的写法：文案里提到 remote.conf 是正常提示，不算违规
+    if re.search(r'\{ALLOW\}', wecom_ws_code):
+        errs.append('remote/wecom-ws.pl 在自己读白名单（{ALLOW} / remote.conf）—— 判定权只该在 gateway.pl 手里')
+    for pat in (r'--mode\b', r'--allow-write', r'\$?CLAUDE_MODE'):
+        if re.search(pat, wecom_ws_code):
+            errs.append('remote/wecom-ws.pl 里出现了 %s —— 远程只有对话，不带交互模式' % pat)
+    # 只读工具集不许在这里出现（那是网关的事，出现说明有人在绕开网关自己起 agent）
+    if re.search(r'claude-agent\.pl', wecom_ws_code):
+        errs.append('remote/wecom-ws.pl 直接起了 agent（应经 gateway.pl）')
+
 # --- 交互模式（--mode / --allow-write）はローカルの都合。远程には流さない ---
 # bypass は「その場に居る人が結果を引き受ける」前提のトレードオフ。遠隔は
 # 「ホワイトリストの誰かが携帯から一言」なので、同じ緩め方を共有してはいけない。
@@ -112,5 +140,5 @@ if errs:
     sys.exit(1)
 
 print('解耦检查通过：核心只有 --tools 收窄与 --no-config 两个通用能力；'
-      '远程逻辑全在 remote/；远程工具写死只读、只对话')
+      '远程逻辑全在 remote/；远程工具写死只读、只对话；长连接客户端只做传输、判定复用网关')
 sys.exit(0)

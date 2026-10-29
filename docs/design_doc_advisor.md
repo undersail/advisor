@@ -290,6 +290,24 @@ flush；`read_line_interactive` 会把终端切 raw 模式，因此 `restore_tty
   平台返回 HTTP 200 但 `errcode != 0` 也算失败（企微对无效 key 就是 200）。
 - 会话协议：网关 ↔ agent 走 `--rpc`（与 `--gui` 同一套 JSON 行协议）。
 
+### 4.5.1 第三种入站形态：企微长连接（`remote/wecom-ws.pl`）
+
+回调模式（`platform.pl --serve`）与中继模式（`relay/`）都在绕同一个前提：**家里的 Mac
+没有公网可达地址**。企微智能机器人的「API 模式 · 使用长连接」把方向反过来——**本机连出去**：
+
+```
+手机 ──(企微长连接 wss)──> wecom-ws.pl ──(--stdin)──> gateway.pl ──> agent
+```
+
+于是：不需要公网域名、不需要内网穿透、不需要 Cloudflare 账号，凭据只有 BotID + Secret，
+也没有 AES 与验签。分层的做法与前两种完全一致——这个文件**只做传输**（握手、帧编解码、
+心跳、重连、按 req_id 回包），白名单 / 审计 / 只读工具集仍然只由 `gateway.pl` 决定，
+`check-decoupling.py` 会拦住任何「在这里读 `ALLOW`」或「在这里自己起 agent」的写法。
+
+代价写在明处：零 CPAN 约束下 perl 核心没有 TLS，wss 借用 `openssl s_client` 子进程当管道，
+WebSocket 帧（mask / 分片 / ping-pong / close）手写实现。这一段无法在 CI 里连真平台，
+所以自动化只覆盖协议与业务（本机假服务端 35 项），真连验收放到 `manual_test_mac.md` §9.8。
+
 **为什么只读是硬编码而不是开关**：远程没有人在旁边按 y/n。一个"临时打开"
 的开关，迟早会被常开。所以 `check-decoupling.py` 把"远程工具只能是
 read_file / list_dir"和"工具集不可配置"变成 CI 卡口。
