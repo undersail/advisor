@@ -162,6 +162,16 @@ def main():
           allow_e is not None and allow_e.get() == 'olduser',
           allow_e.get() if allow_e is not None else None)
 
+    combos = [w for w in widgets(dlg) if w.winfo_class() == 'TCombobox']
+    mode_box = combos[0] if combos else None
+    check('面板有「远程权限」下拉（手机端改不了，本机才有入口）',
+          mode_box is not None, [w.winfo_class() for w in widgets(dlg)][:12])
+    check('没有配过时默认显示「只读」',
+          mode_box is not None and mode_box.get() == gui.L('remote_readonly_label'),
+          mode_box.get() if mode_box else None)
+    roots_ent = by_row.get(4)
+    check('面板有「可写目录」输入框', roots_ent is not None, sorted(by_row))
+
     save_btn = find_button(dlg, gui.L('remote_save'))
     check('面板有「保存」按钮', save_btn is not None)
 
@@ -248,6 +258,65 @@ def main():
             time.sleep(0.2)
         check('测试连接失败时显示 NG + 真实原因（不是假成功）',
               'NG' in texts, texts[-200:])
+
+    # ---------------- 远程权限档位与可写目录 ----------------
+    if mode_box is not None and roots_ent is not None:
+        before_mode = open(conf_path, encoding='utf-8').read()
+        mode_box.set(gui.L('remote_readonly_label'))
+        roots_ent.delete(0, tk.END)
+        roots_ent.insert(0, '/tmp/should-not-save')
+        if save_btn:
+            save_btn.invoke()
+            root.update()
+        texts = '\n'.join(find_label_texts(dlg))
+        check('只读档配可写目录：拒绝保存并说明原因',
+              open(conf_path, encoding='utf-8').read() == before_mode
+              and gui.L('remote_need_mode') in texts,
+              texts[-160:])
+
+        mode_box.set(gui.L('remote_accept_label'))
+        roots_ent.delete(0, tk.END)
+        roots_ent.insert(0, '/tmp/a, /tmp/b')
+        if save_btn:
+            save_btn.invoke()
+            root.update()
+        written = open(conf_path, encoding='utf-8').read()
+        check('选「可编辑」后把档位写进同一份配置（REMOTE_MODE）',
+              'REMOTE_MODE=accept-edits' in written, written[-200:])
+        check('可写目录写进去时去了空格（REMOTE_ALLOW_WRITE）',
+              'REMOTE_ALLOW_WRITE=/tmp/a,/tmp/b' in written, written[-200:])
+        check('写档位时没弄丢原来的 WS_URL / HEARTBEAT',
+              'WS_URL=' in written and 'HEARTBEAT=20' in written, written[-200:])
+
+        # 重新打开面板 = 模拟重启程序：必须读回刚才选的档位，不用重填
+        for w in list(root.winfo_children()):
+            try:
+                w.destroy()
+            except Exception:
+                pass
+        root.update()
+        gui.AdvisorGUI._open_remote_dialog(dummy)
+        root.update()
+        dlg2 = find_dialog(root, gui.L('remote_title'))
+        boxes2 = [w for w in widgets(dlg2) if w.winfo_class() == 'TCombobox'] if dlg2 else []
+        rows2 = {}
+        for e in (find_entries(dlg2) if dlg2 else []):
+            try:
+                rows2[int(e.grid_info().get('row', -1))] = e
+            except Exception:
+                pass
+        check('重启后面板读回档位「可编辑」（不用重填）',
+              bool(boxes2) and boxes2[0].get() == gui.L('remote_accept_label'),
+              boxes2[0].get() if boxes2 else None)
+        check('重启后读回可写目录',
+              rows2.get(4) is not None and rows2[4].get() == '/tmp/a,/tmp/b',
+              rows2.get(4).get() if rows2.get(4) is not None else None)
+        check('重启后 Secret 仍是留空（旧值绝不回填）',
+              rows2.get(1) is not None and rows2[1].get() == '',
+              rows2[1].get() if rows2.get(1) is not None else None)
+        if dlg2 is not None:
+            dlg2.destroy()
+            root.update()
 
     try:
         dlg.destroy()

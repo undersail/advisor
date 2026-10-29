@@ -39,10 +39,15 @@ use IPC::Open3 qw(open3);
 use Symbol qw(gensym);
 
 binmode STDOUT, ':encoding(UTF-8)';
+# ★ 逐行刷出：stdin 模式下我们靠「一行一问一答」跟调用方对话（长连接适配器、测试），
+#   缓冲住就等于永远不回话 —— 尤其是确认问答（ask）必须立刻到手机。
+$| = 1;
 binmode STDERR, ':encoding(UTF-8)';
 
 my $SCRIPT_DIR   = dirname(dirname(Cwd_abs($0)));
-my $AGENT        = "$SCRIPT_DIR/agent/claude-agent.pl";
+my $AGENT        = (defined $ENV{CLAUDE_AGENT} && $ENV{CLAUDE_AGENT} ne "")
+    ? $ENV{CLAUDE_AGENT}                      # 仅测试用：换成假 agent
+    : "$SCRIPT_DIR/agent/claude-agent.pl";
 my $NOTIFY       = "$SCRIPT_DIR/remote/notify.pl";
 my $CONF_PATH    = (defined $ENV{CLAUDE_REMOTE_CONF} && $ENV{CLAUDE_REMOTE_CONF} ne '')
     ? $ENV{CLAUDE_REMOTE_CONF}
@@ -50,8 +55,31 @@ my $CONF_PATH    = (defined $ENV{CLAUDE_REMOTE_CONF} && $ENV{CLAUDE_REMOTE_CONF}
 my $AUDIT_PATH   = "$ENV{HOME}/.claude-agent/audit.log";
 my $REMOTE_HIST  = "$ENV{HOME}/.claude-agent/history-remote";
 
-# ★ 远程允许的工具。想加就必须在这里改代码并 review —— 不接受配置覆盖。
-my @REMOTE_TOOLS = qw(read_file list_dir);
+# ★ 远程权限：**只由启动参数决定**，远程端（手机）无法更改。
+#   不传参数 → 只读（历史行为，默认）
+#   --mode=accept-edits  → 可写范围内的 write_file 自动，run_shell 每次问
+#   --mode=bypass        → 普通写与命令自动，危险命令仍问
+#   --allow-write=<dir>  → 可写目录白名单（可重复或逗号分隔）
+#   想加工具仍然要改这里的代码并 review；配置文件和聊天消息都不是入口。
+my @REMOTE_TOOLS_READONLY = qw(read_file list_dir);
+my @REMOTE_TOOLS_WRITABLE = qw(read_file list_dir write_file run_shell);
+my $REMOTE_WRITE_MODE = '';            # '' = 未指定 → default（只读）
+my @REMOTE_ROOTS;                      # --allow-write 的目录
+my $CONFIRM_WAIT = 120;                # 远程确认最多等多久（秒），超时按拒绝
+my $L_CONFIRM_PLAIN = '(需要确认的操作)';
+
+sub write_mode_ok {
+    my ($m) = @_;
+    return ($m eq 'default' || $m eq 'accept-edits' || $m eq 'bypass') ? 1 : 0;
+}
+
+sub writable_mode {
+    return ($REMOTE_WRITE_MODE eq 'accept-edits' || $REMOTE_WRITE_MODE eq 'bypass') ? 1 : 0;
+}
+
+sub effective_tools {
+    return writable_mode() ? @REMOTE_TOOLS_WRITABLE : @REMOTE_TOOLS_READONLY;
+}
 
 sub Cwd_abs {
     my ($p) = @_;
@@ -191,8 +219,11 @@ sub spawn_session {
     my $pid = eval {
         # --no-config：远程会话只对话。厂商/模型/模式/可写范围/密钥一律在本机配好，
         # 这里连命令入口都不给（密钥更不该经第三方聊天平台转一圈）。
+        my @extra;
+        push @extra, '--mode=' . $REMOTE_WRITE_MODE if $REMOTE_WRITE_MODE ne '';
+        push @extra, ('--allow-write=' . $_) for @REMOTE_ROOTS;
         open3($in, $out, $errh, 'perl', $AGENT, '--rpc', '--no-config',
-              '--tools=' . join(',', @REMOTE_TOOLS));
+              '--tools=' . join(',', effective_tools()), @extra);
     };
     if (!$pid) {
         audit('session_spawn_failed', "from=$from", "err=$@");
@@ -243,7 +274,9 @@ sub spawn_session {
     select($prev);
 
     $SESS{$from} = { pid => $pid, in => $in, out => $out, err => $errh, conf => $conf };
-    audit('session_start', "from=$from", "pid=$pid", 'tools=' . join(',', @REMOTE_TOOLS),
+    audit('session_start', "from=$from", "pid=$pid", 'tools=' . join(',', effective_tools()),
+          'mode=' . ($REMOTE_WRITE_MODE ne '' ? $REMOTE_WRITE_MODE : 'default'),
+          'roots=' . (@REMOTE_ROOTS ? join(':', @REMOTE_ROOTS) : '-'),
           'no_config=1');
     return $SESS{$from};
 }
@@ -257,6 +290,32 @@ sub ensure_session {
         delete $SESS{$from};
     }
     return spawn_session($from, $conf);
+}
+
+# 远程确认：把 agent 的 y/n 问题转给手机，等这个人的下一条输入当答案。
+# 通道仍是「一行一次」：先吐一行 ask，再读一行 answer。
+# 超时按拒绝（与 agent 侧 fail-closed 一致），绝不放行。
+sub ask_remote {
+    my ($from, $prompt, $danger) = @_;
+    print '{"from":"' . json_escape($from) . '","ask":"' . json_escape($prompt)
+        . '","danger":' . ($danger ? 1 : 0) . "}\n";
+    audit('confirm_asked', "from=$from", 'danger=' . $danger, 'wait=' . $CONFIRM_WAIT);
+    my $ans = 'n';
+    my $timed_out = 0;
+    eval {
+        local $SIG{ALRM} = sub { die "ask_timeout\n" };
+        alarm $CONFIRM_WAIT if $CONFIRM_WAIT > 0;
+        my $line = <STDIN>;
+        if (defined $line) {
+            my $v = json_get($line, 'answer') // '';
+            $ans = 'y' if ($v =~ /^(y|yes|1|true)$/i);
+        }
+        alarm 0;
+        1;
+    } or do { alarm 0; $timed_out = 1 };
+    audit('confirm_answered', "from=$from", 'answer=' . $ans,
+          ($timed_out ? 'timeout=1' : ''));
+    return $ans;
 }
 
 # 1件処理して、返信テキストを返す。失敗時は undef。
@@ -288,10 +347,20 @@ sub handle_message {
                 next;
             }
             if ($l =~ /"t"\s*:\s*"confirm"/) {
-                # y/n 待ちで双方が止まる。ここは常に「いいえ」。
-                # 書込み系は --tools で広告していないので、来たら異常。
-                audit('confirm_refused', "from=$from");
-                print { $s->{in} } qq|{"t":"confirm_answer","value":"n"}\n|;
+                my $prompt = json_unescape(json_get($l, 'prompt') // $L_CONFIRM_PLAIN);
+                my $danger = ($l =~ /"danger"\s*:\s*true/) ? 1 : 0;
+                my $ans = 'n';
+                if (writable_mode()) {
+                    $ans = ask_remote($from, $prompt, $danger);
+                }
+                else {
+                    # 只读模式本不该出现确认（写/命令没广告出去）；来了就拒，别打扰手机
+                    audit('confirm_refused', "from=$from", 'readonly');
+                }
+                # ★ 回应键必须是 "reply"：agent 的 confirm() 只认这个。
+                #   以前这里写的是 "confirm_answer"，等于没人回答 —— 只读模式下看不出来，
+                #   一旦放开写就会一路等到超时（fail-closed 拒掉）。
+                print { $s->{in} } qq|{"t":"reply","value":"$ans"}\n|;
                 next;
             }
             if ($l =~ /"t"\s*:\s*"error"/) {
@@ -338,8 +407,14 @@ while (my $a = shift @ARGV) {
     elsif ($a eq '--once')         { $MODE = 'once'; }
     elsif ($a eq '--from')         { $ONCE_FROM = shift @ARGV; }
     elsif ($a eq '--text')         { $ONCE_TEXT = shift @ARGV; }
+    elsif ($a =~ /^--mode=(.*)$/)  { $REMOTE_WRITE_MODE = lc $1; }
+    elsif ($a eq '--mode')         { $REMOTE_WRITE_MODE = lc(shift @ARGV // ''); }
+    elsif ($a =~ /^--allow-write=(.*)$/) { push @REMOTE_ROOTS, grep { length } split /,/, $1; }
+    elsif ($a eq '--allow-write')  { push @REMOTE_ROOTS, grep { length } split /,/, (shift @ARGV // ''); }
+    elsif ($a =~ /^--confirm-wait=(\d+)$/) { $CONFIRM_WAIT = $1; }
     elsif ($a eq '--help' || $a eq '-h') {
-        print "用法: gateway.pl --stdin | --once --from ID --text \"...\"\n";
+        print "用法: gateway.pl --stdin | --once --from ID --text \"...\"\n"
+          . "      [--mode=default|accept-edits|bypass] [--allow-write=DIR[,DIR]] [--confirm-wait=秒]\n";
         exit 0;
     }
     else {
@@ -353,7 +428,8 @@ my $allow = allow_set($conf);
 my $notify_on = (exists $conf->{NOTIFY} && $conf->{NOTIFY} =~ /^0$/) ? 0 : 1;
 
 audit('gateway_start', "mode=$MODE", 'allow=' . scalar(keys %$allow),
-      'tools=' . join(',', @REMOTE_TOOLS));
+      'mode=' . ($REMOTE_WRITE_MODE ne '' ? $REMOTE_WRITE_MODE : 'default'),
+      'tools=' . join(',', effective_tools()));
 unless (keys %$allow) {
     audit('allowlist_empty', "conf=$CONF_PATH");
     print STDERR "白名单为空：所有消息都会被丢弃。请在 $CONF_PATH 里写 ALLOW = <id>,<id>\n";
@@ -361,6 +437,16 @@ unless (keys %$allow) {
 
 # 送信者を確認する。許可外は「何も返さず」捨てる
 # （「権限がありません」と返すとボットの存在に気づかれる）。
+unless ($REMOTE_WRITE_MODE eq '' || write_mode_ok($REMOTE_WRITE_MODE)) {
+    print STDERR "未知的 --mode：$REMOTE_WRITE_MODE（可选 default / accept-edits / bypass）\n";
+    exit 2;
+}
+if (!writable_mode() && @REMOTE_ROOTS) {
+    # 只读模式下给可写目录是自相矛盾的配置，直接说出来，别让它静默无效
+    print STDERR "--allow-write 只在 --mode=accept-edits / bypass 下有意义；当前是只读模式\n";
+    exit 2;
+}
+
 sub gate {
     my ($from, $text) = @_;
     unless (defined $from && $from =~ /\S/ && $allow->{$from}) {

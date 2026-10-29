@@ -46,6 +46,27 @@ perl remote/gateway.pl --once --from alice --text "列一下当前目录"
 echo '{"from":"alice","text":"你好"}' | perl remote/gateway.pl --stdin
 ```
 
+## 远程权限：启动时定，手机端改不了
+
+默认**只读**。要放开，在 Mac 启动远程服务时显式写出来：
+
+```bash
+perl remote/wecom-ws.pl --serve --mode=accept-edits --allow-write=/Users/Jack/proj
+```
+
+| 档位 | 效果 |
+|---|---|
+| `default`（默认） | 工具集只有 `read_file` / `list_dir` |
+| `accept-edits` | 加 `write_file` / `run_shell`；可写目录内自动写，跑命令每次要确认 |
+| `bypass` | 普通命令也自动，**危险命令仍要确认** |
+
+- 档位只认**启动参数**（命令行 > `wecom-ws.conf` 里的 `REMOTE_MODE` / `REMOTE_ALLOW_WRITE`），
+  起来之后手机端改不了（agent 用 `--no-config` 起，`/mode`、`/allow-write`、`/key` 一律拒绝）
+- 需要确认的操作会发到手机：「⚠ 危险操作，需要你在手机上确认：… 回复 y 允许 / n 拒绝」；
+  **不回就 120 秒后按拒绝**（`--confirm-wait` 可调）
+- 审计里记 `mode=` / `roots=` / `confirm_asked` / `confirm_answered`（含 `timeout=1`）
+- GUI 也能设：工具 → 远程接入… → 远程权限 / 可写目录（写同一份配置，重启远程服务生效）
+
 ## 安全边界（写死的，不是开关）
 
 - 远程只能用 `read_file` / `list_dir`。远程没有人在旁边按 y/n，所以写文件和跑命令

@@ -29,6 +29,7 @@ import tkinter as tk
 import webbrowser
 from tkinter import font as tkfont
 from tkinter import messagebox
+from tkinter import ttk
 
 # 本文の左インセット(px)。ノート左の赤い縦罫(大学ノートの余白線)の
 # すぐ右から書き始める、という要望に合わせた小さめの値。
@@ -469,6 +470,31 @@ _S = {
     "remote_allow": {"ja": "許可するユーザーID（カンマ区切り）",
                      "en": "Allowed user IDs (comma separated)",
                      "zh": "允许的用户 ID（逗号分隔）"},
+    "remote_mode": {
+        "zh": "远程权限",
+        "en": "Remote permission",
+        "ja": "リモート権限",
+    },
+    "remote_mode_hint": {
+        "zh": "跟本机三档一致：只读 / 可编辑（可写目录内自动，跑命令仍要确认）/ 放开（危险命令仍要确认）。"
+              "在这里选定后**必须在 Mac 上重启远程服务才生效**，手机端无法更改。",
+        "en": "Same three levels as local: read-only / accept-edits (writes inside the allowed dirs are automatic, "
+              "shell still asks) / bypass (dangerous commands still ask). Changing it here takes effect only after "
+              "you restart the remote service on the Mac — the phone can never change it.",
+        "ja": "ローカルと同じ3段階：読み取り専用／編集可（許可ディレクトリ内は自動、コマンドは毎回確認）／"
+              "制限なし（危険なコマンドは確認）。ここで変えても Mac 側でリモートサービスを再起動するまで"
+              "反映されず、スマホ側からは変更できません。",
+    },
+    "remote_write_roots": {
+        "zh": "可写目录",
+        "en": "Writable dirs",
+        "ja": "書き込み可能ディレクトリ",
+    },
+    "remote_write_roots_hint": {
+        "zh": "逗号分隔；只对「可编辑 / 放开」两档有意义，只读档写了不生效（保存时会拦下）。",
+        "en": "Comma separated. Only meaningful for accept-edits / bypass; ignored-and-refused in read-only.",
+        "ja": "カンマ区切り。「編集可 / 制限なし」でのみ有効。読み取り専用では保存時に弾きます。",
+    },
     "remote_allow_hint": {
         "ja": "ここに無い相手には返事をしません（「権限なし」とも返しません）。",
         "en": "Anyone not listed gets no reply at all (not even 'no permission').",
@@ -477,6 +503,26 @@ _S = {
     "remote_save": {"ja": "保存", "en": "Save", "zh": "保存"},
     "remote_test": {"ja": "接続テスト", "en": "Test connection", "zh": "测试连接"},
     "remote_close": {"ja": "閉じる", "en": "Close", "zh": "关闭"},
+    "remote_need_mode": {
+        "zh": "可写目录只在「可编辑 / 放开」两档下有意义，先选权限档位。",
+        "en": "Writable dirs only apply to accept-edits / bypass — pick a permission level first.",
+        "ja": "書き込み可能ディレクトリは「編集可 / 制限なし」でのみ有効です。先に権限を選んでください。",
+    },
+    "remote_readonly_label": {
+        "zh": "只读",
+        "en": "Read-only",
+        "ja": "読み取り専用",
+    },
+    "remote_accept_label": {
+        "zh": "可编辑",
+        "en": "Accept edits",
+        "ja": "編集可",
+    },
+    "remote_bypass_label": {
+        "zh": "放开（危险命令仍要确认）",
+        "en": "Bypass (dangerous commands still ask)",
+        "ja": "制限なし（危険なコマンドは確認）",
+    },
     "remote_status_none": {"ja": "未設定：まだ接続情報がありません。",
                            "en": "Not configured: no connection settings yet.",
                            "zh": "未配置：还没有连接信息。"},
@@ -2360,6 +2406,29 @@ class AdvisorGUI:
         tk.Label(dlg, text=L("remote_allow_hint"), justify=tk.LEFT,
                  wraplength=470).pack(padx=16, pady=(2, 6))
 
+        # 远程权限：本机定，手机端改不了（写 conf，重启远程服务后生效）
+        tk.Label(form, text=L("remote_mode")).grid(row=3, column=0, sticky="w", pady=3)
+        mode_map = [
+            ("default", L("remote_readonly_label")),
+            ("accept-edits", L("remote_accept_label")),
+            ("bypass", L("remote_bypass_label")),
+        ]
+        cur_mode = (conf.get("REMOTE_MODE") or "default").strip()
+        mode_labels = [lab for _, lab in mode_map]
+        mode_var = tk.StringVar(
+            value=dict(mode_map).get(cur_mode, L("remote_readonly_label")))
+        mode_box = ttk.Combobox(form, textvariable=mode_var, values=mode_labels,
+                                state="readonly", width=34)
+        mode_box.grid(row=3, column=1, sticky="we", padx=(8, 0), pady=3)
+
+        tk.Label(form, text=L("remote_write_roots")).grid(row=4, column=0, sticky="w", pady=3)
+        roots_var = tk.StringVar(value=conf.get("REMOTE_ALLOW_WRITE", ""))
+        tk.Entry(form, textvariable=roots_var, width=40).grid(
+            row=4, column=1, sticky="we", padx=(8, 0), pady=3)
+        for hint in ("remote_mode_hint", "remote_write_roots_hint"):
+            tk.Label(dlg, text=L(hint), justify=tk.LEFT,
+                     wraplength=470, fg="#555555").pack(padx=16, pady=(0, 4))
+
         status_var = tk.StringVar()
         status_lbl = tk.Label(dlg, textvariable=status_var, anchor="w", justify=tk.LEFT,
                               wraplength=470)
@@ -2392,7 +2461,20 @@ class AdvisorGUI:
             if not sec and not cur.get("BOT_SECRET"):
                 res_var.set(L("remote_need_secret")); res_lbl.pack(padx=16, anchor="w")
                 return
-            upd = {"BOT_ID": bot}
+            # 档位与可写目录：跟凭据写同一份文件，重启远程服务后生效
+            sel_label = mode_var.get()
+            sel_mode = "default"
+            for key, lab in mode_map:
+                if lab == sel_label:
+                    sel_mode = key
+            roots = ",".join([p.strip() for p in roots_var.get().split(",") if p.strip()])
+            if roots and sel_mode == "default":
+                # 只读档配可写目录是自相矛盾的，别存进去让它在暗处失效
+                res_var.set(L("remote_need_mode")); res_lbl.pack(padx=16, anchor="w")
+                return
+            upd = {"BOT_ID": bot,
+                   "REMOTE_MODE": sel_mode,
+                   "REMOTE_ALLOW_WRITE": roots}
             if sec:
                 upd["BOT_SECRET"] = sec
             if not cur.get("WS_URL"):

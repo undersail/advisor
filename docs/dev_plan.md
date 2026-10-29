@@ -39,11 +39,11 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 16 个，合计 **399 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 11 · remote-notify 22 · **remote 24** · **mirror-drift 20** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 35** · **gui-remote 24**） |
+| 测试脚本 | 17 个，合计 **435 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 11 · remote-notify 22 · **remote 24** · **gateway-write 22** · **mirror-drift 20** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 39** · **gui-remote 34**） |
 | CI | `ci.yml` **3 个 job × 34 步 × 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
-| 文案/注册表 | Perl `%S` 147 · GUI `_S` 89 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
+| 文案/注册表 | Perl `%S` 147 · GUI `_S` 97 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
 | 泄漏 | 70 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
 
 审计记录：`docs/audits/audit_advisor_v0.2.1.md`（v0.2.1 快照）、`docs/audits/audit_advisor_v0.2.1_r2.md`（之后的第二轮）。
@@ -53,7 +53,7 @@
 | 文件 | 作用 |
 |---|---|
 | `.editorconfig` | utf-8 / LF / 2 空格（`.pl` `.py` 为 4） |
-| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 35 步：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**16 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
+| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 36 步：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**17 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
 | `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；**推之前先跑反拉保护**（会覆盖对方提交就中止，见 §8.2）；凭据 `oauth2:`→`undersail:` 自动回退 |
 | `docs/design_doc_advisor.md` | 架构、JSON 行协议、加密密钥层级、已知限制、改动规则 |
 | `docs/releases/` | 发布说明，文件名 = tag 名 |
@@ -87,9 +87,9 @@
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
 | `agent/claude-agent.pl` → `my %S` | **147**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
-| `gui/advisor_gui.py` → `_S` | **89** | 同上，`L()` 里 `ja, en = _S[key]` |
+| `gui/advisor_gui.py` → `_S` | **97** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
-| `models.txt` | 5 行 | `id|日本語ラベル|English label` |
+| `models.txt` | 5 行 | `id|<各语言标签>|English label` |
 | 文档 | README.md(ja) / README.en.md / release/ReadMe_JP.txt / ReadMe_EN.txt | 日英各一份 |
 
 **关键缺陷**：语言判定是**二元的**，不是"支持 ja/en"这么简单 ——
@@ -102,10 +102,10 @@ GUI 侧 `_detect_lang()` 是"非 `ja*` 一律出英文"。所以**今天一个�
 **A. `%S` / `_S` 从 arrayref 改成 hashref**
 
 ```perl
-# 现在
-need_key => ["%s を設定してください\n", "Please set %s\n"],
+# 现在（ja 分支的文案略，下同）
+need_key => ["<ja 文案>\n", "Please set %s\n"],
 # 改成
-need_key => { ja => '%s を設定してください', en => 'Please set %s', zh => '请设置 %s' },
+need_key => { ja => '<ja 文案>', en => 'Please set %s', zh => '请设置 %s' },
 ```
 
 理由：加语言不用改索引、不会错位。改动面其实很小 —— **读取点各自只有 1 处**

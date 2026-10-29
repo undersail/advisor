@@ -370,6 +370,12 @@ jobs:
           # 差别在 open(path,'w') 要文件可写、mv/os.replace 只要目录可写。
           python3 scripts/test-gui-keyenv.py
 
+      - name: 远程权限与手机确认（假 agent：档位只认启动参数 + 超时按拒绝）
+        run: |
+          set -o pipefail
+          # 假 agent 替掉真身，y/n 往返与超时 2 秒内跑完：不碰模型、不烧钱。
+          python3 scripts/test-gateway-write.py
+
       - name: 企业微信长连接端到端（假服务端，不碰真网络）
         run: |
           set -o pipefail

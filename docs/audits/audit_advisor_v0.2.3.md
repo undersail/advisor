@@ -232,3 +232,39 @@ GUI `_S` **68** / `msg()` **52**，未译 0）、`check-models`（12 条模型 �
 ①env 文件里有 `CLAUDE_PROVIDER` ②该厂商在 `providers.txt` 里且 key 变量非空。
 不满足就重弹引导页。历史上还有一种情况是写盘静默失败（早期 `open('w')`），
 现在走临时文件 + `os.replace`，失败会抛 `key_save_denied` 并打印属主/权限。
+
+### 6.5.3 追加：远程权限改为「启动时定档 + 手机确认」（用户推翻了「远程硬关写入」的旧铁律）
+
+用户原话：「远程模式不是完全不能写，这样很多功能就无法使用了。建议权限管控和本地一样，
+在MAC上启动远程服务时选好模式，比如edit，启动后在远程客户端（手机）无法更改模式。
+遇到需要确认的操作，由用户在客户端回复确认」。
+
+改了哪些：
+
+- `remote/gateway.pl`：新增 `--mode=` / `--allow-write=` / `--confirm-wait=`；
+  `effective_tools()` 一处绑定「档位 → 工具集」；只读档 = `read_file,list_dir`，
+  可写档追加 `write_file,run_shell`；参数非法当场 exit 2 并说明可选值；
+  只读档给 `--allow-write` 直接报错（矛盾配置不许静默无效）
+- 确认转发：`{t:"confirm"}` → 吐一行 `{"from","ask","danger"}` → 读一行 `{"answer"}` →
+  回 `{t:"reply","value":"y|n"}`；`--confirm-wait` 默认 120 秒，超时按拒绝并记 `timeout=1`
+- `remote/wecom-ws.pl`：`--mode` / `--allow-write` / `--confirm-wait`（命令行 > 配置）；
+  把确认问题发到手机（危险操作带 ⚠ 与「回复 y 允许 / n 拒绝」）；用户回的 y/n 转成 answer 行；
+  回的是别的话 → 先按拒绝收尾，再把这句话当新指令，不把人卡住
+- GUI：远程面板新增「远程权限」下拉与「可写目录」，写 `REMOTE_MODE` / `REMOTE_ALLOW_WRITE`
+  到同一份 `wecom-ws.conf`；只读档配可写目录会被拦下
+- 卡口 `check-decoupling.py`：旧规则「远程一律只读、remote/ 里不许出现 --mode」整段替换为新规则 ——
+  档位只来自启动参数（`$conf->{REMOTE_MODE}` / `CLAUDE_MODE` / `$j->{mode}` 出现即红）、
+  `writable_mode()` 只认 `accept-edits` / `bypass`、必须有 `ask_remote()`、回应键必须是 `reply`
+
+**过程中抓到两个真 bug（此前因为远程只读所以没暴露）**：
+
+1. 网关回应确认用的键是 `confirm_answer`，agent 的 `confirm()` 只认 `reply`
+   → 等于没人回答，放开写就会一路等到超时（fail-closed 拒掉）
+2. 网关 STDOUT 没有自动刷出，`--stdin` 模式下确认问题卡在缓冲区到不了手机
+   （`$| = 1` 修好；这也是长连接能正常收回复的前提）
+
+**测试**：新增 `scripts/test-gateway-write.py` **22 项**（假 agent：默认只读 / 工具集 /
+参数透传 / 回 y / 回 n / 超时拒绝 / 非法档位 / 审计）；`test-wecom-ws` 35 → **39 项**
+（确认发到手机、⚠ 标注、回 y 后跑完）；`test-gui-remote` 24 → **34 项**
+（下拉入口、默认只读、矛盾配置拦截、档位与目录落盘、重开面板读回、Secret 不回填）。
+CI 35 → **36 步**（io 10 → 11）。

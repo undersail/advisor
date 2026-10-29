@@ -51,6 +51,12 @@ my $AUDIT_PATH = $ENV{AUDIT_LOG} || "$AGENT_DIR/audit.log";
 my $DEFAULT_URL = 'wss://openws.work.weixin.qq.com';
 my $GATEWAY = $ENV{GATEWAY_CMD} || "$^X $SCRIPT_DIR/gateway.pl";
 
+# ★ 远程权限只在**启动时**定：命令行 > 配置文件（GUI 写的那份）。
+#   起来之后远程端改不了 —— 消息里的 /mode 之类一律拒绝，见 gateway.pl。
+my $REMOTE_MODE    = '';   # '' / default / accept-edits / bypass
+my $REMOTE_ALLOW   = '';   # 逗号分隔的可写目录
+my $CONFIRM_WAIT   = '';   # 远程确认等待秒数（空=用 gateway 默认）
+
 $| = 1;
 $SIG{PIPE} = 'IGNORE';   # 往已关闭的连接写 → 不能让进程被 SIGPIPE 杀掉（重连就永远跑不到）
 # 带 use utf8 之后，中文是「字符」；不把这层标成 UTF-8，往终端打审计就会报
@@ -433,6 +439,7 @@ sub gw_spawn {
     my $errh = gensym;
     my ($in, $out);
     my @cmd = split /\s+/, $GATEWAY;
+    push @cmd, remote_extra_args($state);
     my $pid = eval { open3($in, $out, $errh, @cmd, '--stdin') };
     if (!$pid) { audit('gateway_spawn_fail', "from=$sender err=$@"); return undef }
     binmode($in,  ':encoding(UTF-8)');
@@ -443,8 +450,50 @@ sub gw_spawn {
     return $state->{gw}{$sender};
 }
 
+# 启动时定下来的权限，转成 gateway 的参数
+sub remote_extra_args {
+    my ($state) = @_;
+    my $mode  = $REMOTE_MODE;
+    my $allow = $REMOTE_ALLOW;
+    my $wait  = $CONFIRM_WAIT;
+    if (ref $state eq 'HASH' && ref $state->{conf} eq 'HASH') {
+        my $c = $state->{conf};
+        $mode  = $c->{REMOTE_MODE}        if $mode  eq '' && defined $c->{REMOTE_MODE};
+        $allow = $c->{REMOTE_ALLOW_WRITE} if $allow eq '' && defined $c->{REMOTE_ALLOW_WRITE};
+    }
+    my @a;
+    push @a, '--mode=' . $mode if defined $mode && $mode ne '';
+    push @a, '--allow-write=' . $allow if defined $allow && $allow ne '';
+    push @a, '--confirm-wait=' . $wait if defined $wait && $wait ne '';
+    return @a;
+}
+
+# 读一轮：要么读到最终回复（reply），要么读到「需要你确认」（ask）。
+# 返回 { reply => '...' } 或 { ask => '...', danger => 0/1 } 或 undef（出异常）。
+sub gw_read_turn {
+    my ($sender, $s, $state) = @_;
+    while (1) {
+        my $line = readline($s->{out});
+        return undef unless defined $line;
+        $line =~ s/\r?\n$//;
+        next if $line eq '';
+        my $j = json_decode($line);
+        return undef unless ref $j eq 'HASH';
+        # 网关转发过来的「要不要允许」问题
+        if (defined $j->{ask}) {
+            audit('gateway_ask', "from=$sender danger=" . ($j->{danger} ? 1 : 0));
+            return { ask => $j->{ask}, danger => ($j->{danger} ? 1 : 0) };
+        }
+        if (defined $j->{reply}) {
+            audit('gateway_done', 'reply_len=' . length($j->{reply}));
+            return { reply => $j->{reply} };
+        }
+        # 其它行（比如 ack）忽略，继续等
+    }
+}
+
 sub gw_call {
-    my ($sender, $text, $state, $on_slow, $depth) = @_;
+    my ($sender, $text, $state, $on_slow, $depth, $on_ask) = @_;
     $depth ||= 0;
     my $s = $state->{gw}{$sender} || gw_spawn($sender, $state);
     return undef unless $s;
@@ -456,8 +505,8 @@ sub gw_call {
             audit('ack_sent', "from=$sender");
         }
     }
-    my $line = readline($s->{out});
-    if (!defined $line) {
+    my $r = gw_read_turn($sender, $s, $state);
+    if (!defined $r) {
         audit('gateway_eof', "from=$sender retry=" . ($depth + 1));
         my $dead = delete $state->{gw}{$sender};
         if ($dead) {
@@ -467,12 +516,31 @@ sub gw_call {
             eval { waitpid($dead->{pid}, 0) };
         }
         return undef if $depth >= 1;
-        return gw_call($sender, $text, $state, $on_slow, $depth + 1);
+        return gw_call($sender, $text, $state, $on_slow, $depth + 1, $on_ask);
     }
-    my $j = json_decode($line);
-    my $reply = (ref $j eq 'HASH' && defined $j->{reply}) ? $j->{reply} : '';
-    audit('gateway_done', 'reply_len=' . length($reply));
-    return $reply;
+    if (defined $r->{ask}) {
+        # 需要手机端确认：这一轮先挂起，问题已经发出去，等用户下一条消息当答案
+        $state->{wait}{$sender} = 1;
+        $on_ask->($r->{ask}, $r->{danger}) if $on_ask;
+        return { pending => 1 };
+    }
+    return { reply => $r->{reply} // '' };
+}
+
+# 用户回了 y/n 之后，接着把这一轮读完（可能还要再确认一次）
+sub gw_answer {
+    my ($sender, $answer, $state, $on_ask) = @_;
+    my $s = $state->{gw}{$sender} or return { reply => '' };
+    print { $s->{in} } '{"answer":"' . ($answer eq 'y' ? 'y' : 'n') . '"}' . "\n";
+    audit('gateway_answer', "from=$sender answer=" . ($answer eq 'y' ? 'y' : 'n'));
+    my $r = gw_read_turn($sender, $s, $state);
+    if ($r && $r->{ask} && $on_ask) {
+        $state->{wait}{$sender} = 1;
+        $on_ask->($r->{ask}, $r->{danger});
+        return { pending => 1 };
+    }
+    delete $state->{wait}{$sender};
+    return $r || { reply => '' };
 }
 
 sub subscribe_frame {
@@ -570,12 +638,35 @@ sub handle_msg {
     if (!length $text) { return }
 
     my $on_slow = sub { $reply_to->('正在处理，请稍等…') };
-    my $reply = gw_call($sender, $text, $state, $on_slow, 0);
-    if (!defined $reply) {
+    # 网关把 agent 的 y/n 问题转过来，这里原样交给用户；不回就超时按拒绝
+    my $on_ask = sub {
+        my ($prompt, $danger) = @_;
+        my $head = $danger ? '⚠ 危险操作，需要你在手机上确认：' : '需要你确认：';
+        $reply_to->($head . $prompt . "\n\n回复 y 允许 / n 拒绝（不回则超时按拒绝处理）");
+    };
+
+    # ★ 正在等确认：这条消息当答案处理；不是 y/n 就按拒绝收尾，再当新指令
+    if ($state->{wait}{$sender}) {
+        my $ans = $text =~ /^\s*(?:y|yes|1|true|是|允许|同意|确认|好)\s*$/i ? 'y'
+                : $text =~ /^\s*(?:n|no|0|false|否|不|取消|拒绝)\s*$/i      ? 'n'
+                : '';
+        my $r = gw_answer($sender, ($ans eq '' ? 'n' : $ans), $state, $on_ask);
+        if (ref $r eq 'HASH' && !$r->{pending}) {
+            my $rep = $r->{reply} // '';
+            $reply_to->($rep) if length $rep;
+        }
+        return if $ans ne '';      # 是 y/n：这一轮已经结束
+        # 不是 y/n：已经按拒绝收尾，下面把这句话当新指令继续
+    }
+
+    my $r = gw_call($sender, $text, $state, $on_slow, 0, $on_ask);
+    if (!defined $r) {
         audit('ws_gateway_undef', "from=$sender");
         $reply_to->('处理失败（网关异常），请稍后重试。');
         return;
     }
+    return if $r->{pending};       # 问题已发给手机，等用户回 y/n
+    my $reply = $r->{reply} // '';
     $reply_to->($reply) if length $reply;
 }
 
@@ -590,6 +681,7 @@ sub run_session {
         text_limit => ($c->{TEXT_LIMIT} || 1900),
         ack_after  => ($c->{ACK_AFTER}  || 15),
         welcome    => ($c->{WELCOME}    || ''),
+        conf       => $c,
         gw         => {},
     );
     my $ok = wait_ack($t, 'aibot_subscribe', 15, \%state, \&handle_msg);
@@ -690,7 +782,7 @@ sub cmd_check {
     my $t = transport_open($url);
     ws_handshake($t);
     ws_send_text($t, subscribe_frame($c));
-    my %state = (gw => {}, text_limit => 1900, ack_after => 0);
+    my %state = (gw => {}, text_limit => 1900, ack_after => 0, conf => $c);
     my $ok = wait_ack($t, 'aibot_subscribe', 15, \%state, undef);
     transport_close($t);
     if (!defined $ok) { print "失败：订阅没有回执\n"; return 1 }
@@ -740,7 +832,12 @@ wecom-ws.pl $VERSION — 企业微信智能机器人长连接（API 模式 · �
 
   --init     录入 BotID / Secret（隐藏输入，写 $CONF_PATH 0600）
   --check    连一次，验证凭据能订阅成功
-  --serve    常驻：收消息 → 复用 gateway.pl（白名单/只读/审计）→ 回复
+  --serve    常驻：收消息 → 复用 gateway.pl（白名单/权限/审计）→ 回复
+
+远程权限（只在启动时定，手机端改不了）：
+  --mode=default|accept-edits|bypass   默认 default=只读
+  --allow-write=/路径,/另一个路径      可写目录（只对 accept-edits / bypass 有意义）
+  --confirm-wait=120                   手机端确认最多等多久，超时按拒绝
 
 配置：$CONF_PATH
 白名单、审计、只读工具集都由 gateway.pl 负责（与本文件共用一份 remote.conf）。
@@ -750,6 +847,11 @@ USAGE
 
 # ------------------------------------------------------------------ 主入口
 my $cmd = $ARGV[0] // '';
+for my $a (@ARGV) {
+    if    ($a =~ /^--mode=(.*)$/)        { $REMOTE_MODE  = $1 }
+    elsif ($a =~ /^--allow-write=(.*)$/) { $REMOTE_ALLOW = $1 }
+    elsif ($a =~ /^--confirm-wait=(\d+)$/) { $CONFIRM_WAIT = $1 }
+}
 my $conf = load_conf();
 if    ($cmd eq '--init')  { exit cmd_init() }
 elsif ($cmd eq '--check') { exit cmd_check($conf) }

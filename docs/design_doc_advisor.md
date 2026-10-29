@@ -344,6 +344,40 @@ read_file / list_dir"和"工具集不可配置"变成 CI 卡口。
 `curl -K -` 从标准输入喂配置，URL 不进程命令行、不进 `ps`、不进日志；输出
 里只打目标名（`WECOM_WEBHOOK` / `FEISHU_WEBHOOK`）。
 
+### 4.5.3 远程权限：档位在 Mac 上选好，确认在手机上回（2026-10 口径）
+
+**规则（用户定）**：远程不是「只能看」。权限管控跟本机一样，在 Mac 上启动远程服务时选好
+档位（如可编辑），**启动之后手机端改不了**；遇到需要确认的操作，由用户在手机端回 y/n。
+
+```
+Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=/Users/Jack/proj
+                              ↓ 只在启动参数里（命令行 > wecom-ws.conf）
+                        gateway.pl  --mode / --allow-write / --confirm-wait
+                              ↓ 透传
+                 agent --rpc --no-config --tools=… --mode=… --allow-write=…
+                              ↑ {t:"confirm"} ↓ {t:"reply"}
+                     gateway 转成一行 ask → 手机 「需要你确认：…（y/n）」
+                              ↑ 用户回的 y/n 当答案；超时 120 秒按拒绝
+```
+
+**四条不变量**
+
+| 不变量 | 守住它的地方 |
+|---|---|
+| 档位只来自启动参数（不认配置、不认环境变量、更不认聊天消息） | `check-decoupling.py`：gateway 里出现 `$conf->{REMOTE_MODE}` / `CLAUDE_MODE` / `$j->{mode}` 立刻红 |
+| 判定只有一处：`writable_mode()` 只认 `accept-edits` / `bypass`，其余一律只读 | 卡口断言这两个字面量必须存在 |
+| 确认必须转给手机，不许静默拒绝（否则写操作会一路超时） | 卡口断言 `sub ask_remote` 存在 |
+| 回应键必须是 `reply`，超时按拒绝 | 单测 `test-gateway-write` 里 y / n / 超时 三条 |
+
+**代价（写在这里，别忘）**：开 `accept-edits` 之后，手机 = 一份能改代码的凭据（白名单内的人）。
+手机丢了的风险从「只能读」变成「能改」。所以默认仍是只读，放宽必须显式在启动时写出来；
+危险命令三档都还要确认（`bypass` 也不豁免），审计里记 `mode=` / `roots=` / `confirm_asked` /
+`confirm_answered`（含 `timeout=1`）。
+
+**顺带修掉两个此前藏着的 bug**：①网关回应确认用的键是 `confirm_answer`，agent 只认 `reply`
+—— 只读模式下看不出来，一旦放开写就会一路等到超时；②网关 STDOUT 没自动刷出，确认问题会
+卡在缓冲区里到不了手机。
+
 ## 5. 加密历史：密钥层级
 
 ```

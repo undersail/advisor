@@ -236,6 +236,23 @@ for line in sys.stdin:
     frm, text = req.get('from', ''), req.get('text', '')
     if frm != 'allowed':
         reply = ''
+    elif text.startswith('ASK'):
+        # 需要确认：先吐一行 ask，等调用方回一行 answer，再给最终结果
+        sys.stdout.write(json.dumps({'from': frm, 'ask': 'allow write /tmp/a.txt ?',
+                                     'danger': True}) + '\n')
+        sys.stdout.flush()
+        ans = 'none'
+        for l2 in sys.stdin:
+            if not l2.strip():
+                continue
+            try:
+                j2 = json.loads(l2)
+            except Exception:
+                continue
+            if 'answer' in j2:
+                ans = j2['answer']
+                break
+        reply = 'REPLY:answer=' + ans
     elif text.startswith('LONG'):
         reply = 'L' * 3000 + '收尾'
     elif text.startswith('SLOW'):
@@ -302,6 +319,11 @@ def main():
         srv.pump(conn, buf, got, 12)
         srv.send_json(conn, msg_frame('msg5', 'allowed', 'text', 'SLOW please'))
         srv.pump(conn, buf, got, 12)
+        # 需要确认的操作：网关吐 ask → 客户端把问题发到手机 → 用户回 y → 网关继续
+        srv.send_json(conn, msg_frame('msg6', 'allowed', 'text', 'ASK please'))
+        srv.pump(conn, buf, got, 10)
+        srv.send_json(conn, msg_frame('msg7', 'allowed', 'text', 'y'))
+        srv.pump(conn, buf, got, 10)
 
     srv = WSServer(on_client)
     srv.one_shot = True
@@ -314,8 +336,8 @@ def main():
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                             stdin=subprocess.DEVNULL, env=env)
     # 等到「最后一条」的结果回来再收工：早停会把后面的阶段掐掉，表现成「客户端没回」
-    wait_for(lambda: any('REPLY:SLOW' in (((r.get('body') or {}).get('text') or {})
-                                       .get('content', '')) for r in got['replies']), seconds=60)
+    wait_for(lambda: any('REPLY:answer=' in (((r.get('body') or {}).get('text') or {})
+                                          .get('content', '')) for r in got['replies']), seconds=60)
     proc.terminate()
     try:
         proc.wait(10)
@@ -375,6 +397,16 @@ def main():
           any('正在处理' in t for t in texts5), texts5[:2])
     check('慢回复：处理完仍然把真正的结果发出来',
           any('REPLY:SLOW' in t for t in texts5), texts5)
+
+    r6 = replies_for(got, 'msg6')
+    texts6 = [((r.get('body') or {}).get('text') or {}).get('content', '') for r in r6]
+    check('需要确认时：把问题发到手机', any('需要你' in t and '确认' in t for t in texts6), texts6[:2])
+    check('需要确认时：告诉用户怎么回（y / n）',
+          any('y' in t and 'n' in t for t in texts6), texts6[:2])
+    check('危险操作会标出来（⚠）', any('⚠' in t for t in texts6), texts6[:2])
+    r7 = replies_for(got, 'msg7')
+    texts7 = [((r.get('body') or {}).get('text') or {}).get('content', '') for r in r7]
+    check('手机回 y 之后：网关收到 y 并继续跑完', any('REPLY:answer=y' in t for t in texts7), texts7[:3])
 
     cf = os.path.join(home, '.claude-agent', 'wecom-ws.conf')
     check('配置文件权限 0600', oct(os.stat(cf).st_mode & 0o777) == '0o600', '')
