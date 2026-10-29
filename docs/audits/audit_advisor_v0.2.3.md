@@ -314,3 +314,28 @@ CI 35 → **36 步**（io 10 → 11）。
 退避回到 1 秒」「凭据错 → 恰好 5 次后停」。退避基数/上限加了
 `WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` 覆盖，测试把它压到毫秒级才能跑得快。
 文档：`user_manual` 保活段、`manual_test_mac` §7.5、`design_doc` §4.5.3 同步。
+
+### 6.5.6 wss 证书校验：真机报障碍暴露的两个 bug
+
+真机日志：`连接结束：握手被拒：depth=1 C = US, O = "DigiCert, Inc.", CN = … verify error:num=20:
+unable to get local issuer certificate … HTTP/1.1 101 Switching Protocols`，随后每 30 秒重试一次。
+
+两个独立缺陷：
+
+1. **HTTP 头解析**（真 bug，macOS 必现）：`openssl s_client` 即使带 `-quiet` 也会把
+   `depth=…/verify return:…` 写到 **stdout**，所以 HTTP 响应不在缓冲区开头；原判据
+   `^HTTP/1\.1\s+101` 失配 → 明明已经 101 却报「握手被拒」。改为先切掉 `HTTP/1.` 之前的噪声
+   再判 101，同时检查噪声里的 `verify error:num=NN`
+2. **stderr 没接管道**（真 bug）：`open3($in,$out,$errh,…)` 的 `$errh` 是 undef（漏了 `gensym`），
+   子进程 stderr 直接丢失 → 证书校验失败的真实原因永远读不到，只剩含糊的「握手时连接被关闭」
+
+修法：`s_client` 带 `-CAfile`（证书包按 `SSL_CERT_FILE` → `~/.claude-agent/ca-bundle.pem` 缓存
+→ 常见路径 → **macOS 从钥匙串导出**）+ `-verify_return_error`（fail-closed）；
+证书类错误标记 `[fatal]` 并 **退出码 5**（不进重试循环），打印三条处理办法与已用证书包；
+审计新增 `ws_ca bundle=…`、`ws_fatal`。
+
+新增 `scripts/test-wss-tls.py`（9 项，自签 CA + 本地 TLS WebSocket 服务端）：证书对能握手并订阅、
+证书不对立即退出 5 且消息点名「证书校验」并给出三种办法（钥匙串 / `SSL_CERT_FILE` / Homebrew）、
+不设 `SSL_CERT_FILE` 时也能自己找到系统证书包。CI 加一步（36 → 37 步，测试脚本 17 → 18、453 →
+… 现 471 项）。文档：`user_manual` §8.3 + 排错表退出码 4/5、`manual_test_mac` §7.5 查 `ws_ca`、
+`design_doc` §4.5.3。

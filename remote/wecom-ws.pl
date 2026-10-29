@@ -309,7 +309,50 @@ sub split_text {
 # ============================================================================
 #  传输层：wss 走 openssl s_client 子进程，ws 走 IO::Socket::INET（测试用）
 # ============================================================================
-our ($TLS_PID, $SOCK);
+our ($TLS_PID, $SOCK, $TLS_CA);
+
+# 根证书包：wss 必须能校验服务端证书，否则不让连（等着被中间人拿密钥不是选项）。
+# 顺序：显式环境变量 > 上次导出的缓存 > 各平台常见路径 > macOS 从钥匙串导出。
+my @CA_CANDIDATES = (
+    '/etc/ssl/cert.pem',                      # macOS（系统自带根证书束）
+    '/private/etc/ssl/cert.pem',
+    '/etc/ssl/certs/ca-certificates.crt',     # Debian/Ubuntu
+    '/etc/pki/tls/certs/ca-bundle.crt',       # RHEL/CentOS
+    '/usr/local/etc/openssl/cert.pem',        # Homebrew openssl@1.1
+    '/usr/local/etc/openssl@3/cert.pem',      # Homebrew openssl@3
+    '/opt/homebrew/etc/ca-certificates/cert.pem',
+);
+
+sub ca_bundle {
+    my $env = $ENV{SSL_CERT_FILE} // '';
+    return $env if $env ne '' && -r $env;
+    my $cache = "$ENV{HOME}/.claude-agent/ca-bundle.pem";
+    return $cache if -r $cache && -s $cache;
+    for my $c (@CA_CANDIDATES) {
+        return $c if -r $c && -s $c;
+    }
+    # macOS：钥匙串里的系统根证书导出成 PEM，缓存下来（只做一次）
+    if ($^O eq 'darwin') {
+        my $sys = '/System/Library/Keychains/SystemRootCertificates.keychain';
+        if (-e $sys) {
+            my $tmp = "$cache.tmp$$";
+            my $ok = system("security find-certificate -a -p '$sys' > '$tmp' 2>/dev/null");
+            if ($ok == 0 && -s $tmp) {
+                chmod 0644, $tmp;
+                rename $tmp, $cache and return $cache;
+            }
+            unlink $tmp;
+        }
+    }
+    return '';
+}
+
+sub ca_advice {
+    return "找不到可用的根证书包。任选一种办法：\n"
+         . "  1) macOS：重新执行一次本命令（会自动从钥匙串导出到 ~/.claude-agent/ca-bundle.pem）\n"
+         . "  2) 指定已装好的证书包：export SSL_CERT_FILE=/etc/ssl/cert.pem\n"
+         . "  3) Homebrew：brew install ca-certificates\n";
+}
 
 sub transport_open {
     my ($url) = @_;
@@ -318,13 +361,23 @@ sub transport_open {
     $port ||= ($scheme eq 'wss' ? 443 : 80);
     $path ||= '/';
     if ($scheme eq 'wss') {
-        # -quiet：不打印会话信息；-servername：SNI（没有它服务端可能给错证书/直接断）
-        my ($in, $out, $errh);
+        # -quiet：不打印会话信息；-servername：SNI；-CAfile：根证书包；
+        # -verify_return_error：校验不过就**直接断**（fail-closed，绝不降级成不校验）
+        my $ca = ca_bundle();
+        die "[fatal]TLS 证书校验无法进行：".ca_advice() unless $ca ne '';
+        # ★ errh 必须用 gensym：直接 `my ($in,$out,$errh)` 传进 open3 时它是 undef，
+        #   子进程 stderr 根本没接进管道 —— 于是证书校验失败的原因永远读不到，
+        #   只会报一句含糊的「握手时连接被关闭」。（真机上就是这么被坑的）
+        my ($in, $out);
+        my $errh = gensym;
         my $pid = eval {
-            open3($in, $out, $errh, 'openssl', 's_client', '-quiet', '-connect', "$host:$port",
-                  '-servername', $host);
+            open3($in, $out, $errh, 'openssl', 's_client', '-quiet',
+                  '-connect', "$host:$port", '-servername', $host,
+                  '-CAfile', $ca, '-verify_return_error');
         };
         die "起不了 openssl s_client：$@\n" unless $pid;
+        $TLS_CA = $ca;
+        audit('ws_ca', "bundle=$ca");
         binmode($in);  binmode($out);
         select((select($in), $| = 1)[0]);
         $TLS_PID = $pid;
@@ -369,6 +422,27 @@ sub t_read {
 # ------------------------------------------------------------------ WebSocket
 my $WS_BUF = '';
 
+# TLS 失败时说人话：读 s_client 的 stderr，必要时再跑一次带诊断的握手拿证书信息。
+# 返回 ''（不是 TLS 问题）或者以 [fatal] 开头的说明。
+sub tls_explain {
+    my ($t) = @_;
+    return '' unless $t->{scheme} && $t->{scheme} eq 'wss' && $t->{errh};
+    my $emsg = '';
+    my $fh = $t->{errh};
+    {
+        local $/;
+        $emsg = <$fh> // '';        # 子进程已退出，读到 EOF 立即返回
+    }
+    return '' unless $emsg =~ /verify error|Verify return code|certificate|issuer/i;
+    my $diag = `openssl s_client -connect $t->{host}:$t->{port} `
+             . `-servername $t->{host} -CAfile $TLS_CA </dev/null 2>&1`;
+    $diag = '' unless defined $diag;
+    my @lines = grep { /verify error|Verify return code/i } split /\n/, $diag;
+    my $detail = join('；', map { my $x = $_; $x =~ s/^\s+//; $x } @lines[0 .. ($#lines > 3 ? 3 : $#lines)]);
+    if ($detail eq '') { $detail = $emsg; $detail =~ s/\s+/ /g; }
+    return "[fatal]TLS 证书校验失败：$detail\n" . ca_advice() . "已用的证书包：$TLS_CA\n";
+}
+
 sub ws_handshake {
     my ($t) = @_;
     my @k = map { chr(int(rand(256))) } 1 .. 16;
@@ -390,12 +464,38 @@ sub ws_handshake {
         next unless $sel->can_read($left);
         my $chunk = '';
         my $n = sysread($t->{out}, $chunk, 4096);
-        die "握手时连接被关闭\n" unless defined $n && $n > 0;
+        if (!defined $n || $n <= 0) {
+            my $ex = tls_explain($t);
+            die $ex if $ex ne '';
+            die "握手时连接被关闭\n";
+        }
         $buf .= $chunk;
+    }
+    # openssl 会把自己那几行证书校验信息（depth=…/verify return:…）写到 stdout，
+    # 即使加了 -quiet，macOS 的 LibreSSL 照写不误 —— 所以 HTTP 头不一定在缓冲区开头。
+    # 先把 HTTP/1.x 之前的噪声切出来：噪声里出现 verify error:num=NN 就是证书校验没过。
+    my $noise = '';
+    my $pos = index($buf, 'HTTP/1.');
+    if ($pos > 0) {
+        $noise = substr($buf, 0, $pos);
+        $buf = substr($buf, $pos);
+    }
+    if ($noise =~ /verify error:num=(\d+)/) {
+        my $detail = ($noise =~ /(verify error:num=\d+:[^\r\n]*)/) ? $1 : "code=$1";
+        my $txt = $noise;
+        $txt =~ s/\s+/ /g;
+        die "[fatal]TLS 证书校验失败：$detail（证书包：$TLS_CA）\n"
+          . ca_advice() . "openssl 原始输出：$txt\n";
     }
     my ($hdr, $rest) = split /\r\n\r\n/, $buf, 2;
     $WS_BUF = defined $rest ? $rest : '';
-    die "握手被拒：$hdr\n" unless $hdr =~ m{^HTTP/1\.1\s+101};
+    unless (defined $hdr && $hdr =~ m{^HTTP/1\.[01]\s+101}) {
+        my $ex = tls_explain($t);
+        die $ex if $ex ne '';
+        my $shown = defined $hdr ? $hdr : $buf;
+        $shown =~ s/\s+/ /g;
+        die "握手被拒：$shown\n";
+    }
     return 1;
 }
 
@@ -910,6 +1010,14 @@ sub cmd_serve {
                  . '本服务不再自动重连。要接管就把那边的连接关掉，再重新启动本服务。');
             release_instance_lock($lock);
             exit 4;
+        }
+        if (!$ok && $err =~ /\[fatal\]/) {
+            # 永久错误（没证书包、证书校验失败、BotID/Secret 错）：重试不会变好，立即退出（退出码 5）
+            my $msg = $err; $msg =~ s/\[fatal\]//;
+            logmsg($msg);
+            audit('ws_fatal', 'err=' . ($msg =~ s/\n/ /gr));
+            release_instance_lock($lock);
+            exit 5;
         }
         if (!$ok) {
             my $is_auth = ($err =~ /订阅被拒/);

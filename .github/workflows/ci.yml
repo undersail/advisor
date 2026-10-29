@@ -381,6 +381,14 @@ jobs:
           set -o pipefail
           python3 scripts/test-wecom-ws.py 2>&1 | tee /tmp/wecom-ws.log
 
+      - name: wss/TLS 真握手（自签 CA：证书对能连、证书不对立即失败）
+        run: |
+          set -o pipefail
+          # 真机上踩过：openssl 把校验信息写到 stdout 挡住 HTTP 头，明明 101 却判「握手被拒」；
+          # 另外 open3 的 errh 没 gensym → 子进程 stderr 没接管道，证书失败原因永远读不到。
+          # 这个脚本用本地自签 CA 起 TLS WebSocket 服务端，把这两条钉死。
+          python3 scripts/test-wss-tls.py 2>&1 | tee /tmp/wss-tls.log
+
       - name: setup.sh 的 python3 探测与 GUI 前置条件
         run: |
           set -o pipefail

@@ -385,6 +385,21 @@ Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj
 `errcode≠0` 时**不清零** missed 计数 —— 这三条原本就与官方一致，复核后保留。
 退避基数/上限可用 `WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` 覆盖（仅供测试压到毫秒级）。
 
+**wss 的证书校验（真机暴露的两个 bug）**：macOS 上跑出
+`握手被拒：verify error:num=20 … HTTP/1.1 101 Switching Protocols` —— 连接其实通了。两处都修了：
+
+1. `openssl s_client` 即使带 `-quiet` 也会把 `depth=…/verify return:…` 写到 **stdout**，
+   HTTP 头不在缓冲区开头，原来 `^HTTP/1.1` 的匹配直接判「握手被拒」。现在先切掉 HTTP/1.x 之前的
+   噪声再判 101，并检查噪声里的 `verify error:num=NN`
+2. 原来 `open3($in,$out,$errh,…)` 的 `$errh` 是 undef（没有 `gensym`），
+   子进程 stderr 根本没接进管道 → 证书校验失败的真实原因永远读不到，只剩一句「握手时连接被关闭」
+
+现在的行为：证书包按 `SSL_CERT_FILE` → 缓存 `~/.claude-agent/ca-bundle.pem` → 各平台常见路径
+→ **macOS 从钥匙串导出**的顺序定位（`security find-certificate`）；`s_client` 带
+`-CAfile` + `-verify_return_error`（fail-closed，绝不降级成不校验）；证书类错误标记 `[fatal]`，
+立即退出**退出码 5**并打印三条处理办法 + 已用的证书包，不再进 30 秒重试循环。
+审计留 `ws_ca bundle=…`（排错时一眼看出用的哪个包）。
+
 **单实例与退出**：`--serve` 在 `~/.claude-agent/wecom-ws.pid` 上加 `flock` 独占，
 第二个实例立刻以退出码 3 被拒（两个实例会把同一条消息各处理一遍，文件和钱都可能动两次）；
 pid 文件里写 `pid` / `mode` / `allow_write` / `started`（不含密钥），GUI 的状态行只读它。

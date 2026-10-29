@@ -295,6 +295,8 @@ echo "构建完成" | perl remote/notify.pl -  # 发任意文本
 | 现象 | 看哪里 | 常见原因 |
 |---|---|---|
 | 远程服务启动即退出码 3 | 提示里给了 pid | 已经有一个在跑，先 `kill` 旧的 |
+| 退出码 4 | 「同一机器人已在别处建立了新连接」 | 另一台机器/客户端正连着，关掉那边再启动 |
+| 退出码 5 | 「TLS 证书校验失败」或「找不到可用的根证书包」 | 见 8.4 |
 | `--check` 报 `errcode` | 提示原文 | BotID / Secret 不对，或机器人没开「使用长连接」 |
 | 手机发了没反应、日志无 `ws_inbound` | `audit.log` | 服务没跑 / 白名单没写对 |
 | 有 `ws_inbound` 但没有 `gateway_done` | `audit.log` | 本机模型不通（先在终端跑一次 `advisor`） |
@@ -303,7 +305,29 @@ echo "构建完成" | perl remote/notify.pl -  # 发任意文本
 | 回调模式：后台保存 URL 失败 | `audit.log` 的 `wecom_verify_fail` / `wecom_receiveid_fail` | Token 或 EncodingAESKey 不一致 |
 | 回调模式：有 `gateway_done` 但手机没收到 | `wecom_send_fail` / `feishu_send_fail` | 没开发送权限，或 ID 不是 UserID / open_id |
 
-### 8.3 自查命令
+### 8.3 证书校验失败怎么办
+
+连企业微信长连接走的是 `wss://`，必须能校验服务端证书。如果本机没有根证书包，
+程序**不会**降级成「不校验」—— 那等于把密钥交给可能的中间人。它会直接停下并告诉你原因：
+
+```
+TLS 证书校验失败：verify error:num=20:unable to get local issuer certificate（证书包：…）
+找不到可用的根证书包。任选一种办法：
+  1) macOS：重新执行一次本命令（会自动从钥匙串导出到 ~/.claude-agent/ca-bundle.pem）
+  2) 指定已装好的证书包：export SSL_CERT_FILE=/etc/ssl/cert.pem
+  3) Homebrew：brew install ca-certificates
+```
+
+自己核对用的命令（不会打印任何密钥）：
+
+```bash
+openssl s_client -connect openws.work.weixin.qq.com:443 -servername openws.work.weixin.qq.com   -CAfile ~/.claude-agent/ca-bundle.pem </dev/null 2>&1 | grep -E 'Verify return code|verify error'
+```
+
+看到 `Verify return code: 0 (ok)` 就没问题。这条**只在启动时判一次**，失败即退出（退出码 5），
+不会每 30 秒重试 —— 证书问题重试一万次也不会变好。
+
+### 8.4 自查命令
 
 ```bash
 advisor --version                        # 版本
