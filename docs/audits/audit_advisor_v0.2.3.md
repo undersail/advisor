@@ -285,7 +285,7 @@ CI 35 → **36 步**（io 10 → 11）。
 - GUI：`remote_service_status()` 只读 pid 文件 + `kill(pid,0)` 判活；
   `start_remote_service()` / `stop_remote_service()`（TERM → 6 秒后 KILL）；
   面板加服务状态行与「启动服务」「停止服务」按钮，按状态互相禁用
-- 新文档 `docs/ops_remote.md`：启动 / 三档 / 手机确认 / 多启动保护 / 保活（心跳、退避、SIGPIPE）/
+- 新文档 `docs/ops_remote.md`（现已并入 `docs/user_manual.md`）：启动 / 三档 / 手机确认 / 多启动保护 / 保活（心跳、退避、SIGPIPE）/
   退出 / 状态与排错 / launchd 开机自启 / 9 步验收清单
 - 测试：`test-wecom-ws` 39 → **47 项**（pid 文件内容与权限、第二实例 exit 3、
   SIGTERM 后 pid 清理、审计 `ws_stop`）；`test-gui-remote` 34 → **44 项**

@@ -350,7 +350,7 @@ read_file / list_dir"和"工具集不可配置"变成 CI 卡口。
 档位（如可编辑），**启动之后手机端改不了**；遇到需要确认的操作，由用户在手机端回 y/n。
 
 ```
-Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=/Users/Jack/proj
+Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj
                               ↓ 只在启动参数里（命令行 > wecom-ws.conf）
                         gateway.pl  --mode / --allow-write / --confirm-wait
                               ↓ 透传
@@ -372,7 +372,7 @@ Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=/Users/Jac
 **单实例与退出**：`--serve` 在 `~/.claude-agent/wecom-ws.pid` 上加 `flock` 独占，
 第二个实例立刻以退出码 3 被拒（两个实例会把同一条消息各处理一遍，文件和钱都可能动两次）；
 pid 文件里写 `pid` / `mode` / `allow_write` / `started`（不含密钥），GUI 的状态行只读它。
-INT / TERM / HUP 都走优雅退出：审计 `ws_stop`、删 pid、放锁。细节见 `docs/ops_remote.md`。
+INT / TERM / HUP 都走优雅退出：审计 `ws_stop`、删 pid、放锁。细节见 `docs/user_manual.md` 第 6 节。
 
 **代价（写在这里，别忘）**：开 `accept-edits` 之后，手机 = 一份能改代码的凭据（白名单内的人）。
 手机丢了的风险从「只能读」变成「能改」。所以默认仍是只读，放宽必须显式在启动时写出来；
@@ -588,7 +588,7 @@ CI 里有格式卡口，改格式必须同步改 CI。
   交互式 `ssh` 登录、直接 `read`
 
 > 具体正则写进代码，本节只定原则。清单**写死在代码里**，不做配置开关 ——
-> 可配置的危险清单等于可以被关掉，与远程只读硬关同一风格。
+> 可配置的危险清单等于可以被关掉，与「远程档位只认启动参数」同一风格。
 
 **★ 无人可确认时 fail-closed（由 Q2 派生的硬约束）**
 

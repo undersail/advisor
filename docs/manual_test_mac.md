@@ -1,520 +1,411 @@
-# Mac 真机验收清单
+# Mac 真机验收手册
 
-本机（Linux）只能验到「协议构造 + 逻辑分支 + 控件结构」这一层。下面这些**只有
-macOS 真机能确认**，按顺序做一遍大概 15 分钟。
+自动化只能验到「协议构造 + 逻辑分支 + 控件结构」这一层。只有 macOS 真机能确认的是：
+**真密钥能不能通、真回调/长连接能不能连上、双击能不能打开、观感对不对**。
 
-每一步都写了「应该看到什么」和「不对的话把什么发给我」。发之前扫一眼有没有
-密钥 —— 不要贴 key，贴到 `****` 之后的即可。
+全部走一遍约 40 分钟；只验本地部分约 15 分钟，远程部分按需做。
+
+**通则**
+
+- 每一步都写了「应该看到什么」；不符就是缺陷，别自我说服
+- 报错时把**消息原文 + HTTP 状态码**发我：401 = 密钥无效、403 = 该地区不可用、000 = 网络不通
+- 扫一眼再发：**不要贴密钥**，贴到 `****` 之后的即可
 
 ---
 
-## 0. 准备
+## 目录
+
+| 部分 | 章节 | 需要多久 |
+|---|---|---|
+| 准备与安装 | §1 准备 · §2 安装 | 5 分钟 |
+| 本地功能 | §3 终端版 · §4 GUI | 10 分钟 |
+| 模式与安全 | §5 交互模式与可写目录 · §6 密钥与隐私 | 8 分钟 |
+| 远程接入 | §7 远程接入（7.1～7.9） | 按需 |
+| 真机专属 | §8 真机才可能暴露的坑 · §9 出问题怎么查 | — |
+| 收工 | §10 收工勾选表 | 1 分钟 |
+
+---
+
+# 1. 准备
 
 ```bash
-git clone git@github.com:undersail/advisor.git
-cd advisor
+git clone <仓库地址> advisor && cd advisor
 ```
 
-需要：macOS 10.9 或更新（Tier B）+ 系统自带 perl/python3。
-Xcode Command Line Tools **只有打 zip 包才需要**，装普通版不需要。
+- macOS 10.13（High Sierra）或更新；系统自带 `perl`、`python3`
+- 打包分发才需要 Xcode Command Line Tools
+- 一条模型厂商的 API 密钥（7 家任选）
 
 ---
 
-## 1. 终端版跑通（不装 GUI）
+# 2. 安装
 
-```bash
-export DEEPSEEK_API_KEY=你的key      # 或先不设，看它是否给出指引
-perl agent/claude-agent.pl
-```
-
-**应该看到**
-- 中文环境：`=== high_sierra Advisor ===` + 历史记录提示
-- 没有 key 时：`请设置 DEEPSEEK_API_KEY`（界面语言不同则显示对应语言）
-- 有 key 时：`有什么需要？>`
-
-**顺手验三项**
-| 操作 | 应该看到 |
-|---|---|
-| 输入 `/model` | 先列 **7 家厂商**（不是 12 个模型） |
-| 接着输 `4` | 列出 DeepSeek 的两个模型 |
-| 接着只按回车 | `已取消`，回到对话 |
-| 输入 `/deepseek`（已有 key） | `已切换到 [deepseek / deepseek-chat]` |
-| 输入 `/foo` | 当成普通发言发出去，不报"未知命令" |
-| 输入 `/help` | 中文帮助 |
-
-**这里最容易露的两处**：`/model` 是否真是两级、`/deepseek` 切换后 `model_lbl` 是否跟着变。
-
----
-
-## 2. setup.sh 安装
+## 2.1 跑安装向导
 
 ```bash
 bash setup.sh
 ```
 
 **应该看到**
-- 中文向导，厂商列表是 **7 项**（Gemini / Anthropic / OpenAI / DeepSeek /
-  通义千问 / Kimi / GLM），不是原来的 2 项
-- 选一家后：`需要 <厂商名> 的 API 密钥` + 密钥页 URL
+
+- 中文向导；厂商列表 **7 项**（Gemini / Anthropic / OpenAI / DeepSeek / 通义千问 / Kimi / GLM）
+- 选一家后：`需要 <厂商名> 的 API 密钥` + 密钥页地址
 - 粘贴后：`→ 使用 ...` + `已保存到 ~/.claude-agent-env`
 - 最后 `检查 API 连通性` → `API 连接正常`
+- 生成 `~/Applications/Advisor.app`
 
-**不对的话**：把 `消息里的中文提示` + `HTTP 状态码` 发我。特别注意
-`API 错误(HTTP xxx)` 里的数字 —— 401 是 key 无效、403 是这家封了你的地区、
-000 是网络根本不通。
+**不对时**：`API 错误(HTTP xxx)` 里的数字就是原因（401 / 403 / 000，见通则）。
 
-然后重开终端：
+## 2.2 打可分发的 zip（可选）
+
 ```bash
-advisor --version     # advisor (high_sierra_claude) <VERSION 文件里的版本>
-advisor --list-models # 12 条，带中文说明
-advisor -m glm-4.6    # 指定模型起一轮
+xcode-select --install                  # 若没装过
+bash release/build_standalone_app.sh
+```
+
+产物在 `release/` 下。这一步在开发机上验不到（没有 py2app），失败就把完整报错发我。
+
+> 本地 `setup.sh` 生成的 App 是 alias 模式，依赖本机 python3 与源码目录，**不能拷给别的 Mac**；
+> 要分发就用上面这条命令产出的独立包。
+
+---
+
+# 3. 终端版验收
+
+```bash
+advisor
+```
+
+**应该看到**
+
+- `=== high_sierra Advisor ===` + 历史记录提示
+- 没配密钥时：`请设置 <厂商> 的密钥`（按界面语言显示）
+- 配好后：`有什么需要？>`
+
+| 操作 | 应该看到 |
+|---|---|
+| `/model` | 先列 **7 家厂商**（不是 12 个模型） |
+| 接着输 `4` | 列出该厂商的模型 |
+| 接着只按回车 | `已取消`，回到对话 |
+| `/deepseek`（该家已配 key） | `已切换到 [deepseek / deepseek-chat]` |
+| `/foo` | 当成普通发言发出去，不报「未知命令」 |
+| `/help` | 中文帮助 |
+| `advisor --list-models` | 12 条，带中文说明 |
+| `advisor --version` | 版本号与 `VERSION` 文件一致 |
+
+**最容易露的两处**：`/model` 是否真是两级；切换厂商后顶部模型标签是否跟着变。
+
+**协议深度验证（可选，10 项断言，只打 PASS/FAIL，不含 key）**
+
+```bash
+export DEEPSEEK_API_KEY=你的key
+python3 scripts/live-check.py deepseek      # 也可 openai / dashscope / moonshot / zhipu
 ```
 
 ---
 
-## 3. GUI：首启画面
+# 4. GUI 验收
+
+## 4.1 首启画面
 
 ```bash
-open ~/Applications/Advisor.app     # setup.sh 生成的双击版
+open ~/Applications/Advisor.app
 # 或
 python3 gui/advisor_gui.py
 ```
 
-（若已存在 `~/.claude-agent-env` 且里面有 key，会直接进主界面 —— 想重看首启就
-`mv ~/.claude-agent-env /tmp/env.bak`）
+想重看首启：`mv ~/.claude-agent-env /tmp/env.bak` 再打开。
 
-**应该看到**
-- 一个下拉，**7 项**，中文环境显示中文厂商名（`通义千问（阿里云）` 这种）
-- 切换下拉 → 下面那个蓝色「获取密钥」按钮的跳转地址跟着变（点开看一眼域名对不对）
+- 一个厂商下拉，**7 项**，中文环境显示中文厂商名
+- 切换下拉 → 蓝色「获取密钥」按钮的跳转地址跟着变（点开确认域名）
 - 粘 key → 校验通过 → 进主界面
+- **不用先点输入框，直接就能打字**
 
-**重点看观感**（这部分我没法在本机验）：
-下拉框宽度够不够、厂商名有没有被截断、按钮与输入框的间距、整体是否居中。
+**重点看观感**：下拉宽度、厂商名有没有被截断、按钮与输入框间距、整体是否居中。
 
----
+## 4.2 模型菜单两级
 
-## 4. GUI：模型菜单两级
+菜单栏「切换」→ 7 个分组，悬停展开子菜单，当前在用的那条后面带「使用中」。
+点一条 → 顶部模型标签跟着变 → 下一句话由新模型回答。
 
-主界面菜单栏点开「切换」那一项。
+## 4.3 双击打不开怎么办
 
-**应该看到**：7 个分组，鼠标悬停展开子菜单，列出该厂商的模型；当前在用的那条
-后面带「使用中」。
-
-点一个 → 顶部模型标签跟着变 → 下一句话由新模型回答。
-
----
-
-## 5. 真机才可能暴露的坑（按怀疑度排序）
-
-| 怀疑点 | 怎么验 | 出问题的表现 |
-|---|---|---|
-| **`/deepseek` 真调用** | 选 DeepSeek 问一句 | 400/422 → 请求体它不认；`tool_calls` 不返回 → 函数调用不可用 |
-| **工具调用闭环** | 让它「读一下 ~/.zshrc」 | 卡住不动 / 报 `tool_result` 相关错误 |
-| **`max_tokens` 上限** | 让它写长一点的东西 | 报参数非法（各家的字段名和上限不一致） |
-| **Kimi/GLM 上下文与限流** | 连续问 5 轮 | 429 限流；错就错在限速，不是功能 |
-| **`setup.sh` 的 bash 3.2** | 跑一遍安装 | `mapfile: command not found` 之类 → 说明误用了 bash 4 特性 |
-| **包装脚本报错** | `advisor --list-models` | 说明 `provider_of` 取不到 provider |
-| **py2app 打包** | `bash release/build_standalone_app.sh` | 需要 Xcode CLT；只在要分发时做 |
-
----
-
-## 6. 打可分发 zip（可选）
+Finder 双击时 stderr 没地方显示，失败表现是「弹一下就没了」或完全没反应。
 
 ```bash
-xcode-select --install          # 若没装过
-bash release/build_standalone_app.sh
-```
-
-产物在 `release/` 下。**这一步在本机完全没验过**（Linux 没有 py2app），
-如果失败把完整报错发我。
-
----
-
-## 7. 想更彻底：用脚本验协议
-
-```bash
-export DEEPSEEK_API_KEY=你的key
-python3 scripts/live-check.py deepseek
-```
-
-10 项断言，只打印 PASS/FAIL，**不含 key**。想验别家就换参数
-（`openai` / `dashscope` / `moonshot` / `zhipu`；`anthropic` / `gemini` 走另外两种
-请求形状，脚本目前只覆盖 OpenAI 兼容那五家）。
-
-## 8. 远程接入（可选，M5）
-
-远程和本地是两套东西，先确认本地能跑再做这一步。
-
-### 8.1 只验通知（最快，1 分钟）
-
-1. 建 `~/.claude-agent/remote.conf`，写一行（企微群 → 群机器人 → 复制 webhook 地址）：
-   ```
-   WECOM_WEBHOOK = https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...
-   ```
-2. 跑：`perl remote/notify.pl --test`
-3. 应看到：`通知已发送：WECOM_WEBHOOK`，手机上群里收到一条
-   「advisor 通知连通性测试 —— 收到即成功。」
-4. 不对时看：`通知发送失败：WECOM_WEBHOOK（errcode 93000: ...）` —— 93000 是
-   key 无效或地址抄错；报 `url must start with https` 说明粘成了 http。
-
-### 8.2 验网关（远程只读）
-
-1. 同目录加白名单（先随便写你自己的 ID，随便什么串都行，这里只验证拦截逻辑）：
-   ```
-   ALLOW = alice
-   ```
-2. 跑一条：`perl remote/gateway.pl --once --from alice --text "列一下当前目录"`
-3. 应看到：正常的中文回答（说明 agent 被网关驱动起来了）
-4. 换成不在白名单的人：`perl remote/gateway.pl --once --from bob --text "ls"`
-   应看到：**什么都没有输出**（不回"无权限"，避免暴露机器人存在），
-   但 `~/.claude-agent/audit.log` 里有一行 `drop_sender from=bob`。
-5. 试让它写文件：「在 /tmp 建个文件」 —— 应被拒绝，且 `/tmp` 下不会出现文件。
-   拒绝理由会回给模型，模型会转述给你。
-
-### 8.3 验收要点（对着看，别只看"跑通了"）
-
-- [ ] `~/.claude-agent/audit.log` 存在且权限 `-rw-------`
-- [ ] 白名单外的人：无输出、有审计
-- [ ] 让写文件：没写成，且回答里说明了不能写
-- [ ] `remote.conf` 里没有 `HIST_PASS` 时，`~/.claude-agent/history/` 不该多出东西
-
-## 8.4 密钥策略（只在安装时输入一次）
-
-真机上按这三条验，任何一条不符就是缺陷：
-
-- [ ] 装好之后正常用 `advisor`：**普通对话、`/model` 换厂商都不会出现"粘贴密钥"的提示**
-      （密钥只有两个入口：安装流程，和专门命令 `/key`）
-- [ ] `/key`（不带参数）→ 列出 7 家厂商，标「已配置 / 未配置」，并给出一行用法
-- [ ] `/key anthropic`（拿一家没配过的试）→ 隐藏输入 → 询问是否保存 → 输入 `y`
-      后应看到「已保存：<配置文件路径>」；`ls -l ~/.claude-agent-env` 权限必须是 `600`；
-      重启 `advisor` 后 `/key` 列表里那家应变成「已配置」
-- [ ] `/key 不存在的厂商` → 只报「不认识的厂商」并给用法，不会要你输入、也不会写文件
-- [ ] 切到没配密钥的厂商时：列表里那行带 `[未配置密钥]`；选中后只告诉你
-      「要配置请用 /key <厂商>」，并且**仍停留在原来的模型上**，继续对话不受影响
-- [ ] 故意把 `~/.claude-agent-env` 里的 key 改坏一个字符再启动：发一句话后应看到
-      「<厂商> 的密钥被拒绝（HTTP 401）」，提示你退出后检查/重配，
-      **不会**在会话里突然让你重新输入，也不会把原始 JSON 甩到屏幕上
-- [ ] 双击打开 GUI 后**不用先点一下输入框**，直接就能打字（焦点在启动时、后端 ready 后、
-      每轮回复结束后都应自动回到写作框）
-- [ ] 把 `~/.claude-agent-env` 里的 key 故意改坏一个字符再打开 GUI：对话区应出现
-      「后端进程已退出」+ 后端错误原文（例如「密钥被拒绝（HTTP 401）」）+ 处理办法；
-      不许出现「窗口能开但打不进字、也没有任何提示」这种现象
-- [ ] 若 `~/.claude-agent-env` 是别人（sudo）建的、GUI 首启页保存密钥仍失败，弹窗必须写清
-      「路径 / 属主 / 权限 / `sudo rm <路径>` 再试」，不能只丢一句「没权限」；
-      正常情况下（同目录可写）即使文件是 0400 也应该能写进去
-- [ ] 换过厂商后重跑 `setup.sh`：若 `~/.claude-agent-env` 里还留着上一家的模型名
-      （如 anthropic 的 `claude-opus-5`），应看到「已把模型从 … 改成 <本家默认> …」，
-      并且连通性检查用的是**本家**模型名（400 的提示现在会指向 `models.txt` 的模型名）
-- [ ] 恢复会话（`advisor --resume` 或会话内恢复）之后，**不会再弹出厂商编号列表**
-      让你可能误按（现在只打一行 `[厂商 / 模型]` 和一句「要换 AI 请输入 /model」）
-
-## 8.5 远程会话的权限边界（只对话）
-
-从企微/飞书发给 `gateway.pl` 的每条消息都会带 `--no-config` 起 agent，所以在手机上试这些：
-
-- [ ] 发 `/mode bypass` → 回「本次会话不能修改配置（厂商、模型、模式、可写范围、密钥）。
-      这些请在本机配置；对话本身照常可用。」本机 `~/.claude-agent-env` 与模式都不变
-- [ ] 发 `/model 1`、`/key deepseek` → 同样被拒；`/key` 不会在聊天里问你密钥
-      （密钥绝不能经聊天平台转一圈）
-- [ ] 发一句正常问题 → 照常回答；`read_file` / `list_dir` 仍可用，`run_shell` / `write_file`
-      依旧不存在（`--tools` 收窄）
-- [ ] 查 `~/.claude-agent/audit.log`：应有 `session_start … no_config=1`，
-      以及每次拒绝时的 `reply` 事件
-
-## 9. 平台端收发（真机 + 真平台）
-
-本地已经把**确定性部分**验干净了，不需要你重复：
-
-| 脚本 | 项数 | 覆盖 |
-|---|---|---|
-| `scripts/test-platform.py` | 42 | 验签、AES 解密、ReceiveId、防重放、去重、超长切分、报文形态、0600、只听 127.0.0.1 |
-| `scripts/test-remote-notify.py` | 22 | 企微 markdown / 飞书 text 报文、转义、平台报错退出码、`http://` 明文被拒 |
-| `scripts/test-remote.py` | 24 | 网关白名单与只读、审计、超时 |
-| `scripts/test-wecom-ws.py` | 35 | 企微长连接：订阅帧、白名单外零回复、分片、心跳、重连 |
-
-所以要你验的是**自动化覆盖不到的那一层**：凭据真不真、回调地址通不通、白名单里的
-ID 对不对、以及手机上真实的观感。按下面顺序做，每步都有
-「期望」和「不对时先看哪里」。
-
-### 9.0 先备齐三样（缺一样后面都走不通）
-
-- [ ] **凭据**：企微 = CorpID + 应用 AgentId + 应用 Secret + 回调 Token + EncodingAESKey（43 位）；
-      飞书 = App ID + App Secret +（加密时）Encrypt Key + Verification Token
-- [ ] **公网可达的回调地址**：任何能给你一个公网 `https://` 地址的穿透/反代都行
-      （本机默认只听 `127.0.0.1:8099`，这是故意的：回调正文是明文消息）
-- [ ] **你自己的平台 ID**：企微填 UserID（不是昵称），飞书填 `open_id`（`ou_` 开头）
-
-### 9.1 回调接入（企微）
-
-- [ ] `perl remote/platform.pl --init` 录入凭据 → `perl remote/platform.pl --check`
-      期望：`配置齐全：platform=wecom port=8099`
-- [ ] `perl remote/platform.pl --serve`
-      期望：`监听 127.0.0.1:8099（platform=wecom）` + 那句「默认只监听本机」的提醒
-- [ ] `~/.claude-agent/remote.conf` 里写 `ALLOW = <你的 UserID>`（白名单只有这一处）
-- [ ] 穿透把 `https://<你的地址>/wecom` 转到 `127.0.0.1:8099`
-- [ ] 企微后台「应用 → 接收消息 → API 接收」填 URL / Token / EncodingAESKey，点保存
-      期望：**保存能通过**（平台会打 GET + echostr，服务端解密后原样回明文）
-      不对时：`~/.claude-agent/audit.log` 里会是 `wecom_verify_fail`（签名或 Token 不对）
-      或 `wecom_receiveid_fail`（EncodingAESKey 抄错 / 不是这个企业的）
-- [ ] 手机上给这个应用发一条「列一下当前目录」
-      期望：3 秒内先收到「收到，正在处理…（完成后把结果发给你）」，随后收到真正的结果
-- [ ] 预期之外的：`--serve` 前台窗口里应能看到请求进来；关掉窗口后手机再发就不通了
-      （没有做开机自启/守护，这是现状，不是 bug）
-
-### 9.2 回调接入（飞书）
-
-- [ ] `--init` 选飞书 → `--check` 显示 `platform=feishu`
-- [ ] `--serve` 后，飞书开放平台「事件订阅」填 `https://<你的地址>/feishu`
-      期望：challenge 校验通过（明文与加密两种都要能过；填了 Encrypt Key 就走加密）
-- [ ] 把应用权限加上「接收消息」与「以应用身份发消息」，然后手机上私聊这个应用
-      期望：和企微一样，先「处理中」再结果
-- [ ] 白名单里填你的 `open_id`（不是手机号/邮箱）
-
-### 9.3 边界与安全（这几条最容易被忽略，但正是远程的风险面）
-
-- [ ] **白名单外的人**：换一个不在 `ALLOW` 里的账号发消息
-      期望：手机上**没有任何回复**（不回「无权限」，避免暴露机器人存在），
-      `audit.log` 里出现 `drop_sender from=<那个人>`
-- [ ] **远程不能写、不能执行**：让它「在 /tmp 建个文件」「跑一下 rm -rf 测试目录」
-      期望：被拒绝（远程工具只有 `read_file` / `list_dir`），并且 `/tmp` 下没有新文件
-- [ ] **重投不会跑两遍**：手机发一条后立刻断网再恢复（平台会重投）
-      期望：agent 只跑一次；`audit.log` 里有 `duplicate_drop`
-- [ ] **超长回答**：让它输出 3000 字以上
-      期望：拆成多条发到手机，每条开头有「（1/3）」这样的编号，内容不丢字
-- [ ] **凭据不落地到日志**：`grep -c "你的 Secret\|你的 AESKey" ~/.claude-agent/audit.log`
-      期望：0（`audit.log` 只有事件名与长度）
-- [ ] **凭据文件权限**：`ls -l ~/.claude-agent/platform.conf`
-      期望：`-rw-------`（0600）
-
-### 9.4 ~~中继模式（Cloudflare Worker）~~ 已删除
-
-这一节原本要求你开自己的 Cloudflare 账号、`wrangler deploy` 一个 Worker + Durable Object 队列、
-再 `wrangler secret put` 配令牌 —— 用来让 NAT 后面的 Mac 也能收到消息。
-
-**已整段移除**：企微长连接（§9.8）用更轻的方式解决了同一件事——本机连出去，凭据只有
-BotID + Secret，不需要任何云资源，也不需要维护第二个服务。
-
-代码已删（`remote/relay/`、`gateway.pl --poll`、`RELAY_*` 配置、两条 relay 测试）。
-**不需要你做任何迁移**：如果你之前配过 `RELAY_URL` / `RELAY_TOKEN`，它们在配置里只是被忽略，
-可以顺手删掉这两行。
-
-### 9.5 出站通知（档①，1 分钟，随时可验）
-
-- [ ] `~/.claude-agent/remote.conf` 写 `WECOM_WEBHOOK = https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...`
-- [ ] `perl remote/notify.pl --test`
-      期望：`通知已发送：WECOM_WEBHOOK`，群里收到「advisor 通知连通性测试 —— 收到即成功。」
-- [ ] 长任务收尾：`echo "构建完成" | perl remote/notify.pl -`
-      期望：群里收到 markdown 消息，中文与换行正常
-
-### 9.6 不对时先看哪里（按症状查，别乱改配置）
-
-| 症状 | 先看 | 常见原因 |
-|---|---|---|
-| 平台后台保存回调 URL 失败 | `audit.log` 的 `wecom_verify_fail` | Token 不一致 |
-| 同上 | `audit.log` 的 `wecom_receiveid_fail` | EncodingAESKey 抄错/不是这个企业的 |
-| 手机发了没反应、日志里没有 `inbound` | 穿透/反代 | 回调没真正打到本机 8099 |
-| 日志有 `inbound` 但没有 `gateway_done` | 本机 agent | 本机 key 失效或模型不通（先本地跑一次 `advisor`） |
-| 有 `gateway_done` 但手机没收到 | `audit.log` 的 `wecom_send_fail` / `feishu_send_fail` | 发送权限没开（飞书要「以应用身份发消息」）、`--to` 的 ID 不是 UserID/open_id |
-
-### 9.7 这一轮新增的两处加固（顺手记一下，不必单独验）
-
-- `platform.pl` 的测试从 42 项加到 46 项：补了「ReceiveId 不是本企业 → 400」
-  「非文本消息不派活」「飞书时间戳过期 → 403」「中继投递的 Authorization 头必须是
-  `Bearer <token>`（不是占位）」。
-- 新增 `scripts/test-remote-notify.py`（22 项）——`notify.pl` 之前只有语法检查。
-
-### 9.8 企微智能机器人长连接（API 模式 · 使用长连接）
-
-这一条和前两条的区别：**不用公网域名、不用内网穿透、不用 Cloudflare**。本机主动连出去，
-凭据只有 BotID + Secret，在家里普通宽带上就能跑。
-
-**验权限与确认（只在开了可写档时做）**：
-
-1. 手机发「在 proj 目录下新建 hello.txt」→ 手机应收到一条确认（或直接写好，取决于档位）
-2. 回 `n` → 应回「已拒绝」，文件**没有**被创建
-3. 再发一次，回 `y` → 文件被创建
-4. 发一条**不回**的确认（比如执行 `rm -rf /tmp/xxx`）→ 等两分钟 → 应回「超时按拒绝」，审计里能看到 `timeout=1`
-5. 手机发 `/mode bypass` → 应被拒绝（远程改不了档位）
-
-**多启动保护与退出（1 分钟）**：
-
-1. 服务跑着的时候再开一个终端跑 `perl remote/wecom-ws.pl --serve` →
-   应打印「已经有一个远程服务在跑（pid=… 档位=…）」并以**退出码 3** 结束
-2. `cat ~/.claude-agent/wecom-ws.pid` → 能看到 pid / 档位 / 可写目录 / 启动时间（没有密钥）
-3. 在服务那个终端按 **Ctrl-C** → 应打印「收到 INT，正在退出」；
-   `ls ~/.claude-agent/wecom-ws.pid` 应已不存在；`tail ~/.claude-agent/audit.log` 里应有 `ws_stop`
-
-完整操作手册见 **`docs/ops_remote.md`**（含保活参数、排错表、launchd 开机自启）。
-
-**前置**：企业微信 → 工作台 → 智能机器人 → 创建机器人 → API 模式 → **使用长连接**，
-记下给你的 `BotID` 和 `Secret`（Secret 只显示一次）。
-
-**先想清楚权限**：默认是**只读**。要让它能改文件，启动时显式加档位：
-
-```bash
-perl remote/wecom-ws.pl --serve --mode=accept-edits --allow-write=/Users/Jack/proj
-```
-
-- `--mode` 可选 `default`（只读）/ `accept-edits`（可写目录内自动写，跑命令仍要确认）/ `bypass`（普通命令也自动，危险命令仍确认）
-- **起来之后手机端改不了**（用 `--no-config` 起 agent，`/mode` 之类的命令一律被拒）
-- 需要确认的操作会发到手机：「⚠ 危险操作，需要你在手机上确认：… 回复 y 允许 / n 拒绝」；不回则 120 秒后按拒绝
-- 也可以在 GUI「工具 → 远程接入…」里选档位和可写目录（写进 `wecom-ws.conf`，**重启远程服务后生效**）
-
-**两条路都行，选一条**：
-
-- **GUI**：菜单 **工具 → 远程接入…** → 填 BotID / Secret（掩码）/ 白名单 → 保存 → 测试连接。
-  写的文件跟命令行完全一样，重启后读回来，不用重填
-- **命令行**：下面第 1～3 步
-
-1. **录入凭据**（输入不回显，直接写 0600 文件，不进 shell 历史、不进 argv）
-
-   ```bash
-   cd ~/claude-build
-   perl remote/wecom-ws.pl --init
-   ls -l ~/.claude-agent/wecom-ws.conf      # 应该是 -rw------- 
-   ```
-
-2. **只验凭据**（不会启动 agent，20 秒内出结果）
-
-   ```bash
-   perl remote/wecom-ws.pl --check
-   ```
-
-   - 期望：`成功：订阅通过，凭据可用。`
-   - 失败：`失败：errcode=xxxxx errmsg=...（检查 BotID / Secret）` —— 九成是 Secret 复制多了空格，
-     或者机器人建的是"回调模式"而不是"长连接"
-
-3. **起服务**（前台跑，Ctrl-C 结束；先别急着开机自启）
-
-   ```bash
-   perl remote/wecom-ws.pl --serve
-   ```
-
-   手机企业在微信里找到这个机器人，发一句「你好」。期望：几秒内收到回复。
-   手机端看到「正在处理，请稍等…」也是正常的（agent 慢的时候先给个回音，不让你干等）。
-
-4. **验白名单**（最该验的一条）
-
-   用一个**不在** `~/.claude-agent/remote.conf` 的 `ALLOW` 里的账号发消息。
-   期望：**毫无反应**（不是"无权限"）。审计里应该有 `ws_inbound`，但**没有** `ws_sent`。
-   理由：回"无权限"等于告诉外面"这台机器人存在且认得你"。
-
-5. **验只读**
-
-   发：「把 ~/notes.txt 的内容改成 hello」。期望：说明远程只能读文件、不能写，
-   而不是"答应了但没做"（远程没有人按 y/n，写和跑命令都不存在）。
-
-6. **验心跳与重连**
-
-   把 Wi-Fi 关掉 40 秒再打开。期望：日志里出现 `ws_dead`（连续两次心跳没回执）和
-   `ws_reconnect`，然后手机再发消息又能通。这一条是长连接最容易被忽略的失败方式——
-   连接"看起来还在"其实早就死了。
-
-7. **验审计**
-
-   ```bash
-   tail -n 20 ~/.claude-agent/audit.log        # 每条第三列是 ws
-   ls -l ~/.claude-agent/audit.log             # -rw------- 只追加
-   ```
-
-   应该能看到 `ws_subscribe_ok` / `ws_inbound` / `gateway_spawn` / `gateway_done` / `ws_sent`。
-
-8. **不对时按症状查**
-
-   | 症状 | 先看哪里 |
-   |---|---|
-   | `--check` 说订阅被拒 | BotID / Secret 抄错（含空格）；或机器人建成了回调模式 |
-   | `--check` 一直连不上 / 握手超时 | 公司网络或代理挡了 `openws.work.weixin.qq.com:443`；`curl -Iv https://openws.work.weixin.qq.com` 看一眼 |
-   | 手机发消息没反应，但审计里有 `ws_inbound` | 白名单（`ALLOW` 里要填企微的 UserID）或 agent 侧没配模型密钥 |
-   | 一直只回「正在处理」 | agent 上一轮没结束；看审计里的 `gateway_done` 有没有出现 |
-   | 过一段时间就断 | 心跳被中间设备掐了；把 `HEARTBEAT` 调小（如 20 秒）再试 |
-
-> 自动化能覆盖到协议与业务（本机假服务端 35 项），**wss/TLS 这一段只有在真机上才能验**，
-> 所以第 1~3 步是最小闭环，务必先跑通再谈常驻。
-
-## 10. 双击 Advisor.app 打不开
-
-Finder 双击启动时 stderr 没有地方显示，失败表现为「弹一下就没了」或完全没反应。
-按这个顺序查：
-
-```bash
-# ① 直接跑包内可执行文件——Finder 里看不到的报错会全部打出来
+# ① 直接跑包内可执行文件：Finder 看不到的报错会全部打出来
 ~/Applications/Advisor.app/Contents/MacOS/Advisor
 
 # ② 逐条体检（包结构 / python3 与 Tk / Gatekeeper / 真跑一次 / 崩溃日志）
 bash scripts/doctor-macos.sh
 ```
 
-先看这两条**这一轮刚修过**的行为，确认真的生效（别只看「能打开了」）：
-
 | 检查 | 应该看到 |
 |---|---|
-| 解释器/源码不可用时 | stderr **先**打出 `Advisor: …`、`解释器: …`、`程序: …` 三行，之后才可能出现弹窗 |
-| 弹窗行为 | 弹窗最多停留 **10 秒**自动消失（`giving up after 10`），不需要你点「好」 |
-| 为什么重要 | 没有 `giving up after` 时，弹窗会一直等人点 —— 在远程登录/无人值守的机器上就是永久挂住（CI 上实测吃掉 45 分钟） |
-
-验法（把解释器路径故意指错，模拟「装完 python3 又被卸载」）：
-
-```bash
-# 直接跑包内可执行文件即可，不需要真的卸载 python3
-~/Applications/Advisor.app/Contents/MacOS/Advisor
-```
-
-常见三种原因：
+| 解释器/源码不可用 | stderr **先**打出 `Advisor: …`、`解释器: …`、`程序: …` 三行，之后才可能弹窗 |
+| 弹窗行为 | 最多停留 **10 秒**自动消失（`giving up after 10`），不需要点「好」 |
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `exec: /usr/bin/python3: No such file or directory` | macOS 12.3 起 `/usr/bin/python3` 只在装了 Xcode CLT 后才有；旧版 setup.sh 把它当兜底 | 现已修：查找时逐个 `-x` 验证。装 python.org 的 Python 3 后重跑 setup.sh |
-| 图标跳一下就消失 | python3 缺 Tk（Homebrew 版常见） | 装 python.org 的 Python 3（自带 Tk）；`setup.sh` 现在会直接告诉你缺 Tk 并跳过生成 |
+| `exec: /usr/bin/python3: No such file or directory` | macOS 12.3 起 `/usr/bin/python3` 需装 Xcode CLT | 装 python.org 的 Python 3 后重跑 `setup.sh` |
+| 图标跳一下就消失 | python3 缺 Tk（Homebrew 版常见） | 装 python.org 版（自带 Tk）；`setup.sh` 会提示缺 Tk 并跳过生成 |
 | 弹「无法验证开发者」 | 未签名 + 隔离属性 | 系统设置 → 隐私与安全性 → 「仍要打开」；或 `xattr -dr com.apple.quarantine ~/Applications/Advisor.app` |
 
-装 Python 3 的两条路（GUI 需要 Tk，只装 Xcode CLT 不够）：
-
 ```bash
-open https://www.python.org/downloads/macos/     # 推荐：安装包自带 Tk
-python3 -c "import tkinter; print('tkinter ok')" # 装完自验，必须打印 tkinter ok
-brew install python python-tk                    # 或者用 Homebrew（两件都要装）
+open https://www.python.org/downloads/macos/      # 推荐：安装包自带 Tk
+python3 -c "import tkinter; print('tkinter ok')"  # 必须打印 tkinter ok
+brew install python python-tk                     # 或者 Homebrew（两件都要装）
 ```
-
-注意：本地 setup 用的是 `py2app -A`（alias 模式），产物依赖本机 python3 与
-`~/claude-build/` 源码目录，**不能拷到别的 Mac**；发布 zip 用的是独立构建，不受影响。
 
 ---
 
-## 11. 交互模式（default / accept-edits / bypass）验收
+# 5. 交互模式与可写目录验收
 
 三档只改「要不要问」，不改「能做什么」。危险命令在三档里**都会问**。
 
 ```bash
 advisor                      # 默认 default：写文件/跑命令每次都问
-advisor --mode=accept-edits  # 写文件（可写范围内）不问，命令仍问
-advisor --mode=bypass        # 普通写/跑不问，危险命令仍问
-/mode                        # 会话内看当前模式；/mode bypass 需再输一次 yes
-/allow-write ~/work/notes    # 追加可写目录（可多个）；/allow-write 看列表
+advisor --mode=accept-edits  # 可写范围内写文件不问，命令仍问
+advisor --mode=bypass        # 普通写/命令不问，危险命令仍问
+/mode                        # 会话内看当前模式；/mode bypass 需再确认一次
+/allow-write ~/work/notes    # 追加可写目录；/allow-write 看列表；/allow-write clear 清空
 /approvals                   # 最近 10 条自动批准记录
 ```
 
 逐条勾：
 
-- [ ] `advisor --mode=xxx`（乱写）应**退出码 2** 并打印「模式名不正确」，**不是**退回 default 继续跑
-- [ ] default 下写文件 / 跑命令仍然每次都问（这条最重要：不能为了新功能把旧行为改掉）
+- [ ] `advisor --mode=xxx`（乱写）→ **退出码 2** 并打印「模式名不正确」，**不是**退回 default 继续跑
+- [ ] default 下写文件 / 跑命令仍然每次都问（不能为了新功能把旧行为改掉）
 - [ ] accept-edits 下在工作目录里写文件不问，但跑命令**仍然问**
-- [ ] bypass 下普通写/普通命令不问，且消息里出现一行「· 已自动批准：…」
-- [ ] bypass 下递归删除类的危险命令（**别真按 y**）仍然弹出确认，且确认框里有「★ 这是危险操作」；
-      带 `sudo` 的命令同理
-- [ ] 危险确认**放着不管 60 秒**，应自动拒绝并说明「确认无人应答」，**会话不卡死**
+- [ ] bypass 下普通写 / 普通命令不问，且消息里出现一行「· 已自动批准：…」
+- [ ] bypass 下递归删除类危险命令（**别真按 y**）仍弹确认，确认框里有「★ 这是危险操作」；带 `sudo` 同理
+- [ ] 危险确认**放着不管 60 秒** → 自动拒绝并说明「确认无人应答」，会话不卡死
 - [ ] 把命令用管道喂进去（没有终端）时，危险命令直接拒绝，不等人
 - [ ] bypass 下写 `~/.claude-agent/任意文件` 被拒，理由写「该位置永远不允许写入」
 - [ ] bypass 下写工作目录外的文件被拒，并提示 `/allow-write <dir>`；加上之后能写
-- [ ] bypass 下用**命令**写到范围外（`echo hi > /tmp/xxx`）也会弹确认；写 `/etc/...` **直接拒绝**
-- [ ] 不涉及写入的命令（`echo hi`、`ls`）在 bypass 下照旧不问，别被写目标识别误伤
+- [ ] bypass 下用**命令**写到范围外（`echo hi > /tmp/xxx`）也会弹确认；写 `/etc/...` 直接拒绝
+- [ ] 不涉及写入的命令（`echo hi`、`ls`）在 bypass 下照旧不问（别被写目标识别误伤）
 - [ ] 一条 `sleep 200` 的命令在 120 秒后被中断，结果里说明是超时（不是无声消失）
 - [ ] `/allow-write` 显示的「临时目录」就是 macOS 的 `$TMPDIR`（`/var/folders/.../T`），写 `/tmp` 不算默认可写
 - [ ] 输出很大的命令只回前 64 KB，并注明原大小
-- [ ] `~/.claude-agent/approvals.log` 里能看到刚才的自动批准，权限 `-rw-------`，不含 API key
-- [ ] GUI：页眉有「模式 ▾」，切换后旁边徽标跟着变（默认=灰、写免确认=强调色、Bypass=**红色**）
-- [ ] GUI：在 Bypass 下写文件不弹窗，但对话里有一行「已自动批准」
+- [ ] `~/.claude-agent/approvals.log` 能看到刚才的自动批准，权限 `-rw-------`，不含 API key
+- [ ] GUI：页眉有「模式 ▾」，切换后徽标跟着变（默认=灰、写免确认=强调色、Bypass=**红色**）
+- [ ] GUI：Bypass 下写文件不弹窗，但对话里有一行「已自动批准」
 - [ ] GUI：从菜单选 Bypass 会先弹一次确认；取消后徽标仍是原来的模式
-- [ ] 换主题（笔记 / 编程 / 黑客）后，Bypass 徽标**仍然是红色**（不会退回灰色）
-- [ ] 退出再启动，模式沿用上次的选择（`~/.claude-agent-env` 里的 `CLAUDE_MODE`）
-- [ ] 远程（企微/飞书）**永远**没有写文件和执行命令的能力，且不接受任何模式参数
+- [ ] 换主题（笔记 / 编程 / 黑客）后，Bypass 徽标**仍然是红色**
+- [ ] 退出再启动，模式沿用上次选择（`~/.claude-agent-env` 里的 `CLAUDE_MODE`）
+- [ ] 远程会话**也不能改模式**（档位在 Mac 上启动时定，见 §7.9）
+
+---
+
+# 6. 密钥与隐私验收
+
+- [ ] 装好之后正常用 `advisor`：普通对话、`/model` 换厂商都**不出现「粘贴密钥」的提示**
+      （密钥只有两个入口：安装流程、`/key <厂商>`）
+- [ ] `/key`（不带参数）→ 列 7 家，标「已配置 / 未配置」，并给一行用法
+- [ ] `/key anthropic`（挑没配过的）→ 隐藏输入 → 询问是否保存 → `y` →
+      「已保存：<配置文件路径>」；`ls -l ~/.claude-agent-env` 必须是 `600`；
+      重启 `advisor` 后 `/key` 列表里那家变成「已配置」
+- [ ] `/key 不存在的厂商` → 只报「不认识的厂商」并给用法，不索要输入、不写文件
+- [ ] 切到没配密钥的厂商：列表里该行带 `[未配置密钥]`；选中后只提示「要配置请用 /key <厂商>」，
+      并**停留在原来的模型上**，继续对话不受影响
+- [ ] 把 `~/.claude-agent-env` 里的 key 改坏一个字符再启动 → 说一句话后应看到
+      「<厂商> 的密钥被拒绝（HTTP 401）」+「退出后检查/重配」，**不会**在会话里突然索要密钥，
+      也不会把原始 JSON 甩到屏幕上
+- [ ] 同样改坏 key 后打开 GUI → 对话区出现「后端进程已退出」+ 后端错误原文 + 处理办法；
+      不允许「窗口能开但打不进字、也没有任何提示」
+- [ ] `~/.claude-agent-env` 若是 sudo 建的、首启页保存密钥失败：弹窗要写清
+      「路径 / 属主 / 权限 / `sudo rm <路径>` 再试」；同目录可写时即使文件是 0400 也应能写入
+- [ ] 换过厂商后重跑 `setup.sh`：若 env 里留着上一家的模型名，应看到
+      「已把模型从 … 改成 <本家默认> …」，连通性检查用**本家**模型名
+- [ ] `advisor --resume` 恢复会话后**不再弹厂商编号列表**，只打一行 `[厂商 / 模型]` +
+      「要换 AI 请输入 /model」
+- [ ] `grep -c "sk-" ~/.claude-agent/audit.log` → 0（审计只有事件名与长度）
+
+---
+
+# 7. 远程接入验收
+
+三种方式互相独立，按需要挑一条验。**先确认本地能跑**再做这一步。
+
+## 7.1 出站通知（最快，1 分钟）
+
+1. `~/.claude-agent/remote.conf` 写一行（企微群 → 群机器人 → 复制 webhook 地址）：
+   ```
+   WECOM_WEBHOOK = https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...
+   ```
+2. `perl remote/notify.pl --test`
+3. 应看到 `通知已发送：WECOM_WEBHOOK`，群里收到「advisor 通知连通性测试 —— 收到即成功。」
+4. 长任务收尾：`echo "构建完成" | perl remote/notify.pl -` → 群里收到 markdown，中文与换行正常
+5. 不对时：`errcode 93000` = key 无效或地址抄错；`url must start with https` = 粘成了 http
+
+## 7.2 网关（本机直连，验白名单与档位）
+
+1. `~/.claude-agent/remote.conf` 写白名单：
+   ```
+   ALLOW = alice
+   ```
+2. `perl remote/gateway.pl --once --from alice --text "列一下当前目录"` → 正常中文回答
+3. 换不在白名单的人：`--from bob` → **什么都不输出**，但 `audit.log` 有一行 `drop_sender from=bob`
+4. 只读档让它写文件（「在 /tmp 建个文件」）→ 被拒，`/tmp` 下不会出现文件
+5. 可写档：
+
+   ```bash
+   perl remote/gateway.pl --once --from alice --mode=accept-edits \
+        --allow-write=/tmp --text "在 /tmp 建个文件"
+   ```
+
+   → 终端里会要你按 y/n 确认
+
+## 7.3 企微长连接：凭据与启动
+
+**准备**：企业微信 → 工作台 → 智能机器人 → 创建机器人 → **API 模式 → 使用长连接**，
+记下 `BotID` 与 `Secret`（只显示一次）。不需要公网地址、域名、云资源。
+
+- [ ] 录入：GUI 工具 → 远程接入…（推荐）或 `perl remote/wecom-ws.pl --init`
+- [ ] `perl remote/wecom-ws.pl --check` → **20 秒内**给出「订阅通过，凭据可用」
+      失败：`errcode≠0` 说明 BotID/Secret 不对（含多粘了空格），或机器人没开「使用长连接」
+- [ ] `perl remote/wecom-ws.pl --serve` → 打印「远程服务已启动：pid=… 档位=…」
+- [ ] `cat ~/.claude-agent/wecom-ws.pid` → 有 pid / mode / allow_write / started，**没有密钥**
+- [ ] 手机给机器人发「列一下当前目录」→ 几秒内回复；先收到「正在处理，请稍等…」也正常
+- [ ] 用不在 `ALLOW` 里的账号发 → **零回复**（不是「无权限」），`audit.log` 有 `drop_sender`
+
+## 7.4 远程权限与手机确认
+
+**只读（默认）**
+
+- [ ] 手机发「在目录里新建 hello.txt」→ 被拒，回答里说明不能写，`audit.log` 有 `confirm_refused`
+
+**可写**：`perl remote/wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj`
+
+- [ ] 手机发「在 proj 里新建 hello.txt」→ 手机收到「需要你确认：…」→ 回 `y` → 文件被创建
+- [ ] 再发一次 → 回 `n` → 应回「已拒绝」，文件没有被创建
+- [ ] 发一条**不回**的确认 → 等两分钟 → 回「超时按拒绝」，`audit.log` 里 `timeout=1`
+- [ ] 手机发 `/mode bypass` → 被拒（远程改不了档位），本机档位不变
+- [ ] 写可写范围外的路径（如 `~/Desktop/x`）→ 仍被拒
+
+## 7.5 单实例与退出
+
+- [ ] 服务跑着时再开一个终端跑 `--serve` → 打印「已经有一个远程服务在跑（pid=… 档位=…）」
+      并以**退出码 3** 结束
+- [ ] 服务窗口按 **Ctrl-C** → 打印「收到 INT，正在退出」；pid 文件消失；`audit.log` 有 `ws_stop`
+- [ ] 拔网 40 秒再插回 → 自动重连（`audit.log` 有 `ws_dead` / `ws_reconnect`），不用重启服务
+- [ ] `tail -20 ~/.claude-agent/audit.log` 能看到 `ws_start`（带 `mode=`）/ `ws_inbound` / `ws_sent`
+
+## 7.6 回调模式：企微（需要公网地址）
+
+- [ ] `perl remote/platform.pl --init` 录凭据 → `--check` → `配置齐全：platform=wecom port=8099`
+- [ ] `--serve` → `监听 127.0.0.1:8099（platform=wecom）` + 「默认只监听本机」提醒
+- [ ] `remote.conf` 写 `ALLOW = <你的 UserID>`
+- [ ] 穿透把 `https://<你的地址>/wecom` 转到 `127.0.0.1:8099`
+- [ ] 企微后台「应用 → 接收消息 → API 接收」填 URL / Token / EncodingAESKey，**保存应通过**
+      失败看 `audit.log`：`wecom_verify_fail`（Token 不对）、`wecom_receiveid_fail`（AESKey 抄错）
+- [ ] 手机给应用发「列一下当前目录」→ 3 秒内先「收到，正在处理…」，随后收到结果
+- [ ] 关掉 `--serve` 窗口后手机再发 → 不通（没做守护，这是现状，不是 bug）
+
+## 7.7 回调模式：飞书
+
+- [ ] `--init` 选飞书 → `--check` 显示 `platform=feishu`
+- [ ] 飞书开放平台「事件订阅」填 `https://<你的地址>/feishu` → challenge 校验通过
+      （明文与加密两种都要能过；填了 Encrypt Key 就走加密）
+- [ ] 应用权限加「接收消息」与「以应用身份发消息」，手机私聊该应用 → 先「处理中」再结果
+- [ ] 白名单填 `open_id`（`ou_` 开头，不是手机号/邮箱）
+
+## 7.8 边界与安全
+
+- [ ] **白名单外的人**：零回复，`audit.log` 有 `drop_sender from=<那个人>`
+- [ ] **重投不会跑两遍**：手机发一条后立刻断网再恢复（平台会重投）→ agent 只跑一次，
+      `audit.log` 有 `duplicate_drop`
+- [ ] **超长回答**：让它输出 3000 字以上 → 拆成多条，每条开头有「（1/3）」，内容不丢字
+- [ ] **凭据不落地**：`grep -c "<你的 Secret\|<你的 AESKey>" ~/.claude-agent/audit.log` → 0
+- [ ] **凭据文件权限**：`ls -l ~/.claude-agent/platform.conf` → `-rw-------`
+- [ ] **审计只追加**：`ls -l ~/.claude-agent/audit.log` → `-rw-------`
+
+## 7.9 手机端为什么改不了配置
+
+远程 agent 是以「不许改配置」的方式起来的（`--no-config`），所以在手机上试：
+
+- [ ] 发 `/mode bypass` → 回「本次会话不能修改配置（厂商、模型、模式、可写范围、密钥）」；
+      本机模式与 `~/.claude-agent-env` 都不变
+- [ ] 发 `/model 1`、`/key deepseek` → 同样被拒；`/key` 不会在聊天里索要密钥
+- [ ] 发一句正常问题 → 照常回答
+- [ ] `audit.log` 里有 `session_start … no_config=1`，以及每次拒绝时的 `reply`
+
+档位与可写目录**只在 Mac 上启动远程服务时**指定；想改就停掉服务带新参数重启。
+
+---
+
+# 8. 真机才可能暴露的坑
+
+| 怀疑点 | 怎么验 | 出问题的表现 |
+|---|---|---|
+| 某家的真调用形状 | 选那家问一句 | 400/422 → 请求体它不认；`tool_calls` 不返回 → 函数调用不可用 |
+| 工具调用闭环 | 让它「读一下 ~/.zshrc」 | 卡住不动 / 报 `tool_result` 相关错误 |
+| `max_tokens` 上限 | 让它写长一点的东西 | 报参数非法（各家字段名与上限不一致） |
+| 上下文与限流 | 连续问 5 轮 | 429 限流（错在限速，不是功能） |
+| `setup.sh` 的 bash 3.2 | 跑一遍安装 | `mapfile: command not found` 之类 → 误用了 bash 4 特性 |
+| 包装脚本 | `advisor --list-models` | 报错说明取不到 provider |
+| 长连接 TLS | `--check` 连真服务端 | 证书 / SNI 问题只在真机出现 |
+| py2app 打包 | `bash release/build_standalone_app.sh` | 需要 Xcode CLT；只分发时做 |
+
+---
+
+# 9. 出问题怎么查
+
+## 9.1 本地
+
+| 现象 | 多半是 | 处理 |
+|---|---|---|
+| 一启动就要密钥 | `~/.claude-agent-env` 缺 `CLAUDE_PROVIDER`，或 key 变量为空 | 重跑 `setup.sh` 或 `/key <厂商>` |
+| `HTTP 401` | 密钥无效 / 过期 | 换 key |
+| `HTTP 403` | 该地区不可用 | 换厂商 |
+| `000` / 超时 | 网络不通 | 换网络或代理 |
+| 双击 App 没反应 | 未签名 / 缺 Tk | 见 §4.3 |
+| 模式或可写目录不生效 | 参数用错了入口 | 会话内用 `/mode`、`/allow-write`；或写在启动参数里 |
+
+## 9.2 远程
+
+| 现象 | 看哪里 | 常见原因 |
+|---|---|---|
+| 启动即退出码 3 | 提示里的 pid | 已有一个在跑，先 kill |
+| `--check` 报 `errcode` | 提示原文 | BotID / Secret 不对，或没开「使用长连接」 |
+| 手机发了没反应、无 `ws_inbound` | `audit.log` | 服务没跑 / 白名单没写对 |
+| 有 `ws_inbound` 无 `gateway_done` | `audit.log` | 本机模型不通（先在终端跑一次 `advisor`） |
+| 一直「正在处理」 | `turn_timeout` | 模型太慢或网络断了 |
+| 让它写文件没写 | `confirm_refused` | 档位是只读 |
+| 过一段时间就断 | `ws_session_end` | 心跳被中间设备掐了，把 `HEARTBEAT` 调小（如 20 秒）再试 |
+| 回调：保存 URL 失败 | `wecom_verify_fail` / `wecom_receiveid_fail` | Token 或 AESKey 不一致 |
+| 回调：有 `gateway_done` 手机没收到 | `wecom_send_fail` / `feishu_send_fail` | 没开发送权限，或 ID 类型不对 |
+
+## 9.3 自查命令
+
+```bash
+advisor --version
+perl remote/wecom-ws.pl --check
+tail -30 ~/.claude-agent/audit.log
+tail -20 ~/.claude-agent/wecom-ws.log
+grep -o '^export [A-Za-z0-9_]*' ~/.claude-agent-env    # 只看变量名，不打印值
+```
+
+---
+
+# 10. 收工勾选表
+
+**本地（必验）**
+
+- [ ] `setup.sh` 走通，连通性检查通过，`Advisor.app` 生成
+- [ ] 终端：`/model` 两级、`/key`、`/help`、`--list-models` 12 条
+- [ ] GUI：首启 7 家厂商、密钥校验、模型菜单两级、直接能打字
+- [ ] 三档交互模式与危险命令确认（§5 全勾）
+- [ ] 密钥与隐私（§6 全勾）
+
+**远程（按需）**
+
+- [ ] 出站通知能收到
+- [ ] 白名单内外行为正确（零回复 + `drop_sender`）
+- [ ] 长连接 `--check` 通过、`--serve` 能收发
+- [ ] 手机确认 y / n / 超时三条都对
+- [ ] 单实例被拒（退出码 3）、Ctrl-C 优雅退出
+- [ ] 手机端改不了档位与配置
+
+验完把「哪一条不符 + 你看到的消息原文」发我即可。

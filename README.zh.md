@@ -6,7 +6,7 @@
 > 不用公网域名），飞书走回调（需要你自己的公网地址）。
 > 仓库里不含任何人的账号、令牌或云资源 id。
 
-## 🇯🇵 [日本語版はこちら →](README.md) ・ 🇺🇸 [Read this README in English →](README.en.md)
+## 🇯🇵 [日本語版 →](README.md) ｜ 🇺🇸 [Read this README in English →](README.en.md)
 
 <img src="launcher/advisor.png" alt="Advisor" width="120">
 
@@ -74,10 +74,13 @@ Gemini（Google）。
 - **能写哪里由你定** —— 默认只有当前目录和临时目录。用 `--allow-write` / `/allow-write`
   可以在会话里追加多个目录；`~/.ssh`、`~/.claude-agent`（存密钥和审计日志的地方）
   **即使显式加入也拒绝**。
-- **远程接入（可选）** —— 经只读网关从外面派活，结果可推到企业微信 / 飞书（配置见
-  `remote/README.md`）。**远程侧没有写入和执行能力**，工具固定为两个只读的。
-  而且**远程只对话**：厂商、模型、模式、可写范围、密钥都只能在本机配置，聊天端发
-  `/model` `/mode` `/key` 会被直接拒绝（密钥绝不该经第三方聊天平台转一圈）。
+- **远程接入（可选）** —— 从手机派活，结果回推企业微信 / 飞书。推荐企微「智能机器人 ·
+  API 模式 · 使用长连接」：不需要公网地址、不需要云资源，凭据只有 BotID + Secret
+  （完整手册见 `docs/user_manual.md` 第 6 节）。
+- **远程权限由你在 Mac 上定** —— 启动远程服务时选档位：`default` 只读（默认）/
+  `accept-edits` 可写目录内自动写 + 命令要确认 / `bypass` 危险命令仍要确认。
+  **起来之后手机端改不了**（`/model` `/mode` `/key` 一律被拒，密钥绝不该经第三方聊天平台转一圈）；
+  需要确认的操作会发到手机，回 `y` 放行、回 `n` 拒绝、不回就超时按拒绝。
 
 ## 支持的 OS 层级
 
@@ -156,11 +159,11 @@ exit               退出
 AI 在 `setup.sh` 里选一次就够了。之后切换就是**输入列表里的编号**：
 
 ```
-  1) Claude Opus 5 — 顶级性能・付费
-  2) Claude Sonnet 5 — 均衡型・付费
-  3) Claude Haiku 4.5 — 高速・付费
-  4) Gemini Flash-Lite — 快・免费   ← 当前
-  5) Gemini Flash — 高性能・免费
+  1) Claude Opus 5 — 顶级性能（付费）
+  2) Claude Sonnet 5 — 均衡型（付费）
+  3) Claude Haiku 4.5 — 高速（付费）
+  4) Gemini Flash-Lite — 快（免费）   ← 当前
+  5) Gemini Flash — 高性能（免费）
 输入编号即可切换。也可以直接提问。
 
 有什么需要？> 3        ← 只输入这个就会切到 Haiku

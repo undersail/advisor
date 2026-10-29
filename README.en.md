@@ -6,7 +6,7 @@
 > mode (just a BotID + Secret, no public URL), Lark uses a callback (you supply a public
 > address). The repository contains no account IDs, tokens or cloud resource IDs.
 
-## 🇯🇵 [日本語版はこちらから読めます →](README.md) · 🇨🇳 [中文版请读这里 →](README.zh.md)
+## 🇯🇵 [Japanese →](README.md) · 🇨🇳 [中文版 →](README.zh.md)
 
 <img src="launcher/advisor.png" alt="Advisor" width="120">
 
@@ -99,9 +99,12 @@ faces depending on your mood.
 - **You decide where it may write** - by default only the current directory and the temp
   directory. `--allow-write` / `/allow-write` add more for the session; `~/.ssh` and
   `~/.claude-agent` (where keys and the audit log live) **stay refused even if you add them**.
-- **Remote access (optional)** — drive it from outside through a read-only gateway; results can
+- **Remote access (optional)** — drive it from your phone; results can
   be pushed to WeCom / Feishu (see `remote/README.md`). **Remote has no write or execute
-  capability** — it only ever gets the two read-only tools. Remote is **chat only**: vendor,
+  permission level** — the mode is fixed on the Mac at start-up: `default` (read-only, default) /
+  `accept-edits` (writes inside the allowed dirs, shell asks) / `bypass` (dangerous commands still
+  ask). The phone **cannot** change it, and confirmations are relayed to the phone (reply y / n;
+  no reply means deny). Vendor,
   model, mode, writable roots and keys are all configured on the local machine, and
   `/model` `/mode` `/key` coming from the chat side are refused (a key must never travel
   through a third-party chat platform).
@@ -286,7 +289,7 @@ advisor --mode=bypass          # choose at launch
 - The chosen mode is stored in `~/.claude-agent-env` and reused next launch (or set
   `CLAUDE_MODE`). Timeouts are tunable via `CLAUDE_SHELL_TIMEOUT` / `CLAUDE_CONFIRM_TIMEOUT`.
 - **Remote access (WeCom / Feishu) has no write or execute capability in any mode** - it only
-  ever gets the two read-only tools.
+  ever gets write or shell ability unless you started it in a writable mode.
 
 ## About the Chinese/Japanese/English support
 
