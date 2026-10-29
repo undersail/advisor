@@ -60,6 +60,17 @@ my $REMOTE_MODE    = '';   # '' / default / accept-edits / bypass
 my $REMOTE_ALLOW   = '';   # 逗号分隔的可写目录
 my $CONFIRM_WAIT   = '';   # 远程确认等待秒数（空=用 gateway 默认）
 
+# 重连判定的两个事实：这次会话有没有连通过、是不是被服务端踢下线
+our $SUB_OK = 0;           # 本次会话订阅成功过
+our $KICKED = 0;           # 被服务端断开（同一机器人在别处建了新连接）
+# 退避参数（默认与官方 SDK 一致：基数 1 秒、上限 30 秒；测试可用环境变量压小）
+my $BACKOFF_BASE = (defined $ENV{WECOM_WS_BACKOFF_BASE}
+                    && $ENV{WECOM_WS_BACKOFF_BASE} =~ /^\d+(?:\.\d+)?$/)
+    ? $ENV{WECOM_WS_BACKOFF_BASE} : 1;
+my $BACKOFF_MAX  = (defined $ENV{WECOM_WS_BACKOFF_MAX}
+                    && $ENV{WECOM_WS_BACKOFF_MAX} =~ /^\d+(?:\.\d+)?$/)
+    ? $ENV{WECOM_WS_BACKOFF_MAX} : 30;
+
 $| = 1;
 $SIG{PIPE} = 'IGNORE';   # 往已关闭的连接写 → 不能让进程被 SIGPIPE 杀掉（重连就永远跑不到）
 # 带 use utf8 之后，中文是「字符」；不把这层标成 UTF-8，往终端打审计就会报
@@ -749,6 +760,7 @@ sub run_session {
         transport_close($t);
         die "订阅被拒：errcode=$ec errmsg=$em（多半是 BotID / Secret 不对）\n";
     }
+    $SUB_OK = 1;          # 这条置位后，重连退避会从头算（官方 SDK 也是认证成功即清零）
     audit('ws_subscribe_ok', "url=$url");
     logmsg('已订阅，等待消息（Ctrl-C 结束）');
 
@@ -795,6 +807,15 @@ sub run_session {
             }
             if (--$state{pending}{$rid} <= 0) { delete $state{pending}{$rid} }
             next;
+        }
+        # ★ 官方 SDK 语义：收到 disconnected_event = 同一机器人在别处建了新连接，
+        #   服务端即将断开本连接。此时**不能重连** —— 重连也只会再被踢，来回抢线。
+        if (($j->{cmd} // '') eq 'aibot_event_callback'
+            && (($j->{body}{event}{eventtype} // '') eq 'disconnected_event')) {
+            audit('ws_kicked', 'reason=new_connection_elsewhere');
+            $KICKED = 1;
+            transport_close($t);
+            die "被服务端断开：同一机器人在别处建立了新连接（不自动重连）\n";
         }
         handle_msg($t, $j, \%state);
     }
@@ -875,30 +896,50 @@ sub cmd_serve {
     $SIG{INT}  = sub { $quit->('INT') };
     $SIG{TERM} = sub { $quit->('TERM') };
     $SIG{HUP}  = sub { $quit->('HUP') };
-    my $attempt = 0;
-    my $auth_fail = 0;
+    my $attempt = 0;          # 连续失败次数（订阅成功一次就归零）
+    my $auth_fail = 0;        # 连续订阅被拒次数（同上）
     while (1) {
         $attempt++;
+        $SUB_OK = 0;
+        $KICKED = 0;
         my $ok = eval { run_session($c); 1 };
         my $err = $@ || '';
+        if ($KICKED) {
+            # 被踢不是故障，重连只会再被踢一次 —— 明确告诉用户原因后退出（退出码 4）
+            logmsg('被服务端断开：同一机器人已在别处（另一台机器或另一个客户端）建立连接；'
+                 . '本服务不再自动重连。要接管就把那边的连接关掉，再重新启动本服务。');
+            release_instance_lock($lock);
+            exit 4;
+        }
         if (!$ok) {
             my $is_auth = ($err =~ /订阅被拒/);
             audit('ws_session_end', "attempt=$attempt err=" . ($err =~ s/\n/ /gr));
             logmsg("连接结束：$err");
+            # 连通过一次再断 = 网络抖动，退避从头算（官方 SDK 认证成功即清零）
+            if ($SUB_OK) { $attempt = 0; $auth_fail = 0; }
             if ($is_auth) {
                 $auth_fail++;
-                if ($auth_fail >= 3) {
+                if ($auth_fail >= 5) {    # 与官方 SDK maxAuthFailureAttempts 默认值一致
                     die "连续 $auth_fail 次订阅被拒 —— BotID / Secret 不对，停下来不再重试\n";
                 }
             } else {
                 $auth_fail = 0;
             }
         }
-        my $delay = 1 << ($attempt > 5 ? 5 : ($attempt - 1));    # 1 2 4 8 16 32 上限
-        $delay = 30 if $delay > 30;
+        my $delay;
+        if ($SUB_OK || $attempt <= 1) {
+            $delay = $BACKOFF_BASE;                                  # 刚连通过：立即重连
+        } else {
+            my $k = $attempt - 1;
+            $k = 6 if $k > 6;
+            $delay = $BACKOFF_BASE * (2 ** $k);
+            $delay = $BACKOFF_MAX if $delay > $BACKOFF_MAX;
+        }
         audit('ws_reconnect', "delay=${delay}s attempt=$attempt");
         logmsg("${delay}s 后重连（第 $attempt 次）");
-        sleep $delay;
+        # 支持小数（测试里把退避压到 0.05 秒跑得快）
+        if ($delay == int($delay)) { sleep $delay }
+        else { select(undef, undef, undef, $delay) }
     }
 }
 

@@ -571,6 +571,130 @@ def main():
     a6 = open(a6p, encoding='utf-8').read() if os.path.exists(a6p) else ''
     check('优雅退出写进审计（ws_stop）', 'ws_stop' in a6, a6[-200:])
 
+    # ---------------- 场景 7：被服务端踢下线 → 不重连 ----------------
+    # 官方 SDK 的 disconnected_event 语义：同一机器人在别处建了新连接，
+    # 服务端即将断开本连接。此时重连只会再被踢 —— 必须停下并说清原因。
+    home7 = os.path.join(tmp, 'home7')
+    os.makedirs(os.path.join(home7, '.claude-agent'), exist_ok=True)
+    conns7 = {'n': 0}
+
+    def on_client7(srv, conn, idx):
+        conns7['n'] += 1
+        buf = [srv.rest]
+        op, payload = srv.read_frame(conn, buf)
+        j = json.loads(payload)
+        srv.send_json(conn, {'cmd': 'aibot_subscribe', 'headers': j['headers'],
+                             'errcode': 0})
+        # 紧接着推一条「被新连接踢下线」事件
+        srv.send_json(conn, {'cmd': 'aibot_event_callback',
+                             'headers': {'req_id': 'ev-1'},
+                             'body': {'event': {'eventtype': 'disconnected_event'}}})
+        srv.pump(conn, buf, {'replies': []}, 3)
+
+    srv7 = WSServer(on_client7)
+    srv7.one_shot = False      # 如果客户端错误地重连，会看到 conn_count 增加
+    srv7.start()
+    write_conf(home7, BOT_ID='bot-7', BOT_SECRET='sec-7',
+               WS_URL='ws://127.0.0.1:%d' % srv7.port, HEARTBEAT=30)
+    env7 = dict(os.environ, HOME=home7, GATEWAY_CMD=gw_cmd,
+                WECOM_WS_BACKOFF_BASE='0.05', WECOM_WS_BACKOFF_MAX='0.1')
+    p7 = subprocess.Popen(['perl', WS_PL, '--serve'], env=env7,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                          stdin=subprocess.DEVNULL)
+    try:
+        p7.wait(20)
+        rc7 = p7.returncode
+    except subprocess.TimeoutExpired:
+        p7.kill()
+        rc7 = None
+    err7 = (p7.stderr.read() or b'').decode('utf-8', 'replace')
+    time.sleep(1.0)
+    srv7.stop_flag = True
+    a7p = os.path.join(home7, '.claude-agent', 'audit.log')
+    a7 = open(a7p, encoding='utf-8').read() if os.path.exists(a7p) else ''
+    check('被新连接踢下线：进程主动退出（退出码 4）', rc7 == 4, rc7)
+    check('被踢时写进审计（ws_kicked）', 'ws_kicked' in a7, a7[-200:])
+    check('被踢后不再重连（只连了一次）', conns7['n'] == 1, conns7['n'])
+    check('被踢原因写给用户看（另一处建立了连接）',
+          '别处' in err7 or '新连接' in err7, err7[-160:])
+    check('被踢后 pid 文件被清理（不会假装还在跑）',
+          not os.path.exists(os.path.join(home7, '.claude-agent', 'wecom-ws.pid')), '')
+
+    # ---------------- 场景 8：连通过一次再断线 → 退避从头算（不是永远 30 秒） ----------------
+    home8 = os.path.join(tmp, 'home8')
+    os.makedirs(os.path.join(home8, '.claude-agent'), exist_ok=True)
+    conns8 = {'n': 0}
+
+    def on_client8(srv, conn, idx):
+        conns8['n'] += 1
+        buf = [srv.rest]
+        op, payload = srv.read_frame(conn, buf)
+        j = json.loads(payload)
+        srv.send_json(conn, {'cmd': 'aibot_subscribe', 'headers': j['headers'],
+                             'errcode': 0})
+        # 第一次：订阅成功后正常挂一会儿再断（模拟网络抖动）
+        if conns8['n'] == 1:
+            srv.pump(conn, buf, {'replies': []}, 1)
+        else:
+            srv.pump(conn, buf, {'replies': []}, 1)
+
+    srv8 = WSServer(on_client8)
+    srv8.start()
+    write_conf(home8, BOT_ID='bot-8', BOT_SECRET='sec-8',
+               WS_URL='ws://127.0.0.1:%d' % srv8.port, HEARTBEAT=30)
+    env8 = dict(os.environ, HOME=home8, GATEWAY_CMD=gw_cmd,
+                WECOM_WS_BACKOFF_BASE='1', WECOM_WS_BACKOFF_MAX='30')
+    p8 = subprocess.Popen(['perl', WS_PL, '--serve'], env=env8,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                          stdin=subprocess.DEVNULL)
+    wait_for(lambda: conns8['n'] >= 2, seconds=30)
+    p8.terminate()
+    try:
+        p8.wait(10)
+    except subprocess.TimeoutExpired:
+        p8.kill()
+    srv8.stop_flag = True
+    a8p = os.path.join(home8, '.claude-agent', 'audit.log')
+    a8 = open(a8p, encoding='utf-8').read() if os.path.exists(a8p) else ''
+    check('连通过再断线：退避回到 1 秒（不是卡在 30 秒）',
+          'delay=1s' in a8, [l for l in a8.splitlines() if 'ws_reconnect' in l][-2:])
+
+    # ---------------- 场景 9：凭据错 → 重试 5 次后停（对齐官方 SDK 默认） ----------------
+    home9 = os.path.join(tmp, 'home9')
+    os.makedirs(os.path.join(home9, '.claude-agent'), exist_ok=True)
+    conns9 = {'n': 0}
+
+    def on_client9(srv, conn, idx):
+        conns9['n'] += 1
+        buf = [srv.rest]
+        op, payload = srv.read_frame(conn, buf)
+        j = json.loads(payload)
+        srv.send_json(conn, {'cmd': 'aibot_subscribe', 'headers': j['headers'],
+                             'errcode': 40001, 'errmsg': 'invalid credential'})
+        srv.pump(conn, buf, {'replies': []}, 0.3)
+
+    srv9 = WSServer(on_client9)
+    srv9.start()
+    write_conf(home9, BOT_ID='bad', BOT_SECRET='bad',
+               WS_URL='ws://127.0.0.1:%d' % srv9.port, HEARTBEAT=30)
+    env9 = dict(os.environ, HOME=home9, GATEWAY_CMD=gw_cmd,
+                WECOM_WS_BACKOFF_BASE='0.05', WECOM_WS_BACKOFF_MAX='0.1')
+    p9b = subprocess.Popen(['perl', WS_PL, '--serve'], env=env9,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                           stdin=subprocess.DEVNULL)
+    try:
+        p9b.wait(90)
+        rc9 = p9b.returncode
+    except subprocess.TimeoutExpired:
+        p9b.kill()
+        rc9 = None
+    err9 = (p9b.stderr.read() or b'').decode('utf-8', 'replace')
+    srv9.stop_flag = True
+    check('凭据错：连续 5 次订阅被拒才停（与官方 SDK 默认一致）', conns9['n'] == 5, conns9['n'])
+    check('凭据错：停下来时退出码非 0', rc9 not in (0, None), rc9)
+    check('凭据错：说清原因（订阅被拒 / BotID / Secret）',
+          ('订阅被拒' in err9) and ('BotID' in err9 or 'Secret' in err9), err9[-200:])
+
     shutil.rmtree(tmp, ignore_errors=True)
     return finish()
 

@@ -290,3 +290,27 @@ CI 35 → **36 步**（io 10 → 11）。
 - 测试：`test-wecom-ws` 39 → **47 项**（pid 文件内容与权限、第二实例 exit 3、
   SIGTERM 后 pid 清理、审计 `ws_stop`）；`test-gui-remote` 34 → **44 项**
   （状态未运行 → 点启动 → 运行中且档位一致 → 点停止 → 已停 + pid 清理 + `ws_stop`）
+
+### 6.5.5 追加：保活/重连机制对照官方 SDK 复核（用户问「30 秒保活合理吗」）
+
+对照 `WecomTeam/aibot-node-sdk` 的 `src/ws.ts`（官方自己维护的客户端）逐项核对默认值：
+`heartbeatInterval=30000ms`、`maxMissedPong=2`、`reconnectBaseDelay=1000ms`、
+`reconnectMaxDelay=30000ms`、`maxReconnectAttempts=10`、`maxAuthFailureAttempts=5`，
+心跳帧 `{cmd:"ping",headers:{req_id}}`，回执按 `req_id` 前缀判定，**认证成功即清零两侧计数**。
+
+原本就对的部分：30 秒间隔、连续 2 次无回执判死、`ping` 帧格式、退避 1→30 秒上限、
+心跳 `errcode≠0` 时不清零 missed、订阅被拒时不无脑重试。
+
+修了的三处（都是偏差，不是风格问题）：
+
+1. **退避永久卡在 30 秒**：原来的 `$attempt` 只在启动时自增、从不清零，跑久了每次断线都等 30 秒；
+   现在订阅成功置 `$SUB_OK`，下次断线按第一次算（1 秒）。审计可验：`ws_reconnect delay=1s`
+2. **订阅被拒停止阈值 3 → 5**：对齐 `maxAuthFailureAttempts` 默认值；成功订阅后同样清零
+3. **缺 `disconnected_event` 处理**：同一机器人在别处建新连接时服务端会推这个事件，官方 SDK
+   的处理是「标记不重连、关掉 socket」。我们原来当成普通断线 → 会与另一处客户端来回互踢。
+   现在：审计 `ws_kicked`、清理 pid、**退出码 4** 并打印原因，不自动重连
+
+测试：`test-wecom-ws` 47 → **56 项**，新增「被踢 → 退出码 4 且只连一次」「连通过再断线 →
+退避回到 1 秒」「凭据错 → 恰好 5 次后停」。退避基数/上限加了
+`WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` 覆盖，测试把它压到毫秒级才能跑得快。
+文档：`user_manual` 保活段、`manual_test_mac` §7.5、`design_doc` §4.5.3 同步。

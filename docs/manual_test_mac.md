@@ -291,6 +291,9 @@ advisor --mode=bypass        # 普通写/命令不问，危险命令仍问
 - [ ] 服务窗口按 **Ctrl-C** → 打印「收到 INT，正在退出」；pid 文件消失；`audit.log` 有 `ws_stop`
 - [ ] 拔网 40 秒再插回 → 自动重连（`audit.log` 有 `ws_dead` / `ws_reconnect`），不用重启服务
 - [ ] `tail -20 ~/.claude-agent/audit.log` 能看到 `ws_start`（带 `mode=`）/ `ws_inbound` / `ws_sent`
+- [ ] 同一个机器人在另一处也连上（比如另一台机器跑同一份配置）→ 本服务应打印
+      「被服务端断开：同一机器人已在别处…」并以**退出码 4** 结束、不再重连；
+      审计里有 `ws_kicked`、pid 文件被清理
 
 ## 7.6 回调模式：企微（需要公网地址）
 

@@ -369,6 +369,22 @@ Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj
 | 确认必须转给手机，不许静默拒绝（否则写操作会一路超时） | 卡口断言 `sub ask_remote` 存在 |
 | 回应键必须是 `reply`，超时按拒绝 | 单测 `test-gateway-write` 里 y / n / 超时 三条 |
 
+**保活参数与官方 SDK 对齐（2026-10 复核）**：官方 `WecomTeam/aibot-node-sdk` 的默认值是
+`heartbeatInterval=30000ms`、`maxMissedPong=2`（连续两次没回执即判死并强制断开）、
+`reconnectBaseDelay=1000ms`、`reconnectMaxDelay=30000ms`、`maxReconnectAttempts=10`、
+`maxAuthFailureAttempts=5`，且**认证成功时把两侧计数清零**。据此修了三处：
+
+1. **退避不再永久卡在 30 秒**：原来只在启动时 `++attempt`、从不清零，跑久了每次断线都等 30 秒；
+   现在订阅成功即置 `$SUB_OK`，下次断线按「第一次」算（1 秒）
+2. **凭据错的停止阈值 3 → 5**（对齐 `maxAuthFailureAttempts`），成功订阅后同样清零
+3. **补上 `disconnected_event` 处理**：同一机器人在别处建了新连接时，服务端会推这个事件；
+   官方 SDK 的做法是**标记为不重连**并关 socket。我们照做 —— 写审计 `ws_kicked`、
+   退出码 **4**、不反复抢线（原来会把它当普通断线，与另一处客户端来回互踢）
+
+心跳帧格式（`{"cmd":"ping","headers":{"req_id":"ping_…"}}`）、回执按 `req_id` 前缀 `ping` 判定、
+`errcode≠0` 时**不清零** missed 计数 —— 这三条原本就与官方一致，复核后保留。
+退避基数/上限可用 `WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` 覆盖（仅供测试压到毫秒级）。
+
 **单实例与退出**：`--serve` 在 `~/.claude-agent/wecom-ws.pid` 上加 `flock` 独占，
 第二个实例立刻以退出码 3 被拒（两个实例会把同一条消息各处理一遍，文件和钱都可能动两次）；
 pid 文件里写 `pid` / `mode` / `allow_write` / `started`（不含密钥），GUI 的状态行只读它。
