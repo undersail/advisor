@@ -152,10 +152,17 @@ sub allow_set {
 #   看起来像密钥没配，实际是厂商这一项被我们吃掉了（真机踩过）。
 #
 #   现在接受：export 可有可无、等号两边可有空格、值可有引号、行尾注释、CRLF。
+our $ENV_FILE_ERR = '';      # 打不开的原因（供 config_sanity 说清楚）
+
 sub read_agent_env {
     my ($path) = @_;
     my %e;
-    open(my $fh, '<:encoding(UTF-8)', $path) or return \%e;
+    $ENV_FILE_ERR = '';
+    my $fh;
+    if (!open($fh, '<:encoding(UTF-8)', $path)) {
+        $ENV_FILE_ERR = $!;
+        return \%e;
+    }
     while (my $l = <$fh>) {
         $l =~ s/\r?\n$//;
         next if $l =~ /^\s*#/;                 # 整行注释
@@ -227,7 +234,21 @@ sub config_sanity {
     my $envfile = $conf->{AGENT_ENV_FILE} || "$ENV{HOME}/.claude-agent-env";
     my $e = read_agent_env($envfile);
     my @warn;
-    push @warn, "找不到 $envfile（远程会话起来时会没有可用密钥）" unless -e $envfile;
+    if (!-e $envfile) {
+        push @warn, "找不到 $envfile（远程会话起来时会没有可用密钥）";
+    } elsif (!-r $envfile) {
+        # ★ 真机现场：文件属主是 root（以前用 sudo 配过），普通用户读不到 → 所有键读成空，
+        #   表现却是「没有有效的 CLAUDE_PROVIDER」，方向被带偏了。这里直接说清楚 + 给修法。
+        push @warn, "$envfile 存在但当前用户读不到（" . ($ENV_FILE_ERR || '权限不足') . "）。"
+                  . "常见原因：之前用 sudo 写过这个文件，属主变成了 root。修法："
+                  . "sudo chown \$(whoami) $envfile && chmod 600 $envfile"
+                  . "（顺带检查同目录：ls -l \$(dirname $envfile)）";
+        for my $w (@warn) {
+            audit('config_warn', $w);
+            print STDERR "配置自检：$w\n";
+        }
+        return \@warn;
+    }
     my $prov = $e->{CLAUDE_PROVIDER} // '';
     my %known;
     my $here = dirname(__FILE__);

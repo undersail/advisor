@@ -417,3 +417,22 @@ agent 于是回退到 anthropic，于是要 `ANTHROPIC_API_KEY`。这类「看�
 
 同时记一笔教训：本机自查命令 `grep -o '^export [A-Za-z0-9_]*'` 只能证明**变量名在**，
 证明不了**值有效**；以后给用户的自查命令要能看出「值长度/是否为空」而绝不打印值本身。
+
+### 6.5.11 最终根因：env 文件属主是 root，普通用户读不到
+
+配置自检上线后，真机打出 `config_warn … 里没有有效的 CLAUDE_PROVIDER`，同时用户手工执行
+`grep ~/.claude-agent-env` 得到 **Permission denied**（`sudo` 才能读）。至此链条闭合：
+
+1. 文件属主是 root（早前用 `sudo` 配过），mode 0600 → 普通用户 open 失败
+2. `read_agent_env()` `open … or return \%e` **静默返回空 hash** → 所有键都读成空
+3. agent 拿不到 `CLAUDE_PROVIDER` → `configure_provider(… || 'anthropic')` → 要 `ANTHROPIC_API_KEY`
+4. 于是报「请设置 ANTHROPIC_API_KEY」，而用户明明配了 DeepSeek
+
+修法：`read_agent_env` 记录 `$!`；`config_sanity` 把三种状态分开说清：
+**不存在 / 存在但读不到（附 `chown`+`chmod` 修法）/ 读到了但没有这一项**。
+测试：`test-gateway-write` 36 → **39 项**（root 下自动跳过权限用例）。
+
+教训（写给以后的自己）：
+- 「读不到」和「没有」必须分开报，否则所有权限类故障都会被误诊成「你没配」
+- 配置文件读失败不能静默吞掉，`open … or return` 这种写法在诊断上是负债
+- 不要用 `sudo` 跑安装/配置：会把 `~/.claude-agent*` 的属主变成 root，之后普通用户全读不到

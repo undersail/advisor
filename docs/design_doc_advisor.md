@@ -385,6 +385,12 @@ Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj
 `errcode≠0` 时**不清零** missed 计数 —— 这三条原本就与官方一致，复核后保留。
 退避基数/上限可用 `WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` 覆盖（仅供测试压到毫秒级）。
 
+**读不到 ≠ 没配（同一条真机的最终根因）**：`~/.claude-agent-env` 的属主是 root
+（用户早前用 `sudo` 配过），普通用户 open 失败 → `read_agent_env` 静默返回空 hash →
+所有键都读成空 → 报「没有有效的 CLAUDE_PROVIDER」，方向全被带偏。现在
+`read_agent_env` 记下 `$!`，`config_sanity` 把三种情况分开说：**不存在 / 存在但读不到
+（并给出 `chown` + `chmod` 修法）/ 读到了但没有这一项**。测试在 root 下自动跳过。
+
 **读 env 文件必须宽容（同一条真机的根因）**：`read_agent_env()` 原来只认
 `^\s*export\s+NAME=value`（等号两边不许有空格）。于是 `export CLAUDE_PROVIDER = deepseek`、
 `CLAUDE_PROVIDER=deepseek`（没 `export`）、带引号、行尾注释、CRLF 这些**常见写法会被整行丢掉**，

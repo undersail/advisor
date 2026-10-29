@@ -301,6 +301,26 @@ def main():
     check('真没有厂商时仍然要告警（宽容解析不等于不检查）',
           '配置自检' in (r['err'] or ''), (r['err'] or '')[-200:])
 
+    print('\u2468 env 文件读不到（属主是 root）要说清楚，别误导成「没配厂商」')
+    if os.geteuid() == 0:
+        print('  （以 root 运行，权限检查不适用，跳过）')
+    else:
+        _h, _ = make_home()
+        _f = os.path.join(_h, '.claude-agent-env')
+        with open(_f, 'w', encoding='utf-8') as f:
+            f.write('export CLAUDE_PROVIDER=deepseek\nexport DEEPSEEK_API_KEY=sk-fake-test\n')
+        os.chmod(_f, 0o000)
+        try:
+            r = drive([], '你好', wait=25.0, home=_h)
+            err = r['err'] or ''
+            check('读不到时点明是「权限/读不到」而不是「没配厂商」',
+                  ('读不到' in err) or ('权限' in err), err[-300:])
+            check('读不到时给出修法（chown + chmod）',
+                  ('chown' in err) and ('chmod' in err), err[-300:])
+            check('读不到时的告警也进审计', 'config_warn' in r['audit'], r['audit'][-240:])
+        finally:
+            os.chmod(_f, 0o600)
+
     print('%d/%d 通过' % (PASS, PASS + FAIL))
     return 0
 
