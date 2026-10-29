@@ -209,3 +209,26 @@ GUI `_S` **68** / `msg()` **52**，未译 0）、`check-models`（12 条模型 �
   `docs/manual_test_mac.md` §9.8
 - 踩过的坑：`use utf8` 缺失导致中文提示二次编码；`ws_send_text` 对已是 JSON 的文本又套了一层引号；
   「每片发完就等回执」会丢掉等待期间到达的新消息（改为 pending 表 + 主循环统一处理）
+
+### 6.5.2 追加：GUI 远程接面板（用户要求：不用开终端）
+
+用户问「GUI 上支持模型 key 配置和远程参数配置吗」—— 核对结果是：**key 支持、远程完全不支持**
+（GUI 里一行 `remote` 代码都没有，只有 `sys.platform` 的假命中）。所以补了面板，范围只做企微长连接。
+
+- 菜单 **工具 → 远程接入…**：BotID / Secret（掩码，保存后清空、旧值不回填）/ 白名单 / 保存 / 测试连接
+- **写的就是命令行那同一个文件**：`~/.claude-agent/wecom-ws.conf`、`~/.claude-agent/remote.conf` 的
+  `ALLOW`；只改自己负责的键，`WS_URL` / `HEARTBEAT` / `NOTIFY` / `LANG` / `HIST_PASS` 原样保留
+- 状态只显示文件与 `audit.log` 里的真实内容（未配置 / 已配置 + 最近活动时间），不自己造
+- 「测试连接」真跑 `wecom-ws.pl --check`，把真实输出（成功或 `errcode`）打在面板上
+- 子线程只算不碰 Tk：用 queue + 主线程 `after` 轮询。**踩过的坑**：从工作线程调 `after()` 在 Tk 里
+  不安全，实测静默不执行，界面永远停在「正在检查连接…」
+- 新增 `scripts/test-gui-remote.py` **24 项**（需 Xvfb）：文件同一性、掩码、凭据校验、0600、
+  只改自己的键、白名单合并、状态读 audit、测试连接失败如实显示
+- 顺带把用户「模型 Key 每次启动都要重填」的顾虑锁成断言：`test-gui-keyenv` 8 → **11 项**，
+  新增「写完再判定 `has_valid_api_key()` 为真」「写了 `CLAUDE_PROVIDER`」「key 变量名与
+  `providers.txt` 一致」
+
+**关于「每次都要重填」的判定条件**（也是排查清单）：`has_valid_api_key()` 只要求
+①env 文件里有 `CLAUDE_PROVIDER` ②该厂商在 `providers.txt` 里且 key 变量非空。
+不满足就重弹引导页。历史上还有一种情况是写盘静默失败（早期 `open('w')`），
+现在走临时文件 + `os.replace`，失败会抛 `key_save_denied` 并打印属主/权限。

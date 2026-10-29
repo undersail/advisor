@@ -445,6 +445,66 @@ _S = {
         "it in, and we'll switch right over.",
         "zh": "{provider} 还没有登记 API 密钥。获取后粘贴进去，就会直接切换。",
     },
+    # ---- 远程接入（企业微信 長接続 / 长连接）----
+    "menu_tools": {"ja": "ツール", "en": "Tools", "zh": "工具"},
+    "remote_menu": {"ja": "リモート接続…", "en": "Remote Access…", "zh": "远程接入…"},
+    "remote_title": {"ja": "リモート接続（企業微信・長接続）",
+                     "en": "Remote Access (WeCom · long connection)",
+                     "zh": "远程接入（企业微信 · 长连接）"},
+    "remote_intro": {
+        "ja": "スマホからこのMacに仕事を頼めるようにします。企業微信の「スマートボット」"
+        "→ APIモード → 長接続 で発行される BotID と Secret を入れてください。"
+        "公開URLもクラウド資源も要りません。",
+        "en": "Let your phone hand work to this Mac. Enter the BotID and Secret issued by "
+        "WeCom → smart bot → API mode → long connection. No public URL or cloud "
+        "resource is needed.",
+        "zh": "让手机能给这台 Mac 派活。填企业微信「智能机器人」→ API 模式 → 使用长连接 里"
+        "给你的 BotID 和 Secret。不需要公网地址，也不需要任何云资源。",
+    },
+    "remote_botid": {"ja": "BotID", "en": "BotID", "zh": "BotID"},
+    "remote_secret": {"ja": "Secret", "en": "Secret", "zh": "Secret"},
+    "remote_secret_kept": {"ja": "（保存済み。空欄のままなら変更しません）",
+                           "en": "(already saved; leave blank to keep it)",
+                           "zh": "（已保存，留空则不修改）"},
+    "remote_allow": {"ja": "許可するユーザーID（カンマ区切り）",
+                     "en": "Allowed user IDs (comma separated)",
+                     "zh": "允许的用户 ID（逗号分隔）"},
+    "remote_allow_hint": {
+        "ja": "ここに無い相手には返事をしません（「権限なし」とも返しません）。",
+        "en": "Anyone not listed gets no reply at all (not even 'no permission').",
+        "zh": "不在名单里的人不会收到任何回复（也不回「无权限」）。",
+    },
+    "remote_save": {"ja": "保存", "en": "Save", "zh": "保存"},
+    "remote_test": {"ja": "接続テスト", "en": "Test connection", "zh": "测试连接"},
+    "remote_close": {"ja": "閉じる", "en": "Close", "zh": "关闭"},
+    "remote_status_none": {"ja": "未設定：まだ接続情報がありません。",
+                           "en": "Not configured: no connection settings yet.",
+                           "zh": "未配置：还没有连接信息。"},
+    "remote_status_ready": {"ja": "設定済み（最終活動 {when}）",
+                            "en": "Configured (last activity {when})",
+                            "zh": "已配置（最近一次活动 {when}）"},
+    "remote_status_never": {"ja": "設定済み（まだ活動記録なし）",
+                            "en": "Configured (no activity recorded yet)",
+                            "zh": "已配置（还没有活动记录）"},
+    "remote_saved": {"ja": "保存しました：{path}（0600）",
+                     "en": "Saved: {path} (0600)", "zh": "已保存：{path}（0600）"},
+    "remote_need_botid": {"ja": "BotID を入れてください。",
+                          "en": "Please enter the BotID.", "zh": "请填写 BotID。"},
+    "remote_need_secret": {"ja": "Secret を入れてください（初回のみ）。",
+                           "en": "Please enter the Secret (first time only).",
+                           "zh": "请填写 Secret（只需第一次）。"},
+    "remote_testing": {"ja": "接続を確認しています…", "en": "Checking connection…",
+                       "zh": "正在检查连接…"},
+    "remote_no_script": {
+        "ja": "remote/wecom-ws.pl が見つかりません（この環境にはリモート部品がありません）。",
+        "en": "remote/wecom-ws.pl was not found (remote components are not installed here).",
+        "zh": "找不到 remote/wecom-ws.pl（这个环境里没有安装远程组件）。",
+    },
+    "remote_ok_hint": {
+        "ja": "パソコン側は `perl remote/wecom-ws.pl --serve` で常駐させます。",
+        "en": "On the Mac, keep it running with `perl remote/wecom-ws.pl --serve`.",
+        "zh": "在 Mac 上常驻用 `perl remote/wecom-ws.pl --serve`。",
+    },
 }
 
 
@@ -566,6 +626,118 @@ def pick_font(family, size):
 
 
 ENV_FILE_PATH = os.path.expanduser("~/.claude-agent-env")
+
+# 远程接入的配置文件：与命令行 wecom-ws.pl --init / gateway.pl 用的是**同一个**
+WECOM_WS_CONF_PATH = os.path.expanduser("~/.claude-agent/wecom-ws.conf")
+REMOTE_CONF_PATH = os.path.expanduser("~/.claude-agent/remote.conf")
+AUDIT_LOG_PATH = os.path.expanduser("~/.claude-agent/audit.log")
+
+
+def read_kv_conf(path):
+    """读 KEY=VALUE 形式（# 开头是注释）。文件不存在返回 {}。"""
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                out[k.strip()] = v.strip()
+    except Exception:
+        pass
+    return out
+
+
+def write_kv_conf_atomic(path, updates):
+    """只改 updates 里那几个键，其余行（注释、别人的配置）原样保留。
+
+    这是「不要覆盖用户已有配置」的落点：远程文件里除了 BotID/Secret，
+    还可能有 WS_URL / HEARTBEAT，remote.conf 里可能有 NOTIFY / LANG / HIST_PASS。
+    同目录临时文件 + os.replace，失败会抛异常（不静默），权限 0600。
+    """
+    d = os.path.dirname(path)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    lines = []
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.readlines()
+    except Exception:
+        lines = []
+    seen = set()
+    out = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            k = stripped.partition("=")[0].strip()
+            if k in updates:
+                out.append("%s=%s\n" % (k, updates[k]))
+                seen.add(k)
+                continue
+        out.append(line if line.endswith("\n") else line + "\n")
+    for k, v in updates.items():
+        if k not in seen:
+            out.append("%s=%s\n" % (k, v))
+    tmp = path + ".tmp.%d" % os.getpid()
+    old_umask = os.umask(0o077)
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.writelines(out)
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    finally:
+        os.umask(old_umask)
+    return path
+
+
+def remote_status():
+    """状态只从文件与审计日志读，不自己造。"""
+    conf = read_kv_conf(WECOM_WS_CONF_PATH)
+    has_cred = bool(conf.get("BOT_ID")) and bool(conf.get("BOT_SECRET"))
+    when = ""
+    if os.path.exists(AUDIT_LOG_PATH):
+        try:
+            with open(AUDIT_LOG_PATH, encoding="utf-8", errors="replace") as f:
+                for line in f.readlines()[-400:]:
+                    parts = line.split()
+                    if len(parts) >= 4 and parts[2] == "ws":
+                        when = "%s %s" % (parts[0], parts[1])
+        except Exception:
+            pass
+    return {"configured": has_cred, "last_activity": when,
+            "allow": read_kv_conf(REMOTE_CONF_PATH).get("ALLOW", "")}
+
+
+def find_wecom_ws_script():
+    """找 remote/wecom-ws.pl：仓库布局与构建目录布局都试一遍，都找不到就返回 ''。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands = [
+        os.path.join(here, "..", "remote", "wecom-ws.pl"),
+        os.path.join(here, "remote", "wecom-ws.pl"),
+        os.path.join(os.path.expanduser("~/claude-build"), "remote", "wecom-ws.pl"),
+    ]
+    rd = _bundled_resource_dir()
+    if rd:
+        cands.insert(0, os.path.join(rd, "remote", "wecom-ws.pl"))
+        cands.insert(0, os.path.join(rd, "wecom-ws.pl"))
+    for c in cands:
+        c = os.path.normpath(c)
+        if os.path.isfile(c):
+            return c
+    return ""
+
+
+def run_wecom_check(script, timeout=30):
+    """跑一次 --check，把**真实输出**原样交回来（成功/errcode 都由它决定）。"""
+    try:
+        p = subprocess.run(["perl", script, "--check"], capture_output=True,
+                           timeout=timeout, stdin=subprocess.DEVNULL)
+        out = (p.stdout or b"").decode("utf-8", "replace") + \
+              (p.stderr or b"").decode("utf-8", "replace")
+        return p.returncode == 0, out.strip()
+    except Exception as e:
+        return False, "%s" % e
 
 
 def _pointing_cursor():
@@ -1106,6 +1278,12 @@ class AdvisorGUI:
         edit_menu.add_separator()
         edit_menu.add_command(label=L("menu_select_all"), accelerator="Cmd-A",
                                command=self._menu_select_all)
+
+        # ツール：リモート接続の設定（キーの登録と同じく、GUIから完結させる）
+        tools_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label=L("menu_tools"), menu=tools_menu)
+        tools_menu.add_command(label=L("remote_menu"),
+                               command=self._open_remote_dialog)
 
         # name="window" にするとTkが項目を自動生成してくれるが、その中身
         # (Minimize/Zoom等)は英語固定で翻訳できない。自前の項目にする。
@@ -2140,6 +2318,136 @@ class AdvisorGUI:
                 command=lambda mid=m.get("id"): self._write(
                     {"t": "user", "text": "/model " + mid}),
             )
+
+    def _open_remote_dialog(self):
+        """远程接入（企微长连接）配置面板。
+
+        三条纪律（跟密钥面板一致）：
+          · 写的就是命令行那同一个文件，不另开一份配置
+          · 状态只显示文件与 audit.log 里的真实内容，不自己造
+          · Secret 用掩码输入，已保存时留空表示不修改，绝不把旧值填回控件
+        """
+        st = remote_status()
+        conf = read_kv_conf(WECOM_WS_CONF_PATH)
+        dlg = tk.Toplevel(self.root)
+        dlg.title(L("remote_title"))
+        dlg.transient(self.root)
+        dlg.grab_set()
+        tk.Label(dlg, text=L("remote_intro"), justify=tk.LEFT,
+                 wraplength=470).pack(padx=16, pady=(14, 10))
+
+        form = tk.Frame(dlg)
+        form.pack(padx=16, fill=tk.X)
+        form.columnconfigure(1, weight=1)
+
+        tk.Label(form, text=L("remote_botid")).grid(row=0, column=0, sticky="w", pady=3)
+        bot_var = tk.StringVar(value=conf.get("BOT_ID", ""))
+        tk.Entry(form, textvariable=bot_var, width=40).grid(
+            row=0, column=1, sticky="we", padx=(8, 0), pady=3)
+
+        secret_label = L("remote_secret")
+        if st["configured"]:
+            secret_label += L("remote_secret_kept")
+        tk.Label(form, text=secret_label).grid(row=1, column=0, sticky="w", pady=3)
+        sec_var = tk.StringVar()
+        sec_ent = tk.Entry(form, textvariable=sec_var, width=40, show="*")
+        sec_ent.grid(row=1, column=1, sticky="we", padx=(8, 0), pady=3)
+
+        tk.Label(form, text=L("remote_allow")).grid(row=2, column=0, sticky="w", pady=3)
+        allow_var = tk.StringVar(value=st["allow"])
+        tk.Entry(form, textvariable=allow_var, width=40).grid(
+            row=2, column=1, sticky="we", padx=(8, 0), pady=3)
+        tk.Label(dlg, text=L("remote_allow_hint"), justify=tk.LEFT,
+                 wraplength=470).pack(padx=16, pady=(2, 6))
+
+        status_var = tk.StringVar()
+        status_lbl = tk.Label(dlg, textvariable=status_var, anchor="w", justify=tk.LEFT,
+                              wraplength=470)
+
+        def refresh_status():
+            cur = remote_status()
+            if not cur["configured"]:
+                status_var.set(L("remote_status_none"))
+            elif cur["last_activity"]:
+                status_var.set(L("remote_status_ready", when=cur["last_activity"]))
+            else:
+                status_var.set(L("remote_status_never"))
+            status_lbl.pack(padx=16, anchor="w")
+
+        refresh_status()
+
+        res_var = tk.StringVar()
+        res_lbl = tk.Label(dlg, textvariable=res_var, justify=tk.LEFT, wraplength=470)
+
+        btns = tk.Frame(dlg)
+        btns.pack(pady=(8, 6))
+
+        def do_save():
+            bot = bot_var.get().strip()
+            sec = sec_var.get().strip()
+            cur = read_kv_conf(WECOM_WS_CONF_PATH)
+            if not bot:
+                res_var.set(L("remote_need_botid")); res_lbl.pack(padx=16, anchor="w")
+                return
+            if not sec and not cur.get("BOT_SECRET"):
+                res_var.set(L("remote_need_secret")); res_lbl.pack(padx=16, anchor="w")
+                return
+            upd = {"BOT_ID": bot}
+            if sec:
+                upd["BOT_SECRET"] = sec
+            if not cur.get("WS_URL"):
+                upd["WS_URL"] = "wss://openws.work.weixin.qq.com"
+            try:
+                write_kv_conf_atomic(WECOM_WS_CONF_PATH, upd)
+                allow = allow_var.get().strip()
+                if allow:
+                    write_kv_conf_atomic(REMOTE_CONF_PATH, {"ALLOW": allow})
+            except Exception as e:      # 写失败必须说出来，不许静默
+                res_var.set("保存失败：%s" % e); res_lbl.pack(padx=16, anchor="w")
+                return
+            sec_var.set("")             # 保存后清空，旧值不回填
+            res_var.set(L("remote_saved", path=WECOM_WS_CONF_PATH))
+            res_lbl.pack(padx=16, anchor="w")
+            refresh_status()
+
+        def do_test():
+            script = find_wecom_ws_script()
+            if not script:
+                res_var.set(L("remote_no_script")); res_lbl.pack(padx=16, anchor="w")
+                return
+            res_var.set(L("remote_testing")); res_lbl.pack(padx=16, anchor="w")
+            test_btn.configure(state=tk.DISABLED)
+            # ★ 子线程只管算，绝不在子线程里碰 Tk：
+            #   从别的线程调 after()/改控件在 Tk 里是不安全的（实测会静默不执行，
+            #   表现成「一直停在 正在检查连接…」）。用队列 + 主线程轮询。
+            box = queue.Queue()
+
+            def work():
+                box.put(run_wecom_check(script))
+
+            def poll():
+                try:
+                    ok, out = box.get_nowait()
+                except queue.Empty:
+                    self.root.after(150, poll)
+                    return
+                res_var.set(("OK " if ok else "NG ") + out)
+                res_lbl.pack(padx=16, anchor="w")
+                try:
+                    test_btn.configure(state=tk.NORMAL)
+                except Exception:
+                    pass
+
+            threading.Thread(target=work, daemon=True).start()
+            self.root.after(150, poll)
+
+        test_btn = tk.Button(btns, text=L("remote_test"), command=do_test)
+        tk.Button(btns, text=L("remote_save"), command=do_save).pack(side=tk.LEFT, padx=4)
+        test_btn.pack(side=tk.LEFT, padx=4)
+        tk.Button(btns, text=L("remote_close"), command=dlg.destroy).pack(side=tk.LEFT, padx=4)
+        tk.Label(dlg, text=L("remote_ok_hint"), justify=tk.LEFT,
+                 wraplength=470).pack(padx=16, pady=(0, 12))
+        dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
 
     def _ask_passphrase(self, prompt, recover=False):
         # 確認欄はなし(1回だけ)。打ち間違い対策は「合言葉」で担保する。

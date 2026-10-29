@@ -105,6 +105,13 @@ HTTP 回调模式在解决一个难题：**平台要主动 POST 到你机器上�
                               ↑ 只有传输：握手、帧、心跳、重连
 ```
 
+**GUI 里也能配**（推荐给不习惯终端的人）：菜单 **工具 → 远程接入…**，
+填 BotID / Secret（掩码输入，保存后不回显旧值）、白名单，点「保存」写的就是下面这同一个文件，
+点「测试连接」会把 `--check` 的真实结果（含 errcode）打在面板上。重启后会从文件读回状态，
+**不需要重填**。
+
+命令行等价写法：
+
 ```bash
 perl remote/wecom-ws.pl --init     # 录入 BotID / Secret（隐藏输入，写 ~/.claude-agent/wecom-ws.conf 0600）
 perl remote/wecom-ws.pl --check    # 只连一次：验凭据能不能订阅成功（不启动 agent）

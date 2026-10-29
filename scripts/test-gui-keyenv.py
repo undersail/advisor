@@ -52,12 +52,25 @@ elif case == "readonly_dir":
     except RuntimeError as e:
         print("ERROR_TEXT")
         print(str(e))
+elif case == "persist":
+    # 真机报障：「模型 Key 每次启动都要重填」。这就是那条判定的等价断言：
+    # 写完 → 重新按文件判定（等价于下次启动）→ 必须认为「有可用密钥」。
+    G.save_onboard_env("deepseek", "sk-new-1234")
+    print("PERSIST", G.has_valid_api_key())
+    names = [ln.split("=")[0].strip().replace("export ", "")
+             for ln in lines_of(envp).splitlines() if ln.startswith("export ")]
+    print("VARS", ",".join(sorted(names)))
+    # providers.txt 里 deepseek 那行声明的 key 变量名
+    with open(os.path.join(%r, "providers.txt"), encoding="utf-8") as f:
+        for ln in f:
+            if ln.startswith("deepseek|"):
+                print("EXPECT", ln.split("|")[1])
 else:
     G.save_onboard_env("deepseek", "sk-new-1234")
     print("WROTE")
     print(lines_of(envp))
     print("MODE", oct(os.stat(envp).st_mode & 0o777))
-''' % (ROOT,)
+''' % (ROOT, ROOT)
 
 PASS = FAIL = 0
 FAILS = []
@@ -112,6 +125,15 @@ check('报错里给出修复命令（sudo rm）', 'sudo rm' in out2, out2[-300:]
 print('::notice::正常情况')
 out3 = run('plain')
 check('正常写入并落盘', 'sk-new-1234' in out3 and 'MODE 0o600' in out3, out3[-300:])
+
+print('::notice::重启后是否还认为有密钥（真机报障：每次启动都要重填）')
+out4 = run('persist')
+check('写完再判定，has_valid_api_key() 为真（= 下次启动不再要 key）',
+      'PERSIST True' in out4, out4[-300:])
+check('写了 CLAUDE_PROVIDER（判定要求的两件事之一）',
+      'CLAUDE_PROVIDER' in out4, out4[-300:])
+check('key 变量名与 providers.txt 声明一致',
+      'EXPECT ' in out4 and 'DEEPSEEK_API_KEY' in out4, out4[-300:])
 
 print()
 if FAIL:

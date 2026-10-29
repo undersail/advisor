@@ -358,6 +358,7 @@ jobs:
           # 不让它变成 macOS 上的假红。
           if command -v xvfb-run >/dev/null 2>&1; then
             xvfb-run -a python3 scripts/test-gui-modes.py
+            xvfb-run -a python3 scripts/test-gui-remote.py
           else
             echo "::notice::没有 xvfb-run，跳过 GUI 窗口内省"
           fi
