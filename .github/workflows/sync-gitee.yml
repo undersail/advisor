@@ -75,10 +75,22 @@ jobs:
           REMOTE_URL="https://oauth2:${GITEE_TOKEN}@gitee.com/undersail/advisor.git"
           # 显式取退出码：`if cmd; then ...; fi` 在没有分支命中时整体状态是 0，
           # 直接读 $? 会拿到 0，把「漂移」误判成「正常」。
-          set +e
-          bash scripts/check-mirror-drift.sh "$REMOTE_URL" --branch main
-          code=$?
-          set -e
+          # ★ 只读的 fetch 允许重试：GitHub runner 到 Gitee 偶尔握手失败/超时，
+          #   一次抖动就把整个同步判红没有意义（已经踩过）。注意只重试「读不到」，
+          #   真的漂移（exit 2）必须立刻停，绝不能靠重试蒙过去。
+          code=1
+          for attempt in 1 2 3; do
+            set +e
+            bash scripts/check-mirror-drift.sh "$REMOTE_URL" --branch main
+            code=$?
+            set -e
+            [ "$code" = 0 ] && break
+            [ "$code" = 2 ] && break          # 真漂移：不重试
+            if [ "$attempt" != 3 ]; then
+              echo "::warning::读不到 Gitee 镜像（第 $attempt 次），$((attempt * 5)) 秒后重试"
+              sleep $((attempt * 5))
+            fi
+          done
           [ "$code" = 0 ] && exit 0
           sed -i "s|${GITEE_TOKEN}|***|g" /tmp/advisor-mirror-fetch.log 2>/dev/null || true
           if [ "$code" = 2 ]; then
@@ -98,12 +110,20 @@ jobs:
           try_push() {
             local prefix="$1" label="$2"
             local remote="https://${prefix}:${GITEE_TOKEN}@${TARGET}"
-            if git push "$remote" --all --force 2>&1 | tee /tmp/push.log; then
-              echo "::notice::分支推送成功（凭据形式 ${label}）"
-              return 0
-            fi
-            # 令牌可能被 git 回显进错误信息，打码后再报
-            sed -i "s|${GITEE_TOKEN}|***|g" /tmp/push.log
+            # --force 推送是幂等的：失败重试一次没有副作用，能挡住 Gitee 侧的瞬时 5xx
+            local n
+            for n in 1 2; do
+              if git push "$remote" --all --force 2>&1 | tee /tmp/push.log; then
+                echo "::notice::分支推送成功（凭据形式 ${label}，第 $n 次尝试）"
+                return 0
+              fi
+              # 令牌可能被 git 回显进错误信息，打码后再报
+              sed -i "s|${GITEE_TOKEN}|***|g" /tmp/push.log
+              if [ "$n" = 1 ]; then
+                echo "::warning::${label} 推送失败，10 秒后重试一次"
+                sleep 10
+              fi
+            done
             return 1
           }
 
