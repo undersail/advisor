@@ -385,6 +385,16 @@ Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj
 `errcode≠0` 时**不清零** missed 计数 —— 这三条原本就与官方一致，复核后保留。
 退避基数/上限可用 `WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` 覆盖（仅供测试压到毫秒级）。
 
+**会话起不来不能静默（真机 session_not_ready）**：`gateway.pl` 起 agent 后等 `{"t":"ready"}`，
+等不到就返回 undef。原来这里只记一句 `session_not_ready`，**子进程 stderr 直接丢掉**，
+于是真机表现成「手机发消息完全没反应」，日志里也看不出任何原因。现在：
+
+- `!ready` 时用 `IO::Select` 有界读取子进程 stderr（最多 1 秒 / 400 字，按 UTF-8 解码），
+  写进审计 `session_not_ready err=…` 并打到终端
+- 手机侧回一句明确的话（「本机会话没起来，这次没有执行…去 Mac 终端/审计看原因」），
+  不再让用户对着静默的对话框猜
+- 注意 `handle_message()` 的契约是**返回回复文本**，不能返回 hashref（否则手机上显示 `HASH(0x…)`）
+
 **回复消息必须是 stream（真机 40008）**：`aibot_respond_msg` 的 `body.msgtype` 只认
 `stream`（`{stream:{id,finish,content}}`），`msgtype:text` 只对**欢迎语**
 （`aibot_respond_welcome_msg`）合法。原来回复用 text，真机直接被服务端拒：

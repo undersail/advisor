@@ -357,3 +357,23 @@ unable to get local issuer certificate … HTTP/1.1 101 Switching Protocols`，�
 `content`，不合规就回 40008 —— 客户端会记 `ws_send_err`，CI 即可发现。测试 56 → **59 项**
 （新增 stream 类型、非空 id、finish=true、正文在 stream.content 四条断言，去掉一条 text 断言）。
 文档：`design_doc` §4.5.1、`user_manual` §8.2 排错表（40008 / 无 ws_inbound / 无 ws_sent 三行）。
+
+### 6.5.8 会话起不来时静默（真机 session_not_ready）
+
+真机日志：`ws_inbound from=Jack` → `gateway_spawn` → `session_not_ready from=Jack` →
+`gateway_done reply_len=0`。连接、白名单、消息投递都正常，卡在「agent 没发出 `{"t":"ready"}`」。
+
+缺陷在可诊断性：`gateway.pl` 的 `!ready` 分支只记一句 `session_not_ready`，
+**子进程的 stderr 直接丢掉**，于是真机表现成「手机发消息完全没反应」，日志也看不出原因；
+手机侧还会收到空回复（等于什么都不显示）。
+
+修法：
+1. `!ready` 时用 `IO::Select` **有界**读取子进程 stderr（≤1 秒、≤400 字，按 UTF-8 解码，
+   否则中文报错变乱码），写进审计 `session_not_ready err=…` 并打到终端
+2. `handle_message()` 起不来时返回一句明确的话给手机（点明去 Mac 终端/审计看原因），
+   顺带修正契约：这个函数返回**回复文本**，返回 hashref 会让手机上显示 `HASH(0x…)`
+   （改的时候踩过，测试里也断言了）
+
+测试：`test-gateway-write` 22 → **27 项**，新增场景「假 agent 起不来」：
+手机能收到一句话、话里点明去哪看、审计带子进程真实报错、终端也打出、中文不乱码。
+文档：`user_manual` §8.2 排错表新增 `session_not_ready` 一行、`design_doc` §4.5.3。

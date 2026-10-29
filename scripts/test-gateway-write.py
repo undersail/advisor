@@ -214,6 +214,27 @@ def main():
         for name, detail in FAILS:
             print('  \u2717 %s  %s' % (name, detail))
         return 1
+    print('\u2465 session 起不来：必须报出真原因，不能静默')
+    # 真机现象：手机发消息完全没反应，日志只有一句 session_not_ready，看不出任何原因。
+    _h, _ = make_home()
+    bad = os.path.join(_h, 'bad_agent.sh')
+    with open(bad, 'w', encoding='utf-8') as f:
+        f.write('#!/bin/sh\necho "致命错误：模型名 xyz 不存在" >&2\nexit 3\n')
+    os.chmod(bad, 0o755)
+    r = drive([], '你好', wait=25.0, home=_h, agent=bad)
+    check('起不来时手机能收到一句话（不再「发了没反应」）',
+          bool(r['replies']) and '没起来' in r['replies'][0], str(r['replies']))
+    check('给用户的话里点明去哪看原因',
+          bool(r['replies']) and ('审计' in r['replies'][0] or '终端' in r['replies'][0]),
+          str(r['replies']))
+    check('审计 session_not_ready 带上子进程的真实报错',
+          'session_not_ready' in r['audit'] and '模型名 xyz 不存在' in r['audit'],
+          r['audit'][-300:])
+    check('终端也打出原因（盯着终端的用户能当场看到）',
+          '模型名 xyz 不存在' in (r['err'] or ''), (r['err'] or '')[-300:])
+    check('中文报错没变乱码（stderr 按 UTF-8 解码）',
+          'è' not in (r['err'] or ''), (r['err'] or '')[-200:])
+
     print('%d/%d 通过' % (PASS, PASS + FAIL))
     return 0
 

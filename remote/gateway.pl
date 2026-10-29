@@ -35,6 +35,7 @@ use utf8;
 use Encode qw(decode);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
+use IO::Select;
 use IPC::Open3 qw(open3);
 use Symbol qw(gensym);
 
@@ -262,8 +263,27 @@ sub spawn_session {
         if ($l =~ /"t"\s*:\s*"ready"/) { $ready = 1; last; }
     }
     unless ($ready) {
-        audit('session_not_ready', "from=$from");
+        # ★ 原来这里只记一句 session_not_ready，子进程的 stderr 直接丢了 ——
+        #   真机上表现成「手机发消息完全没反应」，而这行日志看不出任何原因。
+        #   现在把 stderr 有界地读出来（最多 1 秒、400 字），写审计并打到终端。
+        my $tail = '';
+        if ($errh) {
+            my $sel = IO::Select->new($errh);
+            while ($sel->can_read(1)) {
+                my $chunk = '';
+                my $n = sysread($errh, $chunk, 4096);
+                last unless $n;
+                $tail .= decode('UTF-8', $chunk);
+                last if length($tail) > 4000;
+            }
+        }
         close $in; close $out; waitpid($pid, 0);
+        $tail =~ s/\r//g;
+        $tail =~ s/\s+/ /g;
+        $tail = substr($tail, 0, 400);
+        audit('session_not_ready', "from=$from",
+              ($tail ne '' ? "err=$tail" : 'err=-(子进程没输出任何东西)'));
+        print STDERR "本机会话没起来（$from）：$tail\n" if $tail ne '';
         return undef;
     }
     # ★ 子プロセスの標準入力は自動フラッシュにする。これが無いと書き込んだ
@@ -321,7 +341,13 @@ sub ask_remote {
 # 1件処理して、返信テキストを返す。失敗時は undef。
 sub handle_message {
     my ($from, $text, $conf) = @_;
-    my $s = ensure_session($from, $conf) or return undef;
+    my $s = ensure_session($from, $conf);
+    unless ($s) {
+        # 起不来也要回一句：否则用户只看到「发了没反应」，无从判断
+        return '本机会话没起来，这次没有执行。原因已写在 Mac 的终端输出和审计日志里'
+             . '（session_not_ready 那行）。常见原因：模型密钥失效 / 模型名不对 / '
+             . '本机 ~/.claude-agent-env 没配好。';
+    }
 
     print { $s->{in} } qq|{"t":"user","text":"| . json_escape($text) . qq|"}\n|;
 
