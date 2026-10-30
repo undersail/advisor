@@ -107,6 +107,10 @@ def main():
         wf_txt = ''
     check('镜像工作流在推 tag 时也会同步（否则发版后镜像缺 tag）',
           "tags: ['v*']" in wf_txt, wf)
+    # 红了要能看出是哪一类失败：守卫失败分支里必须打开诊断（ADVISOR_MIRROR_DEBUG），
+    # 否则日志里只剩「已中止同步」一句结论 —— v0.2.4 推 tag 那次就是看不出来。
+    check('守卫失败时会带诊断重跑（红了能分清漂移/读不到/tag 形式不同）',
+          'ADVISOR_MIRROR_DEBUG=1' in wf_txt, wf)
 
     work = tempfile.mkdtemp(prefix='drift-')
     try:
