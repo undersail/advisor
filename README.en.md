@@ -1,383 +1,142 @@
 # Advisor
 
-> **About cloud services**: this is a purely local desktop tool. No hosted service is
-> provided, and **you do not need to provision any cloud resources**. Remote access only
-> uses WeCom/Lark open-platform credentials: WeCom runs in "smart bot · long connection"
-> mode (just a BotID + Secret, no public URL), Lark uses a callback (you supply a public
-> address). The repository contains no account IDs, tokens or cloud resource IDs.
+*A lightweight AI agent for older Macs — usable from the terminal and from a GUI.*
 
-## 🇯🇵 [Japanese →](README.md) · 🇨🇳 [中文版 →](README.zh.md)
+Advisor turns an older Intel Mac (macOS 10.9 and later) back into a useful AI assistant:
+a single-file Perl agent plus a Python/tkinter GUI. No cloud service, no server of your own —
+your keys and your conversations stay on your machine.
 
-<img src="launcher/advisor.png" alt="Advisor" width="120">
+> This project is a purely local desktop app. It hosts nothing for you and requires **no cloud
+> resources**. The repository contains no account, token, or cloud resource id of anyone.
 
-*A lightweight AI agent for old High Sierra-era Macs*
+Chinese: [README.md](README.md) ｜ Full guide: [docs/user_manual.md](docs/user_manual.md)
 
-**Advisor** brings old Intel Macs (Snow Leopard through High Sierra) back to
-life as a genuinely useful AI agent — a lightweight terminal and GUI app that
-works with both Claude (Anthropic) and Gemini (Google).
+## What it does
 
-The command is called `advisor` on purpose — a neutral name so you don't have
-to think about which AI is actually answering.
+- **Seven providers, switchable mid-conversation** — Claude, Gemini, OpenAI, DeepSeek,
+  Qwen (Alibaba), Kimi (Moonshot), GLM (Zhipu). Use `/claude` `/gemini` `/openai`
+  `/deepseek` `/qwen` `/kimi` `/glm`. Gemini has a free tier, so you can try the whole
+  thing at zero cost.
+- **One app, two faces** — run `advisor` for the terminal, or double-click `Advisor.app`
+  for the GUI with three themes (Notes / Coding / Hacker).
+- **It can read, write, and run commands — under your control** — reading never asks.
+  Writing and shell execution have three modes (`default` asks for both, `accept-edits`
+  auto-writes but still asks for commands, `bypass` skips routine prompts).
+  **Dangerous commands are still confirmed even in `bypass`**, and no answer means denied.
+  Writable scope defaults to the current directory and temp only; `~/.ssh` and
+  `~/.claude-agent` are refused even if you add them explicitly.
+- **Encrypted local history** — protected by a passphrase plus an optional recovery question.
+  `--no-history` keeps nothing on disk.
+- **Work from your phone (optional)** — WeCom (WeChat Work) "smart robot · long connection"
+  needs only a BotID and a Secret: no public domain, no cloud account. Permissions are fixed
+  when the service starts on the Mac, and anything needing confirmation is sent to your phone
+  for a `y`/`n` answer. Feishu is supported in callback mode only (needs your own public URL).
+- **Chinese by default** — English is available too (older Japanese UI strings are kept as-is
+  and no new ones are added).
 
-## Why I built this
+## Install
 
-It started with an old MacBook I'd mostly stopped using. At first I assumed
-today's coding agents just wouldn't run on such an old setup — High Sierra
-can only install VSCode up to version 1.85, after all. That turned out to be
-a misconception; some agents do work there.
+### 1. Download and run (no terminal)
 
-But even if they did, AI API costs add up fast, and I wanted something I
-could use on an old Mac without worrying about the bill every time I typed
-a question.
+1. Get `Advisor-v*-standalone.zip` from the
+   [latest release](https://github.com/undersail/advisor/releases/latest) and unzip it
+2. Drag `Advisor` into Applications (or the Dock)
+3. **The first time only**, right-click (or Control-click) → Open → Open again.
+   The build is not signed by an Apple Developer ID, so this is expected
+4. On first launch you get an in-app key setup page: pick a provider → open its key page →
+   paste the key. No terminal involved
 
-The real goal was always two things. First, I wanted something like a casual
-conversation partner — a bit like an exchange diary, something easygoing I
-could talk to without much ceremony. Second, since it's AI anyway, I wanted
-to be able to drop into a terminal and get real coding help — reading files,
-running commands, the works. **Advisor is built to show both faces: a gentle
-conversation partner, and a sharp, no-nonsense AI.** That's why the GUI has
-three themes — Note, Coding, and Hacker — so you can move between those two
-faces depending on your mood.
+The zip ships `ReadMe_ZH.txt` (Chinese) and `ReadMe_EN.txt` (English).
 
-## Who this is for
-
-- Anyone with a 2010s-era Mac gathering dust in a drawer who wants to give it
-  one more job
-- People who want a slightly-more-human AI to chat or journal with, in a
-  ruled-notebook-style screen rather than a sterile chat box
-- People who just want quick terminal-based coding help — file edits, shell
-  commands, without switching to a full IDE
-- Anyone who wants to avoid pricey subscriptions or metered API bills —
-  Gemini's free tier alone is enough to get going
-- Anyone sharing a Mac with family who wants their own conversations kept
-  private (encrypted history)
-- Anyone who wants to hand this to English-speaking friends too — it follows
-  the OS language setting automatically
-
-## Features
-
-- **Lightweight, almost no external dependencies** — the agent itself
-  (`agent/claude-agent.pl`) is a single Perl file with zero CPAN
-  dependencies. The GUI uses only Python's bundled `tkinter`.
-- **Switch between seven AIs anytime** — Claude (Anthropic), Gemini
-  (Google), OpenAI, DeepSeek, Qwen (Alibaba Cloud), Kimi (Moonshot) and
-  GLM (Zhipu). Mid-conversation: `/claude` `/gemini` `/deepseek` `/qwen`
-  `/kimi` `/glm` `/openai`. Gemini has a free tier, so you can try the
-  whole thing at zero cost. Any other OpenAI-compatible API works too —
-  just add one line to `models.txt`.
-- **Pick a vendor right on the GUI first screen** — a dropdown of seven;
-  the "get a key" button follows your choice. The model menu is grouped
-  by vendor instead of one long flat list.
-- **The installer supports seven vendors too** — `bash setup.sh` lists all
-  seven, shows where to get the key, and runs a connectivity test.
-- **Three GUI themes: Note, Coding, and Hacker** — a ruled-notebook-style
-  chat screen, a green-on-black hacker terminal look, whatever matches
-  your mood.
-- **Also works as a plain terminal command** — just run `advisor`, no GUI
-  required.
-- **Conversation history is encrypted and stored locally** — unreadable
-  to anyone who doesn't know your passphrase.
-- **Automatic Japanese/English/Chinese switching** — the GUI, terminal text, and
-  even the native macOS menu bar all follow your Mac's system language
-  automatically.
-- **Double-clickable `Advisor.app`** — no terminal experience required.
-  Drop it in the Dock and you're one click away every time.
-- **API key setup happens right inside the GUI** — if no key is registered
-  yet the first time you launch, you get an in-app screen instead of a
-  terminal prompt. Pick a provider, click a button to open the key page,
-  paste it in — done. No terminal window, ever.
-
-- **Confirmation only where it is needed** - three interaction modes: `default` (asks before
-  every write and every command), `accept-edits` (writes are automatic, commands still ask) and
-  `bypass` (ordinary work runs without asking, **dangerous commands still ask**). The GUI shows a
-  **[ Mode ]** menu plus a permanent badge, so the current mode is always visible.
-- **Safety valves so it cannot run away** - `run_shell` has a **timeout (120 s by default) and a
-  64 KB output cap**; a dangerous-command prompt that goes **unanswered for 60 seconds counts as
-  refused**, and with neither a terminal nor a GUI attached it is refused up front (nothing runs
-  unattended, nothing hangs). Every auto-approval is appended to
-  `~/.claude-agent/approvals.log` and `/approvals` shows the last ten.
-- **You decide where it may write** - by default only the current directory and the temp
-  directory. `--allow-write` / `/allow-write` add more for the session; `~/.ssh` and
-  `~/.claude-agent` (where keys and the audit log live) **stay refused even if you add them**.
-- **Remote access (optional)** — drive it from your phone; results can
-  be pushed to WeCom / Feishu (see `remote/README.md`). **Remote has no write or execute
-  permission level** — the mode is fixed on the Mac at start-up: `default` (read-only, default) /
-  `accept-edits` (writes inside the allowed dirs, shell asks) / `bypass` (dangerous commands still
-  ask). The phone **cannot** change it, and confirmations are relayed to the phone (reply y / n;
-  no reply means deny). Vendor,
-  model, mode, writable roots and keys are all configured on the local machine, and
-  `/model` `/mode` `/key` coming from the chat side are refused (a key must never travel
-  through a third-party chat platform).
-
-## Supported OS tiers
-
-- **Tier B: Mavericks (10.9) through High Sierra (10.13) and later** — the
-  system `curl` already supports TLS 1.2, so no extra build step is needed.
-  This is the tier that's implemented today.
-- **Tier A: Snow Leopard through Mountain Lion (10.6–10.8)** — the system
-  `curl` doesn't even reach TLS 1.0, so OpenSSL/curl need to be built
-  (fetch source on a modern machine → transfer to the target → build
-  locally on the target). **Not implemented** — the maintainer decided to skip this tier for now.
-
-## Setup (Tier B: High Sierra and similar)
-
-There are two ways to get going. If you're not comfortable with a terminal,
-go with ①. If you're a developer or don't mind the command line, ② works
-too.
-
-### ① Download and go (no terminal needed)
-
-1. Grab **`Advisor-v0.2.2-standalone.zip`** from the
-   [latest release](https://github.com/undersail/advisor/releases/latest)
-   and unzip it
-2. Drag the `Advisor` inside into your `Applications` folder (or the Dock)
-3. **The very first time only**, instead of double-clicking, right-click
-   (or Control-click) it and choose "Open." macOS will warn that the
-   developer is unidentified (expected — this build isn't signed with a
-   paid Apple Developer ID yet) — click "Open" again. After that, a normal
-   double-click works every time.
-
-The first launch shows an in-app screen for registering your API key — no
-terminal window, ever. The zip also includes a "ReadMe_EN.txt" with the
-same instructions.
-
-### ② From source (terminal, for developers)
-
-Download (or `git clone`) this whole repository, then:
+### 2. From source (terminal)
 
 ```bash
+git clone https://github.com/undersail/advisor.git
+cd advisor
 bash setup.sh
 ```
 
-This walks you through choosing an AI (Gemini or Anthropic), getting and
-saving an API key, installing the `advisor` command, setting up bash
-completion, building the double-clickable `Advisor.app`, and checking that
-the API actually responds — all in one pass. Once it's done, open a new
-Terminal window (or run `source ~/.bash_profile`) and just type `advisor`.
-The `Advisor.app` this builds also shows the same in-GUI setup screen if no
-key is registered yet, same as ①.
+`setup.sh` walks through: choose a provider → store the key → install the `advisor` command
+and completion → build `Advisor.app` → run a connectivity test.
 
-> `Advisor.app` is built with [py2app](https://py2app.readthedocs.io/). The
-> first run automatically installs Xcode Command Line Tools (needed for code
-> signing, ~190MB, one-time), py2app itself, and
-> [pyobjc](https://pyobjc.readthedocs.io/) (~7MB, used to localize the native
-> macOS menu bar). If that build fails for any reason, setup falls back to a
-> simpler app bundle automatically, so the `advisor` command always ends up
-> working either way.
+> **Do not run `setup.sh` with `sudo`.** It would leave `~/.claude-agent*` owned by root,
+> and your normal user could no longer read them — which shows up as
+> "I configured it, but it says nothing is configured".
 
-## Using the GUI
-
-Double-click `Advisor.app`, or run `advisor gui` — either way, the GUI opens
-directly with no terminal window.
-
-**If no API key is registered yet**, you'll see a setup screen instead of
-the normal chat view. Pick Gemini (free) or Anthropic (paid), click the
-button to open the key page, paste your key in, and it verifies the
-connection right there before dropping you into the normal screen.
-
-- The **[ Chat ] [ Command ]** tabs at the top switch between the AI
-  conversation screen and a shell command panel.
-- Three visual themes are available: **Note** (a ruled, handwritten-notebook
-  look), **Coding**, and **Hacker** (green on black). Switch anytime from
-  **[ Theme ]** in the header.
-- **[ Switch AI ]** lets you pick a Claude or Gemini model, and
-  **[ Resume ]** reopens an encrypted past conversation.
-- The text box uses your Mac's normal input method directly, sidestepping
-  Terminal.app's double-byte character quirks.
-
-## Using the terminal (`advisor` command)
-
-The agent itself (`agent/claude-agent.pl`) stays a simple conversation loop
-on purpose — option parsing and the model-picker menu live in the generated
-`~/bin/advisor` bash wrapper instead.
-
-**The basics:**
+## Quick start
 
 ```
-advisor            start it
-(pick a number from the list)    switch which AI you're talking to
-type your question                get an answer
-exit                               quit
+advisor                     start a conversation
+/model  or  ?               show the model list; type a number to switch
+/key <provider>             set a provider's API key (the only in-session key entry)
+/mode [mode]                show / switch the interaction mode
+/allow-write <dir>          add a writable directory (repeatable)
+/approvals                  last 10 auto-approvals
+exit  or Ctrl-D             quit
 ```
 
-You choose the AI once during `setup.sh`. After that, switching is just
-**typing a number from the list**:
+Common startup flags:
 
 ```
-  1) Claude Opus 5 — best quality, paid
-  2) Claude Sonnet 5 — balanced, paid
-  3) Claude Haiku 4.5 — fast, paid
-  4) Gemini Flash-Lite — fast, free   ← current
-  5) Gemini Flash — high quality, free
-Type a number to switch. Or just ask your question directly.
-
-What can I help with> 3        ← this alone switches to Haiku
+advisor --mode=<default|accept-edits|bypass>   interaction mode
+advisor --allow-write=<dir>                    add a writable directory (repeatable)
+advisor --resume                               resume the last conversation
+advisor --list-history                         list saved conversations
+advisor --no-history                           do not save history this run
+advisor --version                              version
 ```
 
-Available mid-conversation:
+In the GUI the header holds `[ Chat ] [ Command ]`, `[ Switch AI ]`, `[ Resume ]`, `[ Theme ]`,
+plus a persistent badge showing the current mode.
 
-| Type this | What happens |
+## Supported providers
+
+| Provider | In-session command | Key environment variable |
+|---|---|---|
+| Anthropic | `/claude` | `ANTHROPIC_API_KEY` |
+| Google | `/gemini` | `GEMINI_API_KEY` |
+| OpenAI | `/openai` | `OPENAI_API_KEY` |
+| DeepSeek | `/deepseek` | `DEEPSEEK_API_KEY` |
+| Qwen (Alibaba Cloud) | `/qwen` | `DASHSCOPE_API_KEY` |
+| Kimi (Moonshot) | `/kimi` | `MOONSHOT_API_KEY` |
+| GLM (Zhipu) | `/glm` | `ZHIPU_API_KEY` |
+
+The last five use the OpenAI-compatible protocol. To add another compatible service, add a line
+to `models.txt` with `provider` set to `openai`; to replace the endpoint entirely (your own proxy,
+for example) set `CLAUDE_BASE_URL`.
+
+> Built-in model ids are only convenient defaults — **always check the provider's own docs**.
+> If one goes stale, edit `models.txt`.
+
+## Where configuration and data live
+
+| Item | Location |
 |---|---|
-| `1`–`5` (a number) | switch to that AI (provider switches automatically too, and it's remembered next time) |
-| `/model` or `?` | show the AI list again |
-| `/claude` / `/gemini` | Switch provider only |
-| `/key <vendor>` | Set that vendor's API key (the only way to enter a key in a session) |
-| `exit` / Ctrl-D | quit |
+| Providers and keys | `~/.claude-agent-env` (mode 0600, **must be owned by your user**) |
+| Conversation history (encrypted) | `~/.claude-agent/history/` |
+| Remote allow-list / notifications | `~/.claude-agent/remote.conf` |
+| WeCom long-connection credentials | `~/.claude-agent/wecom-ws.conf` |
+| Remote audit log (append-only) | `~/.claude-agent/audit.log` |
+| Installed artifacts (`advisor`, `Advisor.app`) | `~/claude-build/`, `~/bin/` |
+| Model / provider tables | `models.txt`, `providers.txt` in the repo |
 
-Shell-level options (only when you need them):
+## Limitations
 
-```
-advisor --select-model [number]  choose which AI from the shell
-advisor --list-models            list available AIs
-advisor -m <ID>                  use a different AI for this session only
-advisor --list-history           list saved conversations
-advisor --resume                 continue a saved conversation
-advisor --no-history             don't save this session
-advisor --change-passphrase      change the history passphrase
-advisor --set-recovery           set a recovery passphrase
-advisor -h / --version           help / version
-advisor --mode=<name>         default / accept-edits / bypass (default: default)
-advisor --allow-write=<dir>   add a writable directory (repeatable)
-```
-
-In a new terminal, type `advisor ` and press Tab to complete option names;
-after `advisor -m `, Tab completes available model IDs
-(`completion/advisor-completion.bash`, tested against bash 3.2, the version
-that ships with High Sierra).
-
-- See the list again anytime with **`/model`** (or `?`).
-- Picking a number also switches the underlying provider (Claude/Gemini)
-  automatically, and it's saved to `~/.claude-agent-env` for next time. If
-  you haven't saved a key for that AI yet, you'll be prompted to paste one
-  right there.
-- To switch just the provider, use **`/claude`** / **`/gemini`**.
-- Gemini tends to "think" for a while even on simple questions, so thinking
-  is set shallow (`LOW`) by default. Set `CLAUDE_GEMINI_THINKING=high` if you
-  want it to think harder.
-
-## How confirmation works (interaction modes)
-
-The model has four tools (`read_file` / `write_file` / `list_dir` / `run_shell`). Reads never ask;
-**only writes and command execution are subject to asking**. How much of that asking to skip is
-a three-step choice.
-
-| Mode | Writes | Commands | Dangerous commands |
-|---|---|---|---|
-| `default` (default) | ask every time | ask every time | ask |
-| `accept-edits` | automatic inside the writable roots | ask every time | ask |
-| `bypass` | automatic inside the writable roots | automatic normally | **ask** |
-
-Dangerous commands (recursive deletes, `sudo`, permission changes, power/system actions,
-download-and-run, interactive programs like `vi`/`less`) **always ask, even in bypass**. If that
-prompt goes unanswered for 60 seconds it counts as refused; with no terminal and no GUI attached
-it is refused up front, so the session can neither hang nor run unattended.
-
-```bash
-advisor --mode=bypass          # choose at launch
-/mode                          # show the current mode and writable roots
-/mode accept-edits             # switch mid-session (switching to bypass asks for "yes")
-/allow-write ~/work/notes /tmp/work   # add writable directories (repeatable)
-/allow-write                   # list them; /allow-write clear removes the added ones
-/approvals                     # last ten auto-approvals
-```
-
-- The default writable roots are **only the current directory and the temp directory**.
-  `~/.ssh`, `~/.claude-agent`, `/etc`, `/usr` and friends **stay refused even if you add them**.
-- Writes performed through a command (`echo x > path`, `cp`, `mv`, `rm`, `tee`) go through the
-  same scope check. The detection only catches recognisable shapes; whatever it misses is still
-  backed by the dangerous-command prompt.
-- The chosen mode is stored in `~/.claude-agent-env` and reused next launch (or set
-  `CLAUDE_MODE`). Timeouts are tunable via `CLAUDE_SHELL_TIMEOUT` / `CLAUDE_CONFIRM_TIMEOUT`.
-- **Remote access (WeCom / Feishu) has no write or execute capability in any mode** - it only
-  ever gets write or shell ability unless you started it in a writable mode.
-
-## About the Chinese/Japanese/English support
-
-Advisor checks your Mac's system language (`defaults read -g AppleLocale`)
-and automatically switches the GUI, terminal text, `setup.sh` prompts, and
-even the native macOS menu bar between Chinese, Japanese and English. You can
-also force a language with the `CLAUDE_LANG=zh` (or `ja`, `en`) environment
-variable.
-
-## Conversation history (encrypted, stored locally)
-
-By default, conversations are saved encrypted to
-`~/.claude-agent/history/<timestamp>.json.enc`. Even if you share one Mac
-with family, nobody without your passphrase can read them.
-
-### How it works
-
-- Each conversation file is encrypted with a random **master key**, and that
-  master key itself is wrapped with your **passphrase** (and, optionally, a
-  **recovery phrase**) into `key.enc` / `key.recovery.enc`. Either one can
-  unwrap the master key, so forgetting your passphrase doesn't mean losing
-  everything if you set a recovery phrase.
-- Encryption is done by shelling out to `openssl enc -aes-256-cbc` (works
-  fine against the LibreSSL that ships with High Sierra). Secrets are passed
-  to openssl via environment variables — never through `ps` output, the
-  command line, or disk.
-- High Sierra's LibreSSL doesn't support `-pbkdf2`, so key derivation falls
-  back to MD5-based, which is weaker than modern KDFs — but still far safer
-  than storing history in plain text.
-
-### Using it
-
-- The first time you run it, you'll set a passphrase (typed twice), and
-  optionally a recovery phrase (a secret question) right after. From then
-  on, you're asked for the passphrase once per launch (hidden as you type).
-  There's no retry limit — mistype as many times as you need. Pressing
-  Enter with nothing typed starts that session without saving history.
-- Forgot your passphrase? Type `r` at the prompt to recover via your
-  recovery phrase (only works if you set one). You can set a new passphrase
-  right after recovering. Recovery answers ignore case and extra
-  leading/trailing/repeated whitespace.
-- `advisor --resume` picks up your last conversation; `advisor
-  --list-history` lists everything saved.
-- `advisor --change-passphrase` changes your passphrase, and `advisor
-  --set-recovery` sets or changes the recovery phrase — both just re-wrap
-  the master key, so your existing history is untouched.
-- `advisor --no-history` (or `CLAUDE_NO_HISTORY=1`) disables saving for that
-  session — you won't be asked for a passphrase at all.
-- **If you forget both your passphrase and your recovery phrase, everything
-  saved so far becomes unreadable.** To start over, delete
-  `~/.claude-agent/history/` and set things up again.
-
-> Note: a guessable recovery answer (like "your first car") is the weakest
-> link in this whole scheme. Pick something as non-obvious as a real
-> password, or go in knowing that trade-off.
-
-## About the agent (`agent/claude-agent.pl`)
-
-- Single file, zero external CPAN dependencies
-- Hand-rolled JSON encode/decode (recursive-descent parser)
-- Four tools: `read_file` / `write_file` / `list_dir` / `run_shell` (writes
-  and shell execution prompt for confirmation)
-- Conversation history is always kept internally in Anthropic's content-block
-  format, converting to Gemini's `contents`/`parts` format only right before
-  and after each Gemini API call — tool execution and input handling code
-  never has to think about which provider is active
-- Handles Gemini 3's `thoughtSignature` requirement (must be re-attached when
-  sending a functionCall back, or the API returns a 400)
-- HTTP is done by shelling out to `curl` as a subprocess (keeps TLS handling
-  out of Perl entirely)
-- History encryption shells out to `openssl` (see above)
-- The `CLAUDE_CURL` / `CLAUDE_CACERT` environment variables let you swap in a
-  self-built toolchain for Tier A machines (`setup.sh` automatically prefers
-  `~/claude-toolchain` if it exists)
-
-## About billing
-
-This repository itself is free to use, but you'll need your own API key to
-actually talk to either AI. No API key is included in the code anywhere.
-
-- **Gemini**: get a key at
-  [aistudio.google.com/apikey](https://aistudio.google.com/apikey) with any
-  Google account — the free tier (no card required) is enough to get
-  started comfortably.
-- **Anthropic**: get a key at
-  [console.anthropic.com](https://console.anthropic.com/) and add a small
-  credit charge under Billing (this is separate, pay-as-you-go billing —
-  not the same as a claude.ai Pro/Max subscription).
+- **OS versions**: macOS 10.9 (Mavericks) through 10.13 (High Sierra) and newer.
+  10.6–10.8 would need a self-built OpenSSL/curl and is **not supported**.
+- **Not code-signed**: the distributed build is ad-hoc signed, so the first launch goes through
+  right-click → Open.
+- **Bring your own API keys**: no keys are included. You pay each provider directly;
+  Gemini has a free tier that is enough to start.
+- **A lost passphrase is unrecoverable**: if you forget both the passphrase and the recovery
+  answer, saved conversations cannot be read — delete `~/.claude-agent/history/` and start over.
+- **Remote access**: the WeCom long connection works. Feishu is callback-only (needs a publicly
+  reachable URL); the Feishu long connection is not implemented.
+- **Remote permissions are decided on the Mac**: the mode can only be chosen when the service
+  starts and cannot be changed from the phone (`/mode` `/model` `/key` are all rejected).
+  Only one remote service instance may run at a time; a second one exits immediately.
+- **Older Japanese UI strings remain**: early builds shipped Japanese text. The default is now
+  Chinese with English available, and nothing new is written in Japanese.
 
 ## License
 

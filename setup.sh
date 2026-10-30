@@ -28,7 +28,7 @@ set -e
 # CLAUDE_LANG=en/ja があれば最優先(システム言語を変えずに英語表示を
 # 確認したいとき用)。例: CLAUDE_LANG=en bash setup.sh
 # 表示言語を 3 値で持つ(ja / en / zh)。IS_EN は既存コードとの互換のため残す。
-LANGCODE="ja"
+LANGCODE="zh"
 case "${CLAUDE_LANG:-}" in
   en*) LANGCODE="en" ;;
   ja*) LANGCODE="ja" ;;
@@ -39,7 +39,7 @@ case "${CLAUDE_LANG:-}" in
       case "$LOCALE_DETECTED" in
         ja*) LANGCODE="ja" ;;
         zh*) LANGCODE="zh" ;;
-        "") LANGCODE="ja" ;;
+        "") LANGCODE="zh" ;;
         *) LANGCODE="en" ;;
       esac
     fi
@@ -49,7 +49,7 @@ IS_EN=0
 [ "$LANGCODE" = "en" ] && IS_EN=1
 
 # msg <key> [printf-args...]: キーに対応する文言を表示する。
-# 中国語 → 英語 → 日本語(既定) の順にフォールバックする。
+# 中国語(既定) → 英語 → 日本語 の順にフォールバックする。
 # 訳し漏れがあっても壊れず、既存の en/ja 表示は一切変わらない。
 msg() {
   local key="$1"; shift

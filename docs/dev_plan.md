@@ -90,7 +90,7 @@
 | `gui/advisor_gui.py` → `_S` | **102** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|<各语言标签>|English label` |
-| 文档 | README.md(ja) / README.en.md / release/ReadMe_JP.txt / ReadMe_EN.txt | 日英各一份 |
+| 文档 | README.md(中文，默认) / README.en.md / release/ReadMe_ZH.txt / ReadMe_EN.txt | 中文为主、英文为辅 |
 
 **关键缺陷**：语言判定是**二元的**，不是"支持 ja/en"这么简单 ——
 `$LANGCODE eq 'en' ? $pair->[1] : $pair->[0]`，即**非 en 一律出日文**；
@@ -117,7 +117,7 @@ need_key => { ja => '<ja 文案>', en => 'Please set %s', zh => '请设置 %s' }
 CLAUDE_LANG（手动覆盖，最高优先）
   → macOS AppleLocale（defaults read -g AppleLocale）
   → 匹配 ja* / zh*（zh-Hans / zh-Hant / zh_CN 都算） / 其他 → en
-  → 取不到 → ja（保持上游现状，不破坏老用户）
+  → 取不到 → zh（**项目口径：中文为默认**，见「语言政策」）
 回退链：zh 缺失的 key → en → ja。禁止出现空字符串。
 ```
 
@@ -137,7 +137,8 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 `scripts/check-models.py`。
 
 **D. 文档**
-- 新增 `README.zh.md`，并在 `README.md` / `README.en.md` 顶部互加语言切换链接
+- 文档语言口径：**中文为主、英文为辅**（`README.md` 是中文，`README.en.md` 是英文；
+  日文版 README 与 `release/ReadMe_JP.txt` 已删除，新内容不再写日文）
 - 新增 `release/ReadMe_ZH.txt`（standalone zip 里的中文引导；注意包内文件名必须
   **纯 ASCII** —— 上游专门为此改过一次名，别再踩）
 - `docs/` 本来就用中文写，无需改
@@ -152,7 +153,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 - [x] `gui/advisor_gui.py`：硬编码文案扫一遍 —— 主题名原只有 `label`/`label_en`，zh 下会显示日文，已加 `label_zh` 并改 `theme_label()`
 - [x] `setup.sh`：`IS_EN` 改为由 `LANGCODE` 派生；`msg()` 实际 52 条（三语各 52）补中文，未命中落回原 en/ja
 - [x] `models.txt`：4 列格式 + 5 个模型补中文标签（Perl 解析同步改限 4 段选列）
-- [x] `README.zh.md` + 三份 README 互链 + 语言说明改三语
+- [x] 两份 README 互链（中文 / 英文），语言说明按「中文为主、英文为辅」重写
 - [x] `release/ReadMe_ZH.txt`（ASCII 文件名）+ `build_standalone_app.sh` 打包列表
 - [x] **CI 卡口**：`scripts/check-i18n.py` —— 抽出 `%S` / `_S` 的全部 key，比较同一 key 的 `ja`/`en`/`zh` 占位符个数是否一致（不一致时 sprintf/format 会崩或错位）；未译条目只报告不判死，收尾阶段可加 `--strict`。已接入 CI（步骤名「三语文案占位符卡口」）
 
@@ -557,3 +558,13 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 
 新写的测试**不得依赖宿主的 `TMPDIR`/`HOME`/`PATH` 具体取值**：需要环境的
 地方自己显式设定（测试自己指定 `TMPDIR`、`cwd`，别用 `tempfile` 的宿主默认值）。
+
+## 语言政策
+
+- **中文为默认语言**：界面文字、终端提示、`setup.sh` 消息、文档、README，默认都写中文。
+- **英文为辅**：`README.en.md`、`release/ReadMe_EN.txt` 与代码里的 `en` 文案表是英文对应物，
+  新增条目要同时写中文和英文。
+- **新内容不写日文**：日文版 README 与 `release/ReadMe_JP.txt` 已删除。代码里已有的日文文案
+  （`%S` / `_S` 里的 `ja` 列）作为历史保留，`check-i18n.py` 仍校验其占位符一致性，但**不再新增**。
+- **运行时语言的判定顺序**：`CLAUDE_LANG`（`zh`/`en`/`ja`）→ macOS 系统语言
+  （`defaults read -g AppleLocale`）→ 都取不到就用**中文**。

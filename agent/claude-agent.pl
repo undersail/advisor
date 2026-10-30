@@ -90,7 +90,7 @@ sub app_version {
     return 'unknown';
 }
 
-my $LANGCODE = 'ja';
+my $LANGCODE = 'zh';   # 既定は中国語（重み付け: 中文为主、英文为辅）
 if (defined $ENV{CLAUDE_LANG} && $ENV{CLAUDE_LANG} =~ /^(en|ja|zh)/i) {
     # CLAUDE_LANG=en/ja/zh があれば最優先(システム言語を変えずに表示言語を
     # 確認したいとき用)。zh-Hans / zh_CN のような書き方も zh として扱う。
@@ -110,7 +110,7 @@ else {
     elsif ($out ne '') {
         $LANGCODE = 'en';
     }
-    # 判定できない環境(非macOS など)は従来通り日本語のまま。
+    # 判定できない環境(非macOS など)は既定の中国語のまま。
 }
 
 # 表示言語の一覧(優先順)。%S 側に無い言語はこの順で落とす。
@@ -994,7 +994,7 @@ sub provider_has_key {
 sub provider_label {
     my ($name) = @_;
     my $info = $PROVIDER_INFO{$name} or return $name;
-    my $k = ($LANGCODE eq 'ja' || $LANGCODE eq 'zh' || $LANGCODE eq 'en') ? $LANGCODE : 'ja';
+    my $k = ($LANGCODE eq 'ja' || $LANGCODE eq 'zh' || $LANGCODE eq 'en') ? $LANGCODE : 'zh';
     my $v = $info->{$k};
     return (defined $v && $v ne '') ? $v : $name;
 }

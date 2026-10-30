@@ -202,13 +202,13 @@ jobs:
           if [ -f "$NOTES" ]; then
             gh release create "$TAG" \
               dist/*.zip dist/SHA256SUMS.txt \
-              release/ReadMe_ZH.txt release/ReadMe_EN.txt release/ReadMe_JP.txt \
+              release/ReadMe_ZH.txt release/ReadMe_EN.txt \
               --title "Advisor $VERSION" \
               --notes-file "$NOTES"
           else
             gh release create "$TAG" \
               dist/*.zip dist/SHA256SUMS.txt \
-              release/ReadMe_ZH.txt release/ReadMe_EN.txt release/ReadMe_JP.txt \
+              release/ReadMe_ZH.txt release/ReadMe_EN.txt \
               --title "Advisor $VERSION" \
               --generate-notes
           fi

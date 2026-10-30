@@ -65,8 +65,8 @@ def _detect_lang():
             return "en"
     except Exception:
         pass
-    # 判定できない環境(非macOS など)は従来通り日本語のまま。
-    return "ja"
+    # 判定できない環境(非macOS など)は既定の中国語。
+    return "zh"
 
 
 # 表示言語の優先順。未訳の言語はこの順で落とす(zh 未訳 -> en -> ja)。

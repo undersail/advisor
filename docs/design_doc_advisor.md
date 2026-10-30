@@ -527,7 +527,7 @@ INT / TERM / HUP 都走优雅退出：审计 `ws_stop`、删 pid、放锁。细�
 ### ① 普通用户：standalone zip（不碰终端）
 
 `release/build_standalone_app.sh` 用 **py2app** 打包成 `Advisor.app`，塞进 zip，
-附带 `ReadMe_JP.txt` / `ReadMe_EN.txt`（讲清 Gatekeeper 首次右键「打开」的流程）。
+附带 `ReadMe_ZH.txt` / `ReadMe_EN.txt`（讲清 Gatekeeper 首次右键「打开」的流程）。
 未做 Apple Developer ID 签名 → 首次启动必有"未确认的开发者"警告，这是**预期**
 行为，不是 bug。构建失败时自动降级为简化版 app，保证 `advisor` 命令一定可用。
 
@@ -591,7 +591,7 @@ Tier A 的接口已经预留：`CLAUDE_CURL` / `CLAUDE_CACERT` 可指向自建 t
 | `CLAUDE_CURL` / `CLAUDE_CACERT` | 替换 curl / CA（Tier A） |
 | `CLAUDE_OPENSSL` | 替换 openssl |
 | `CLAUDE_NO_HISTORY` | `1` = 不保存历史（不问口令） |
-| `CLAUDE_LANG` | `ja` / `en` 强制语言，否则自动检测 |
+| `CLAUDE_LANG` | `zh`（默认）/ `en` / `ja` 强制语言，否则自动检测系统语言 |
 | `CLAUDE_GEMINI_THINKING` | `high` 加深 Gemini 思考 |
 | `CLAUDE_MODE` | **计划中（§10）**：`default` / `accept-edits` / `bypass`；命令行 `--mode=` 等效 |
 | `CLAUDE_SHELL_TIMEOUT` | **计划中（§10）**：`run_shell` 超时秒数，默认 120，`0` = 不限 |
@@ -745,6 +745,11 @@ CI 里有格式卡口，改格式必须同步改 CI。
 历史口令解锁、切入 bypass 本身的那一次确认。
 
 ### 10.8 三语文案与卡口
+
+> **语言口径（项目政策）**：中文为默认，英文为辅，新增内容不写日文。`README.md` 是中文版、
+> `README.en.md` 是英文版；发布包里只放 `ReadMe_ZH.txt` + `ReadMe_EN.txt`。代码里已有的
+> 日文文案作为历史保留（占位符仍受 `check-i18n.py` 校验），新条目只写中文 + 英文。
+
 
 - 新增 `%S` 条目约 14 条（三个模式名、切换警告、危险确认文案、超时拒绝、写越界提示、
   自动批准提示、截断提示、可写目录列表、`/allow-write` 帮助等），三种语言都要写；
