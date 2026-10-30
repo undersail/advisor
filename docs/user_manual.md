@@ -300,6 +300,7 @@ echo "构建完成" | perl remote/notify.pl -  # 发任意文本
 | 手机发消息没反应 | 审计里有 `ws_inbound` 但没有 `ws_sent` | 白名单没放行：把 `from=` 的 id 写进 `remote.conf` 的 `ALLOW` |
 | 审计里 `ws_send_err … errcode=40008` | 「invalid message type」 | 已修；若复现说明回复体不是 stream，报给我 |
 | 审计里连 `ws_inbound` 都没有 | 消息没推到服务端 | 群里要 `@机器人`；确认机器人开的是「API 模式 / 长连接接收」 |
+| 手机发中文，AI 说「你的消息像是乱码」 | 中文被双重编码（历史缺陷，已修） | 更新到最新版即可；若仍复现，把审计里那条 `ws_inbound` 的 `len=` 发我 |
 | 配置自检说「存在但当前用户读不到」 | `~/.claude-agent-env` 属主是 root（以前用 `sudo` 写过/配过） | `sudo chown $(whoami) ~/.claude-agent-env && chmod 600 ~/.claude-agent-env`；同目录也一起 `ls -l` 看一眼 |
 | 报「请设置 ANTHROPIC_API_KEY」但你配的是国产模型 | `~/.claude-agent-env` 里 `CLAUDE_PROVIDER` 缺失或**值为空**，agent 回退到 Anthropic | 写成 `export CLAUDE_PROVIDER=deepseek`（可选：anthropic/dashscope/deepseek/gemini/moonshot/openai/zhipu）。启动时现在会打「配置自检」直接点名 |
 | 审计里 `session_not_ready` | 本机的 AI 会话没起来（密钥失效 / 模型名不对 / 配置没写好） | 看同一行后面的 `err=`，它带着子进程的原话；手机那边现在也会收到一句话而不是干等 |

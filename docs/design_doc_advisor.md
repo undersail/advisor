@@ -385,6 +385,20 @@ Mac 启动时：wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj
 `errcode≠0` 时**不清零** missed 计数 —— 这三条原本就与官方一致，复核后保留。
 退避基数/上限可用 `WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` 覆盖（仅供测试压到毫秒级）。
 
+**中文的编码层（真机：手机发中文，AI 说「你的消息显示成乱码但能看懂」）**：两层都踩了。
+
+1. `gateway.pl` 的 `STDOUT` 有 `:encoding(UTF-8)`、子进程管道有、**只有 `STDIN` 没有**。
+   上游写来的 UTF-8 字节被当成 latin-1 字符读进来，再经子进程管道编一次 → 双重编码，
+   agent 收到 `ä½ å¥½`。修法：`binmode STDIN, ':encoding(UTF-8)'`；命令行参数
+   （`--text` / `--from` / `--allow-write`）同样要显式 `decode('UTF-8', …)`。
+2. `json_unescape()` 原来用一串 `s///` 叠着做，**不处理 `\uXXXX`**。agent 若把中文转义
+   成 `\uXXXX` 发回来，手机上就看到字面量 `\u4f60\u597d`。改成**单趟**扫描
+   (`s/\\(u[0-9a-fA-F]{4}|.)/json_esc_seq($1)/ge`)，并补代理对合成（emoji）。
+   单趟还有一个好处：`\\u4e2d`（代码里的字面量）不会被误吃成汉字。
+
+规矩：**凡是跨进程/跨平台的文本通道，读端和写端都要显式声明编码**；测中文要用真中文，
+用 ASCII 永远测不出这类问题（新夹具 `scripts/fake-echo-agent.pl` 就是干这个的）。
+
 **读不到 ≠ 没配（同一条真机的最终根因）**：`~/.claude-agent-env` 的属主是 root
 （用户早前用 `sudo` 配过），普通用户 open 失败 → `read_agent_env` 静默返回空 hash →
 所有键都读成空 → 报「没有有效的 CLAUDE_PROVIDER」，方向全被带偏。现在

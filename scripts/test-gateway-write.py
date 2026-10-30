@@ -321,6 +321,26 @@ def main():
         finally:
             os.chmod(_f, 0o600)
 
+    print('\u246a 中文不能被双重编码（真机：手机发中文，agent 收到「ä½ å¥½」）')
+    _h, _ = make_home()
+    echo = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fake-echo-agent.pl')
+    r = drive([], '你好，世界', wait=25.0, home=_h, agent=echo)
+    rep0 = r['replies'][0] if r['replies'] else ''
+    check('中文原样到达 agent 再原样回来（没有「ä½ å¥½」这类乱码）',
+          '你好' in rep0 and 'ä' not in rep0 and 'å' not in rep0, rep0)
+    check('回复里没有 latin-1 双重编码的典型痕迹（Ã / Â）',
+          'Ã' not in rep0 and 'Â' not in rep0, rep0)
+
+    # --once 走命令行参数：argv 拿到的是原始字节，也必须显式解码
+    argv_out = subprocess.run(
+        ['perl', GW, '--once', '--from', 'u1', '--text', '中文测试'],
+        capture_output=True,
+        env=dict(os.environ, HOME=_h, CLAUDE_AGENT=echo, CLAUDE_NO_HISTORY='1'),
+        timeout=40)
+    out = argv_out.stdout.decode('utf-8', 'replace')
+    check('--once 的中文参数也原样（argv 显式解码）',
+          '中文测试' in out and 'ä' not in out, out[-200:])
+
     print('%d/%d 通过' % (PASS, PASS + FAIL))
     return 0
 

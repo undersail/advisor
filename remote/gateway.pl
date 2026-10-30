@@ -39,6 +39,7 @@ use IO::Select;
 use IPC::Open3 qw(open3);
 use Symbol qw(gensym);
 
+binmode STDIN,  ':encoding(UTF-8)';   # ★ 少了这一行，手机发来的中文会变成「ä½ å¥½」
 binmode STDOUT, ':encoding(UTF-8)';
 # ★ 逐行刷出：stdin 模式下我们靠「一行一问一答」跟调用方对话（长连接适配器、测试），
 #   缓冲住就等于永远不回话 —— 尤其是确认问答（ask）必须立刻到手机。
@@ -209,15 +210,36 @@ sub json_get {
     return undef;
 }
 
+# JSON 反转义：**单趟**扫描，别拿一串 s/// 叠着做。
+# 叠着做有两个坑：①`\\uXXXX` 要不要在 `\\` 收口前处理，顺序错了要么丢字要么把
+# 代码里的字面 "\u4e2d" 变成汉字；②`\\uXXXX` 之前根本没处理 —— agent 若把中文
+# 转义成 \uXXXX 发回来，手机上就会看到 "\u4f60\u597d" 这种字面量（真机踩过）。
 sub json_unescape {
     my ($s) = @_;
     return '' unless defined $s;
-    $s =~ s/\\n/\n/g;
-    $s =~ s/\\r/\r/g;
-    $s =~ s/\\t/\t/g;
-    $s =~ s/\\"/"/g;
-    $s =~ s/\\\\/\\/g;
+    $s =~ s/\\(u[0-9a-fA-F]{4}|.)/json_esc_seq($1)/ge;
+    # 代理对合成一个字符（emoji 等）
+    $s =~ s/\\u([dD][89abAB][0-9a-fA-F]{2})\\u([dD][c-fC-F][0-9a-fA-F]{2})/
+          chr(0x10000 + ((hex($1) - 0xD800) << 10) + (hex($2) - 0xDC00))/ge;
     return $s;
+}
+
+sub json_esc_seq {
+    my ($e) = @_;
+    return "\n" if $e eq 'n';
+    return "\r" if $e eq 'r';
+    return "\t" if $e eq 't';
+    return '"'  if $e eq '"';
+    return '\\' if $e eq '\\';
+    return '/'  if $e eq '/';
+    if ($e =~ /^u([0-9a-fA-F]{4})$/) {
+        my $cp = hex($1);
+        # 代理对（emoji 之类）：\uD83D\uDE00 这一趟只看到前半，先原样留着，
+        # 由下面补一趟把它们合成一个字符。
+        return chr($cp) unless $cp >= 0xD800 && $cp <= 0xDFFF;
+        return "\\u$1";
+    }
+    return $e;    # 其它转义：原样（丢掉反斜杠更危险）
 }
 
 # ---------------------------------------------------------------- 会话
@@ -523,16 +545,26 @@ sub push_notify {
 }
 
 # ---------------------------------------------------------------- 入口
+# argv 拿到的是原始字节（不会自动解码），涉及人看的文本时显式按 UTF-8 解一次。
+# 用 eval 兜住非法序列：解不动就按原样用，别因为一个怪字符直接崩。
+sub arg_text {
+    my ($s) = @_;
+    return '' unless defined $s;
+    return $s if utf8::is_utf8($s);
+    my $d = eval { decode('UTF-8', $s) };
+    return defined $d ? $d : $s;
+}
+
 my ($MODE, $ONCE_FROM, $ONCE_TEXT) = ('', '', '');
 while (my $a = shift @ARGV) {
     if    ($a eq '--stdin')        { $MODE = 'stdin'; }
     elsif ($a eq '--once')         { $MODE = 'once'; }
-    elsif ($a eq '--from')         { $ONCE_FROM = shift @ARGV; }
-    elsif ($a eq '--text')         { $ONCE_TEXT = shift @ARGV; }
+    elsif ($a eq '--from')         { $ONCE_FROM = arg_text(shift @ARGV); }
+    elsif ($a eq '--text')         { $ONCE_TEXT = arg_text(shift @ARGV); }
     elsif ($a =~ /^--mode=(.*)$/)  { $REMOTE_WRITE_MODE = lc $1; }
     elsif ($a eq '--mode')         { $REMOTE_WRITE_MODE = lc(shift @ARGV // ''); }
-    elsif ($a =~ /^--allow-write=(.*)$/) { push @REMOTE_ROOTS, grep { length } split /,/, $1; }
-    elsif ($a eq '--allow-write')  { push @REMOTE_ROOTS, grep { length } split /,/, (shift @ARGV // ''); }
+    elsif ($a =~ /^--allow-write=(.*)$/) { push @REMOTE_ROOTS, grep { length } split /,/, arg_text($1); }
+    elsif ($a eq '--allow-write')  { push @REMOTE_ROOTS, grep { length } split /,/, arg_text(shift @ARGV); }
     elsif ($a =~ /^--confirm-wait=(\d+)$/) { $CONFIRM_WAIT = $1; }
     elsif ($a eq '--help' || $a eq '-h') {
         print "用法: gateway.pl --stdin | --once --from ID --text \"...\"\n"

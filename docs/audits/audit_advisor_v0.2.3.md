@@ -436,3 +436,25 @@ agent 于是回退到 anthropic，于是要 `ANTHROPIC_API_KEY`。这类「看�
 - 「读不到」和「没有」必须分开报，否则所有权限类故障都会被误诊成「你没配」
 - 配置文件读失败不能静默吞掉，`open … or return` 这种写法在诊断上是负债
 - 不要用 `sudo` 跑安装/配置：会把 `~/.claude-agent*` 的属主变成 root，之后普通用户全读不到
+
+### 6.5.12 中文双重编码：手机发中文，AI 说「你的消息是乱码」
+
+真机：消息能通、AI 也回复，但 AI 每次都说「你的消息显示成了乱码，意思基本能理解」。
+这是**入站中文被双重编码**的典型症状（`ä½ å¥½` 这种，模型能猜出内容）。
+
+两层缺陷：
+
+1. `gateway.pl` 的 `STDOUT` / `STDERR` / 子进程管道都有 `:encoding(UTF-8)`，**唯独 `STDIN` 没有**。
+   上游（`wecom-ws.pl`）通过 `:encoding(UTF-8)` 层写出的是 UTF-8 字节，gateway 按 latin-1
+   读成字符，再经子进程管道的 UTF-8 层编一次 → 双重编码。修法：
+   `binmode STDIN, ':encoding(UTF-8)'`，并给 argv 来源的文本（`--text`/`--from`/
+   `--allow-write`）加显式 `decode('UTF-8', …)`（解不动就原样用，不崩）。
+2. `json_unescape()` 用一串 `s///` 叠着做，**不处理 `\uXXXX`**。agent 若把中文转义发回，
+   手机上会显示字面量 `\u4f60\u597d`。改成单趟扫描 + 代理对合成。
+
+测试：新增夹具 `scripts/fake-echo-agent.pl`（JSON::PP 真解真编，回显用户文本），
+`test-gateway-write` 39 → **42 项**：中文原样往返、无 latin-1 痕迹（`Ã`/`Â`）、
+`--once` 的中文参数同样原样。
+
+教训：ASCII 测不出编码问题。凡是文本跨进程的通道，读端写端都要显式声明编码，
+并且测试里必须出现真中文。
