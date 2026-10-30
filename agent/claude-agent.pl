@@ -770,10 +770,20 @@ my %S = (
         en => "Mode is now %s.\n",
         zh => "模式已切换为 %s。\n",
     },
+    confirm_fs_op        => {
+        ja => "ディレクトリ／ファイル操作（%s）です。実行しますか？ [y/N] ",
+        en => "This is a file/directory operation (%s). Run it? [y/N] ",
+        zh => "这是文件/目录操作（%s）。要执行吗？[y/N] ",
+    },
+    fs_op_refused        => {
+        ja => "ディレクトリ／ファイル操作（%s）は承認されなかったため実行しません（%s）。",
+        en => "The file/directory operation (%s) was not approved, so it was not run (%s).",
+        zh => "文件/目录操作（%s）没被批准，没有执行（%s）。",
+    },
     mode_bypass_warn     => {
-        ja => "\nbypass モードにすると、通常の書き込みとコマンド実行は確認なしで走ります。\n危険なコマンド（削除・権限変更・システム操作など）と、書き込み範囲の外側だけは\nこれまで通り確認します。応答が無い場合は自動的に拒否します。\n切り替えるには yes と入力してください（やめるなら Enter）: ",
-        en => "\nIn bypass mode, ordinary writes and commands run without asking.\nDangerous commands (deletes, permission changes, system actions) and anything\noutside the writable roots still ask, and an unanswered prompt is treated as\nrefused. Type yes to switch (Enter cancels): ",
-        zh => "\n切到 bypass 模式后，普通写文件和执行命令都不再询问。\n危险命令（删除、改权限、系统操作等）以及可写范围之外仍会询问；\n没人应答时按拒绝处理。请输入 yes 切换（直接回车取消）：",
+        ja => "\nbypass モードにすると、書き込みもコマンド実行も確認なしで走ります。\n確認するのは「危険なコマンド」と「ディレクトリ／ファイル操作（rm・mv・cp 等）」だけです。\n書き込み可能な範囲の制限はこのモードでは効きません（あれは edit 用）。\n応答が無い場合は自動的に拒否します。\n切り替えるには yes と入力してください（やめるなら Enter）: ",
+        en => "\nIn bypass mode, writes and commands run without asking. Only two things\nstill ask: dangerous commands, and file/directory operations (rm, mv, cp …).\nThe writable-roots whitelist does not apply in this mode (it is for edit mode).\nAn unanswered prompt is treated as refused. Type yes to switch (Enter cancels): ",
+        zh => "\n切到 bypass 模式后，写文件和执行命令都不再询问。\n仍然会问的只有两类：危险命令，以及文件/目录操作（rm、mv、cp 等）。\n可写范围白名单在这个模式下不生效（那是 edit 模式用的）；\n没人应答时按拒绝处理。请输入 yes 切换（直接回车取消）：",
     },
     mode_bypass_cancelled => {
         ja => "切り替えをやめました。\n",
@@ -1863,15 +1873,19 @@ plainly what you were about to do and what you need, instead of silently
 retrying the same call.
 EON
     'bypass' => <<'EON',
-In the current mode (bypass) ordinary file writes inside the writable
-roots and ordinary commands are approved automatically - do not ask
-beforehand and do not wait for a confirmation that will not come. Two
-things still stop you: dangerous commands (recursive deletes, sudo,
-permission changes, power/system actions, download-and-run, interactive
-programs) always ask the user, and writes outside the writable roots are
-refused outright. Before a multi-step job, state in one or two lines what
-you are about to create and run; if a call is refused, explain the reason
-to the user rather than retrying the same thing.
+In the current mode (bypass) writes and commands are approved
+automatically - do not ask beforehand and do not wait for a confirmation
+that will not come. Two kinds of call still stop and ask the user: (1)
+dangerous commands (recursive deletes, sudo, permission changes,
+power/system actions, download-and-run, interactive programs); (2)
+file/directory operations in the shell - rm, rmdir, mv, cp, ln, mkdir,
+chmod, chown, dd, truncate, rsync, tar, zip/unzip, gzip, install,
+find -delete, git clean. The writable-roots whitelist does NOT apply in
+this mode (it only controls what is auto-approved in edit mode), so you
+are not restricted to those roots; however ~/.ssh, ~/.claude-agent, /etc
+and /usr stay refused outright. Before a multi-step job, state in one or
+two lines what you are about to create and run; if a call is refused,
+explain the reason to the user rather than retrying the same thing.
 EON
 );
 
@@ -3523,6 +3537,45 @@ my @DANGER_RULES = (
 );
 my @DANGER_INTERACTIVE = qw(vi vim nano emacs less more top htop man ssh telnet ftp sftp);
 
+# ---------------------------------------------------------------- 目录/文件操作
+# bypass モードでも確認する「ディレクトリ・ファイル操作」。
+# 破壊や移動を伴うものだけを入れる（touch や sed -i のような「内容を書くだけ」は
+# 入れない —— それは write_file と同じ扱いで、bypass では確認しない）。
+my %FS_MUTATION = map { $_ => 1 } qw(
+    rm rmdir mv cp ln mkdir chmod chown chgrp dd truncate rsync
+    tar zip unzip gzip gunzip install
+);
+
+# 戻り値: 見つかったコマンド名（無ければ ''）。
+# パイプライン・&&・; で分割し、各セグメントの先頭トークン（sudo/env/xargs などの
+# 前置きと -option を読み飛ばした後）だけを見る。「echo rm」のような誤検知を避ける。
+sub is_fs_mutation {
+    my ($cmd) = @_;
+    return '' unless defined $cmd && length $cmd;
+    return 'find -delete' if $cmd =~ /\bfind\b[^\n|;]*\s-delete\b/;
+    return 'git clean'    if $cmd =~ /\bgit\b[^\n|;]*\bclean\b/;
+    for my $seg (split /\|\||&&|[;|\n]/, $cmd) {
+        my @w = split /\s+/, $seg;
+        shift @w while @w && $w[0] =~ /^[A-Za-z_][A-Za-z0-9_]*=/;
+        my $i = 0;
+        while ($i < @w) {
+            my $t = $w[$i];
+            $t =~ s{.*/}{};
+            if ($t =~ /^(?:sudo|doas|env|nohup|xargs|command|time|nice|timeout|stdbuf|sh|bash|zsh|-c)$/) {
+                $i++;
+                next;
+            }
+            last unless $t =~ /^-/;
+            $i++;
+        }
+        next if $i >= @w;
+        my $name = $w[$i];
+        $name =~ s{.*/}{};
+        return $name if $FS_MUTATION{$name};
+    }
+    return '';
+}
+
 sub is_dangerous {
     my ($cmd) = @_;
     return '' unless defined $cmd && $cmd ne '';
@@ -4084,7 +4137,9 @@ sub run_tool {
         # モードごとの扱い:
         #   default      : 毎回確認
         #   accept-edits : 可写範囲内だけ自動。範囲外は確認（拒否にしない）
-        #   bypass       : 可写範囲内だけ自動。範囲外は拒否（人が居ない前提）
+        #   bypass       : 確認しない。可写範囲（ホワイトリスト）は **効かない**
+        #                  —— あのリストは accept-edits で「自動にしてよい範囲」を
+        #                  決めるためのもの。例外は永久禁止の場所だけ。
         my $auto = 0;
         if ($MODE ne 'default') {
             if (is_hard_denied_path($path)) {
@@ -4092,13 +4147,11 @@ sub run_tool {
                 emit_note(L('write_always_denied', $path));
                 return L('write_always_denied', $path);
             }
-            if (write_allowed($path)) {
+            if ($MODE eq 'bypass') {
                 $auto = 1;
             }
-            elsif ($MODE eq 'bypass') {
-                approvals_log('write_file', $path, 'refused_scope');
-                emit_note(L('write_out_of_scope', $path));
-                return L('write_out_of_scope', $path);
+            elsif (write_allowed($path)) {
+                $auto = 1;
             }
         }
         unless ($auto || confirm(L('confirm_write_file', $path))) {
@@ -4138,15 +4191,26 @@ sub run_tool {
         }
 
         # 危険なコマンドはどのモードでも確認する（bypass でも例外にしない）。
-        # モードが変えるのは「普通のコマンドを聞くかどうか」だけ。
-        my $scope_ask = ($vkind eq 'scope') ? 1 : 0;
-        my $need_confirm = ($MODE eq 'bypass' && $danger eq '' && !$scope_ask) ? 0 : 1;
+        # bypass では加えて「ディレクトリ・ファイル操作」（rm / mv / cp / chmod /
+        # tar / unzip / find -delete 等）も確認する。逆に、可写範囲（ホワイト
+        # リスト）は bypass では判定に使わない —— あれは accept-edits 用。
+        my $fsop = is_fs_mutation($command);
+        my $scope_ask = ($MODE eq 'bypass') ? 0 : (($vkind eq 'scope') ? 1 : 0);
+        my $need_confirm;
+        if ($MODE eq 'bypass') {
+            $need_confirm = ($danger ne '' || $fsop ne '') ? 1 : 0;
+        }
+        else {
+            $need_confirm = 1;
+        }
         if ($need_confirm) {
             my $prompt = $danger ne ''
                 ? L('confirm_run_shell_danger', $command)
                 : $scope_ask
                     ? L('confirm_cmd_write_outside', $vpath, $command)
-                    : L('confirm_run_shell', $command);
+                    : $fsop ne ''
+                        ? L('confirm_fs_op', $fsop, $command)
+                        : L('confirm_run_shell', $command);
             my %opt = (danger => ($danger ne '' ? 1 : 0),
                        strict => (($danger ne '' || $scope_ask) ? 1 : 0));
             unless (confirm($prompt, \%opt)) {
@@ -4154,6 +4218,11 @@ sub run_tool {
                     approvals_log('run_shell', $command, 'refused_danger');
                     emit_note(L('danger_refused', danger_reason_text()));
                     return L('danger_refused', danger_reason_text());
+                }
+                if ($fsop ne '') {
+                    approvals_log('run_shell', $command, 'refused_fs_op');
+                    emit_note(L('fs_op_refused', $fsop, danger_reason_text()));
+                    return L('fs_op_refused', $fsop, danger_reason_text());
                 }
                 if ($scope_ask) {
                     approvals_log('run_shell', $command, 'refused_cmd_write_scope');
@@ -4163,6 +4232,8 @@ sub run_tool {
                 return L('run_cancelled');
             }
             approvals_log('run_shell', $command, 'confirmed_danger') if $danger ne '';
+            approvals_log('run_shell', $command, 'confirmed_fs_op')
+                if $fsop ne '' && $danger eq '';
             approvals_log('run_shell', $command, 'confirmed_cmd_write_scope')
                 if $scope_ask && $danger eq '';
         }

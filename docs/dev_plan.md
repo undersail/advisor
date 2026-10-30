@@ -86,7 +86,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **170**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `agent/claude-agent.pl` → `my %S` | **172**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
 | `gui/advisor_gui.py` → `_S` | **102** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|<各语言标签>|English label` |
@@ -146,7 +146,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 补中文（现 170 条，随功能增长）
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 172 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 65 条）
@@ -602,3 +602,17 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 - [x] `%S` 新增 5 条（中/英），`--help` 增 `--encrypt-history` 与 `CLAUDE_ENCRYPT_HISTORY`（中/日）
 - [x] `scripts/test-history-storage.py` **23 项**，已进 CI
 - [ ] 真机验收（用户）：默认启动不问口令；`--list-history` 能看到旧会话；`--encrypt-history` 能设口令
+
+## 14. bypass 模式口径调整（v0.2.5）
+
+设计见 `docs/design_doc_advisor.md` §10.2.1。
+
+- [x] `bypass` 下 `write_file` 不再受可写范围限制（永久禁止目录仍直接拒绝）
+- [x] `bypass` 下 `run_shell`：新增 `is_fs_mutation()`，文件/目录操作（`rm`/`mv`/`cp`/`chmod`/
+      `tar`/`unzip`/`rsync`/`dd`/`find -delete`/`git clean` …）确认；其余不问
+- [x] 白名单判定只在 `accept-edits` 生效（`default` 本来就问，`bypass` 不再看名单）
+- [x] 只认命令名，参数里的字样不误判（`echo rm -rf nothing` 不问）
+- [x] 审计新增 `confirmed_fs_op` / `refused_fs_op`
+- [x] `%S` 新增 2 条（`confirm_fs_op` / `fs_op_refused`）；bypass 的模式说明与切换警告文案重写
+- [x] `test-modes` 两个用例按新语义重写（范围外直接写成功、`cp`/`mv`/`mkdir` 必问、`/etc` 仍拒）
+- [ ] 真机验收（用户）：`--mode=bypass` 下写白名单外文件不提示；`rm -rf` 仍提示

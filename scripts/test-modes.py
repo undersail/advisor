@@ -431,8 +431,8 @@ def case_bypass_timeout(tmp, base):
 
 
 def case_write_scope(tmp, base):
-    print('[bypass] 可写范围：永远拒绝目录、/allow-write 追加、clear')
-    print('::notice::[bypass] 可写范围：永远拒绝目录、/allow-write 追加、clear')
+    print('[bypass] 永久禁止目录仍拒绝；可写范围白名单在 bypass 下不生效')
+    print('::notice::[bypass] 永久禁止目录仍拒绝；可写范围白名单在 bypass 下不生效')
     work = os.path.join(tmp, 'work')
     os.makedirs(work, exist_ok=True)
 
@@ -451,28 +451,33 @@ def case_write_scope(tmp, base):
             target = os.path.join(outside_dir, 'ok.txt')
             SCRIPT.push_tool('write_file', {'path': target, 'content': 'x'})
             SCRIPT.push_text()
-            a.turn('还没加白名单')
-            check(not os.path.exists(target), '加白名单前：范围外被拒')
+            ev = a.turn('范围外，不加白名单')
+            check(os.path.exists(target), 'bypass 下范围外直接能写（白名单不参与判定）', texts(ev))
+            check(len(confirms(ev)) == 0, '并且不弹确认', texts(ev))
 
             ev = a.turn('/allow-write ' + outside_dir)
-            check('已允许写入' in texts(ev), '/allow-write 报告已加入', texts(ev))
+            check('已允许写入' in texts(ev), '/allow-write 命令本身仍然可用', texts(ev))
 
-            SCRIPT.push_tool('write_file', {'path': target, 'content': 'x'})
+            tc = os.path.join(outside_dir, 'after-allow.txt')
+            SCRIPT.push_tool('write_file', {'path': tc, 'content': 'x'})
             SCRIPT.push_text()
-            a.turn('加白名单后')
-            check(os.path.exists(target), '加白名单后能写')
+            ev = a.turn('加白名单后')
+            check(os.path.exists(tc), '加白名单后也照写')
+            check(len(confirms(ev)) == 0, '同样不问')
 
             ev = a.turn('/allow-write clear')
             check('已清空' in texts(ev), '/allow-write clear 生效', texts(ev))
-            os.remove(target)
-            SCRIPT.push_tool('write_file', {'path': target, 'content': 'x'})
+            td = os.path.join(outside_dir, 'after-clear.txt')
+            SCRIPT.push_tool('write_file', {'path': td, 'content': 'x'})
             SCRIPT.push_text()
-            a.turn('clear 之后')
-            check(not os.path.exists(target), 'clear 之后又写不了了')
+            ev = a.turn('clear 之后')
+            check(os.path.exists(td), 'clear 之后 bypass 下依然能写（白名单与 bypass 无关）')
+            check(len(confirms(ev)) == 0, '仍然不弹确认')
         finally:
             shutil.rmtree(outside_dir, ignore_errors=True)
     finally:
         a.stop()
+
 
 
 def case_shell_limits(tmp, base):
@@ -544,8 +549,8 @@ def case_bad_mode(tmp, base):
 
 
 def case_cmd_write_scope(tmp, base):
-    print('[bypass] 命令里的写入目标也受可写范围约束')
-    print('::notice::[bypass] 命令里的写入目标也受可写范围约束')
+    print('[bypass] 命令语义：重定向不问、目录操作必问、永久禁止仍拒')
+    print('::notice::[bypass] 命令语义：重定向不问、目录操作必问、永久禁止仍拒')
     work = os.path.join(tmp, 'work')
     os.makedirs(work, exist_ok=True)
 
@@ -557,27 +562,34 @@ def case_cmd_write_scope(tmp, base):
 
         SCRIPT.push_tool('run_shell', {'command': 'echo hi > "%s"' % target})
         SCRIPT.push_text()
-        ev = a.turn('重定向到范围外', answer='n')
-        check(len(confirms(ev)) == 1, '重定向到范围外会弹确认', texts(ev))
-        check(not os.path.exists(target), '按 n 后没有写出去')
+        ev = a.turn('重定向到范围外')
+        check(len(confirms(ev)) == 0, '重定向不再弹确认', texts(ev))
+        check(os.path.exists(target), '并且真的写出去了', texts(ev))
 
-        SCRIPT.push_tool('run_shell', {'command': 'echo hi > "%s"' % target})
+        cp_dst = os.path.join(outside, 'cp.txt')
+        SCRIPT.push_tool('run_shell', {'command': 'cp "%s" "%s"' % (target, cp_dst)})
         SCRIPT.push_text()
-        a.turn('同样的重定向，这次同意', answer='y')
-        check(os.path.exists(target), '同意后写成功了')
+        ev = a.turn('cp 一次，不同意', answer='n')
+        check(len(confirms(ev)) == 1, 'cp 会弹确认', texts(ev))
+        check(not os.path.exists(cp_dst), '按 n 后没有复制')
 
-        SCRIPT.push_tool('run_shell', {'command': 'cp "%s" "%s"' % (target, os.path.join(outside, 'cp.txt'))})
+        SCRIPT.push_tool('run_shell', {'command': 'cp "%s" "%s"' % (target, cp_dst)})
         SCRIPT.push_text()
-        ev = a.turn('cp 到范围外', answer='n')
-        check(len(confirms(ev)) == 1, 'cp 的目标在范围外也会问')
+        ev = a.turn('cp 一次，同意', answer='y')
+        check(os.path.exists(cp_dst), '同意后真的复制了')
 
-        a.turn('/allow-write ' + outside)
-        SCRIPT.push_tool('run_shell', {'command': 'echo hi > "%s"' % os.path.join(outside, 'after-allow.txt')})
+        SCRIPT.push_tool('run_shell', {'command': 'mv "%s" "%s"' % (cp_dst, os.path.join(outside, 'moved.txt'))})
         SCRIPT.push_text()
-        ev = a.turn('加了白名单后同样的命令')
-        check(len(confirms(ev)) == 0, '加了白名单后不再问', texts(ev))
+        ev = a.turn('mv 一次', answer='n')
+        check(len(confirms(ev)) == 1, 'mv 会弹确认', texts(ev))
 
-        # 永久禁止：连确认都不给，直接拒
+        newdir = os.path.join(outside, 'made-by-mkdir')
+        SCRIPT.push_tool('run_shell', {'command': 'mkdir -p "%s"' % newdir})
+        SCRIPT.push_text()
+        ev = a.turn('mkdir 一次', answer='n')
+        check(len(confirms(ev)) == 1, 'mkdir 会弹确认', texts(ev))
+        check(not os.path.isdir(newdir), '按 n 后没有建目录')
+
         SCRIPT.push_tool('run_shell', {'command': 'echo hi > /etc/advisor-probe-should-not-exist'})
         SCRIPT.push_text()
         ev = a.turn('写到 /etc')
@@ -585,16 +597,21 @@ def case_cmd_write_scope(tmp, base):
         check('永久禁止' in texts(ev), '说明是永久禁止的位置', texts(ev))
         check(not os.path.exists('/etc/advisor-probe-should-not-exist'), '/etc 下确实没写出去')
 
-        # 范围外的普通命令仍然照跑（不要因为识别写目标就误伤所有命令）
         SCRIPT.push_tool('run_shell', {'command': 'echo plain-no-write'})
         SCRIPT.push_text()
-        ev = a.turn('没有写目标的命令')
-        check(len(confirms(ev)) == 0, '不涉及写入的命令照旧不问')
+        ev = a.turn('没有目录操作的命令')
+        check(len(confirms(ev)) == 0, '普通命令照旧不问', texts(ev))
         tr = last_tool_results()
         check('plain-no-write' in tr, '并且真的执行了', tr[:200])
+
+        SCRIPT.push_tool('run_shell', {'command': 'echo rm -rf nothing'})
+        SCRIPT.push_text()
+        ev = a.turn('只是打印 rm 字样')
+        check(len(confirms(ev)) == 0, '只认命令名，参数里的 rm 字样不误判', texts(ev))
     finally:
         a.stop()
         shutil.rmtree(outside, ignore_errors=True)
+
 
 
 def case_approvals_log(tmp, base):

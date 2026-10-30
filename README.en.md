@@ -22,7 +22,9 @@ Chinese: [README.md](README.md) ｜ Full guide: [docs/user_manual.md](docs/user_
 - **It can read, write, and run commands — under your control** — reading never asks.
   Writing and shell execution have three modes (`default` asks for both, `accept-edits`
   auto-writes but still asks for commands, `bypass` skips routine prompts).
-  **Dangerous commands are still confirmed even in `bypass`**, and no answer means denied.
+  **`bypass` still asks about two things**: dangerous commands, and file/directory
+  operations (`rm`/`mv`/`cp`/`chmod`/`tar` …); no answer means denied. The writable-roots
+  whitelist only serves `accept-edits` and does not apply to `bypass`.
   Writable scope defaults to the current directory and temp only; `~/.ssh` and
   `~/.claude-agent` are refused even if you add them explicitly.
 - **Local history, plain text by default** (mode `0600`, directory `0700`, no passphrase prompt);

@@ -132,12 +132,19 @@ Advisor 可以读写文件、执行命令，**默认每一类操作都会先问�
 | 模式 | 读文件 | 写文件 | 执行命令 |
 |---|---|---|---|
 | `default`（默认） | 直接做 | 每次确认 | 每次确认 |
-| `accept-edits` | 直接做 | 可写目录内直接做 | 每次确认 |
-| `bypass` | 直接做 | 直接做 | 直接做，**危险命令仍确认** |
+| `accept-edits` | 直接做 | 可写目录内直接做，范围外确认 | 每次确认 |
+| `bypass` | 直接做 | 直接做（**不受可写范围限制**） | 直接做，**危险命令和文件/目录操作仍确认** |
 
 - 切换：会话内 `/mode`，或启动时 `--mode=accept-edits`
-- 可写范围：`--allow-write=<目录>`（可多次），会话内 `/allow-write <目录>`、`/allow-write clear`
-- **删除、改权限、系统级操作**在任何模式下都要确认（`bypass` 也不例外）
+- **可写范围（白名单）只服务于 `accept-edits`**：`--allow-write=<目录>`（可多次），
+  会话内 `/allow-write <目录>`、`/allow-write clear`。`bypass` 下这个名单**不参与判定**
+  —— 想写哪里就写哪里。
+- `bypass` 里仍然要确认的两类：
+  - **危险命令**：递归删除、`sudo`、改权限、关机/重启、下载后执行、交互式程序等
+  - **文件/目录操作**：`rm`、`rmdir`、`mv`、`cp`、`ln`、`mkdir`、`chmod`、`chown`、`dd`、
+    `truncate`、`rsync`、`tar`、`zip`/`unzip`、`gzip`、`install`、`find -delete`、`git clean`
+- **永久禁止的位置**（`/etc`、`/usr`、`~/.ssh`、`~/.claude-agent` 等）在任何模式下都直接拒绝，
+  连确认都不给
 - 没人回答确认（比如远程会话手机没回）→ 超时按**拒绝**处理，不会放行
 
 `accept-edits` / `bypass` 请只在你信任的项目目录里用。
