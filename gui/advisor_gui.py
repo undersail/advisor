@@ -602,6 +602,18 @@ _S = {
                            "zh": "请填写 Secret（只需第一次）。"},
     "remote_testing": {"ja": "接続を確認しています…", "en": "Checking connection…",
                        "zh": "正在检查连接…"},
+    "remote_group_cred": {
+        "ja": "接続情報", "en": "Connection", "zh": "接入凭据"},
+    "remote_group_perm": {
+        "ja": "権限（この Mac 側で決める）", "en": "Permissions (decided here)",
+        "zh": "权限（在本机决定）"},
+    "remote_group_svc": {
+        "ja": "サービスと結果", "en": "Service and result", "zh": "服务与结果"},
+    "remote_no_script_paths": {
+        "ja": "wecom-ws.pl が見つかりません。次を探しました:\n%s\nsetup.sh を実行するか、"
+              "リポジトリから起動してください。",
+        "en": "wecom-ws.pl was not found. Looked in:\n%s\nRun setup.sh, or start from the repository.",
+        "zh": "找不到 wecom-ws.pl。找过这些位置：\n%s\n请先跑一次 setup.sh，或从仓库目录启动。"},
     "remote_no_script": {
         "ja": "remote/wecom-ws.pl が見つかりません（この環境にはリモート部品がありません）。",
         "en": "remote/wecom-ws.pl was not found (remote components are not installed here).",
@@ -691,7 +703,7 @@ THEMES = {
                                 # 描けている縦罫(Canvas.create_line)と同じ
                                 # 実部品(tk.Frame)を使う方式に変更した
         "vline": "#c96b63",                                   # 左の縦罫(赤)。書き始めの目印
-        "input_bg": "#faf4e6", "input_fg": "#1a2c54",
+        "input_bg": "#f0e7d2", "input_fg": "#1a2c54",
         "hl": {"kw": "#7a3b8f", "str": "#8a5a2b", "com": "#9a8f78", "num": "#3a5a3a"},
         "font": ("Hiragino Maru Gothic ProN", 12),  # 少し小さめにして行数を稼ぐ
     },
@@ -699,7 +711,7 @@ THEMES = {
         "label": "コーディング", "label_en": "Code", "label_zh": "编程", "prompt_prefix": True,
         "bg": "#1e1e1e", "fg": "#d4d4d4", "ai": "#cfcfcf", "prompt": "#c586c0",
         "dim": "#7a7a7a", "err": "#f48771", "rule": "#3a3a3a", "code_bg": "#252526",
-        "line": "#3a3a3a", "input_bg": "#1e1e1e", "input_fg": "#d4d4d4",
+        "line": "#3a3a3a", "input_bg": "#252526", "input_fg": "#d4d4d4",
         "hl": {"kw": "#569cd6", "str": "#ce9178", "com": "#6a9955", "num": "#b5cea8"},
         "font": ("Menlo", 13),
     },
@@ -709,7 +721,7 @@ THEMES = {
         # promptとhl.kw/numがシアン系だったので緑に寄せた。
         "bg": "#000000", "fg": "#39ff5a", "ai": "#33dd88", "prompt": "#00ff66",
         "dim": "#2e7d4f", "err": "#ff5555", "rule": "#2e9d55", "code_bg": "#041004",
-        "line": "#2e9d55", "input_bg": "#000000", "input_fg": "#39ff5a",
+        "line": "#2e9d55", "input_bg": "#041004", "input_fg": "#39ff5a",
         "hl": {"kw": "#00ff66", "str": "#9dff9d", "com": "#2e7d4f", "num": "#a8ffcb"},
         "font": ("Menlo", 13),
     },
@@ -897,20 +909,32 @@ def stop_remote_service(timeout=6.0):
     return True, "已强制停止（pid=%d，未响应 SIGTERM）" % pid
 
 
-def find_wecom_ws_script():
-    """找 remote/wecom-ws.pl：仓库布局与构建目录布局都试一遍，都找不到就返回 ''。"""
+def wecom_ws_search_paths():
+    """wecom-ws.pl を探す候補を優先順で返す（見つからない時に**どこを見たか**を出すため）。"""
     here = os.path.dirname(os.path.abspath(__file__))
-    cands = [
-        os.path.join(here, "..", "remote", "wecom-ws.pl"),
+    raw = [
+        os.path.join(here, "..", "remote", "wecom-ws.pl"),           # リポジトリ
         os.path.join(here, "remote", "wecom-ws.pl"),
         os.path.join(os.path.expanduser("~/claude-build"), "remote", "wecom-ws.pl"),
     ]
     rd = _bundled_resource_dir()
     if rd:
-        cands.insert(0, os.path.join(rd, "remote", "wecom-ws.pl"))
-        cands.insert(0, os.path.join(rd, "wecom-ws.pl"))
-    for c in cands:
+        raw.insert(0, os.path.join(rd, "remote", "wecom-ws.pl"))     # .app 同梱
+        raw.insert(0, os.path.join(rd, "wecom-ws.pl"))
+    out = []
+    for c in raw:
         c = os.path.normpath(c)
+        if c not in out:
+            out.append(c)
+    return out
+
+
+def find_wecom_ws_script():
+    """找 remote/wecom-ws.pl：仓库布局、构建目录、.app 同梱都试一遍，都找不到就返回 ''."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    """找 remote/wecom-ws.pl：仓库布局与构建目录布局都试一遍，都找不到就返回 ''。"""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for c in wecom_ws_search_paths():
         if os.path.isfile(c):
             return c
     return ""
@@ -1305,7 +1329,10 @@ class AdvisorGUI:
         self._write_show_marker()
         # 起動直後に書き込み欄へフォーカスを渡す。渡さないと「ウィンドウは
         # 出ているのに何を打っても入らない」になる（実機で踏んだ）。
-        self._focus_write_zone()
+        self._focus_write_zone(force=True)
+        # macOS は窓が落ち着く前だと focus_force が効かないことがあるので、
+        # 少し置いてもう一度だけ試す（打てないままになるのを避ける）。
+        self.root.after(250, lambda: self._focus_write_zone(force=True))
         self._start_backend()
         self.root.bind("<FocusIn>", self._on_window_focus, add="+")
         self.root.after(80, self._pump)
@@ -1317,10 +1344,26 @@ class AdvisorGUI:
         except Exception:
             pass
 
-    def _focus_write_zone(self):
+    def _focus_write_zone(self, force=False):
+        """入力欄へフォーカスを渡す。
+
+        force=True は起動直後用。macOS では窓が出ていても
+        focus_set() だけだとキー入力が入らないことがある（実機で
+        「打っても何も入らない」になった）ので、focus_force() で
+        窓そのものにキーボードフォーカスを取らせる。
+        返信待ちの後の復帰は force=False（他のアプリの邪魔をしない）。
+        """
         try:
-            if str(self.write_zone.cget("state")) not in ("disabled", "1"):
-                self.write_zone.focus_set()
+            if str(self.write_zone.cget("state")) in ("disabled", "1"):
+                return
+            if force:
+                try:
+                    self.root.deiconify()
+                    self.root.lift()
+                    self.root.focus_force()
+                except Exception:
+                    pass
+            self.write_zone.focus_set()
         except Exception:
             pass
 
@@ -1658,7 +1701,12 @@ class AdvisorGUI:
         # 続きに見える4行ぶんの領域(罫線・穴もノート本文と共通)。
         # Enterで送信、Shift+Enterで改行。
         self.write_row = tk.Frame(self.chat_pane)
+        # ★ 入力欄と会話欄は**別の面**だと分かるようにする。
+        #   以前は本文と同じ背景で「地続き」に見せていたが、どこに打てば
+        #   いいのか分からない、という指摘が出たので区切る。
         self.write_row.pack(side=tk.BOTTOM, fill=tk.X)
+        self.write_sep = tk.Frame(self.chat_pane, height=1)
+        self.write_sep.pack(side=tk.BOTTOM, fill=tk.X)
         self.write_holes = tk.Canvas(self.write_row, width=36, highlightthickness=0)
         self.write_holes.pack(side=tk.LEFT, fill=tk.Y)
         self.write_holes.bind("<Configure>", lambda e: self._request_draw_holes())
@@ -2090,17 +2138,23 @@ class AdvisorGUI:
         self.status_frame.config(height=self.pitch * 2)   # ステータスバーは常に2行ぶん
         self.note.config(spacing1=0, spacing2=S, spacing3=S)
 
-        # 書き込み欄。ノート本文と地続きに見えるよう、同じ背景・書体・
-        # 行間にする。点滅カーソルは止め(insertofftime=0)、代わりに
-        # 空のときは矢印(WRITE_MARK)を書き始めの目印として出す。
+        # 書き込み欄。会話欄とは底色を変え、上に 1px の区切り線を置く
+        # （同じ色だと「どこが入力欄か分からない」と言われた）。
+        # 点滅カーソルは止め(insertofftime=0)、空のときは矢印(WRITE_MARK)。
         write_fg = t["dim"] if getattr(self, "_write_ph", False) else t["input_fg"]
         write_font_size = min(f[1], 13)
-        self.write_zone.config(bg=t["bg"], fg=write_fg, font=(f[0], write_font_size),
+        self.write_zone.config(bg=t["input_bg"], fg=write_fg, font=(f[0], write_font_size),
                                insertbackground=t["input_fg"], insertofftime=0,
                                spacing1=0, spacing2=S, spacing3=S)
         # 右端の手前4文字ぶんで折り返すための余白(全角文字幅≒フォント
         # サイズとして概算)。
-        self.write_pad_right.config(bg=t["bg"], width=write_font_size * 4)
+        self.write_pad_right.config(bg=t["input_bg"], width=write_font_size * 4)
+        try:
+            self.write_row.config(bg=t["input_bg"])
+            self.write_holes.config(bg=t["input_bg"])
+            self.write_sep.config(bg=t["rule"])
+        except Exception:
+            pass
         self._draw_holes()
 
         # 色・書体・寄せだけ。左右の余白(1/3)は _relayout が幅から計算する。
@@ -2543,64 +2597,102 @@ class AdvisorGUI:
         dlg.title(L("remote_title"))
         dlg.transient(self.root)
         dlg.grab_set()
-        tk.Label(dlg, text=L("remote_intro"), justify=tk.LEFT,
-                 wraplength=470).pack(padx=16, pady=(14, 10))
+        # 見た目は本体と同じテーマ色・同じ書体にそろえる（既定フォントのままだと
+        # ここだけ文字が細く/小さく見える、という指摘が出た）。
+        # テーマ/書体が無い環境（テスト用のダミー等）でも落ちないように既定へ落とす。
+        th = THEMES.get(getattr(self, "theme_name", None) or "paper", THEMES["paper"])
+        ui_font = getattr(self, "font", None)
 
-        form = tk.Frame(dlg)
-        form.pack(padx=16, fill=tk.X)
-        form.columnconfigure(1, weight=1)
+        def _lab(parent, text="", **kw):
+            if ui_font:
+                kw.setdefault("font", ui_font)
+            kw.setdefault("bg", th["bg"])
+            kw.setdefault("fg", th["fg"])
+            kw.setdefault("justify", tk.LEFT)
+            return tk.Label(parent, text=text, **kw)
 
-        tk.Label(form, text=L("remote_botid")).grid(row=0, column=0, sticky="w", pady=3)
+        def _entry(parent, var, show=None):
+            _kw = {"font": ui_font} if ui_font else {}
+            e = tk.Entry(parent, textvariable=var, width=42, **_kw,
+                         bg=th["input_bg"], fg=th["input_fg"],
+                         insertbackground=th["input_fg"], relief=tk.SOLID, bd=1)
+            if show:
+                e.configure(show=show)
+            return e
+
+        def _group(title_key):
+            fr_kw = {"bg": th["bg"], "fg": th["fg"], "bd": 1,
+                     "relief": tk.GROOVE, "labelanchor": "nw"}
+            if ui_font:
+                fr_kw["font"] = ui_font
+            fr = tk.LabelFrame(dlg, text=L(title_key), **fr_kw)
+            fr.pack(fill=tk.X, padx=18, pady=(0, 8))
+            fr.columnconfigure(1, weight=1)
+            return fr
+
+        _lab(dlg, L("remote_intro"), wraplength=520).pack(padx=18, pady=(14, 10), anchor="w")
+
+        # ---- 接入凭据 ----
+        cred = _group("remote_group_cred")
+        _lab(cred, L("remote_botid")).grid(row=0, column=0, sticky="w", padx=(10, 6), pady=4)
         bot_var = tk.StringVar(value=conf.get("BOT_ID", ""))
-        tk.Entry(form, textvariable=bot_var, width=40).grid(
-            row=0, column=1, sticky="we", padx=(8, 0), pady=3)
+        _entry(cred, bot_var).grid(row=0, column=1, sticky="we", padx=(0, 10), pady=4)
 
         secret_label = L("remote_secret")
         if st["configured"]:
             secret_label += L("remote_secret_kept")
-        tk.Label(form, text=secret_label).grid(row=1, column=0, sticky="w", pady=3)
+        _lab(cred, secret_label).grid(row=1, column=0, sticky="w", padx=(10, 6), pady=4)
         sec_var = tk.StringVar()
-        sec_ent = tk.Entry(form, textvariable=sec_var, width=40, show="*")
-        sec_ent.grid(row=1, column=1, sticky="we", padx=(8, 0), pady=3)
+        sec_ent = _entry(cred, sec_var, show="*")
+        sec_ent.grid(row=1, column=1, sticky="we", padx=(0, 10), pady=4)
 
-        tk.Label(form, text=L("remote_allow")).grid(row=2, column=0, sticky="w", pady=3)
+        _lab(cred, L("remote_allow")).grid(row=2, column=0, sticky="w", padx=(10, 6), pady=4)
         allow_var = tk.StringVar(value=st["allow"])
-        tk.Entry(form, textvariable=allow_var, width=40).grid(
-            row=2, column=1, sticky="we", padx=(8, 0), pady=3)
-        tk.Label(dlg, text=L("remote_allow_hint"), justify=tk.LEFT,
-                 wraplength=470).pack(padx=16, pady=(2, 6))
+        _entry(cred, allow_var).grid(row=2, column=1, sticky="we", padx=(0, 10), pady=4)
+        _lab(cred, L("remote_allow_hint"), fg=th["dim"], wraplength=500).grid(
+            row=3, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 6))
 
-        # 远程权限：本机定，手机端改不了（写 conf，重启远程服务后生效）
-        tk.Label(form, text=L("remote_mode")).grid(row=3, column=0, sticky="w", pady=3)
+        # ---- 权限：档位名称与本机完全一致（同一套 _S 条目，免得两处说法不同）----
+        perm = _group("remote_group_perm")
+        _lab(perm, L("remote_mode")).grid(row=0, column=0, sticky="w", padx=(10, 6), pady=4)
         mode_map = [
-            ("default", L("remote_readonly_label")),
-            ("accept-edits", L("remote_accept_label")),
-            ("bypass", L("remote_bypass_label")),
+            ("default", L("mode_default")),
+            ("accept-edits", L("mode_accept_edits")),
+            ("bypass", L("mode_bypass")),
         ]
         cur_mode = (conf.get("REMOTE_MODE") or "default").strip()
         mode_labels = [lab for _, lab in mode_map]
         mode_var = tk.StringVar(
-            value=dict(mode_map).get(cur_mode, L("remote_readonly_label")))
-        mode_box = ttk.Combobox(form, textvariable=mode_var, values=mode_labels,
-                                state="readonly", width=34)
-        mode_box.grid(row=3, column=1, sticky="we", padx=(8, 0), pady=3)
+            value=dict(mode_map).get(cur_mode, L("mode_default")))
+        mode_box = ttk.Combobox(perm, textvariable=mode_var, values=mode_labels,
+                                state="readonly", width=38,
+                                **({"font": ui_font} if ui_font else {}))
+        mode_box.grid(row=0, column=1, sticky="we", padx=(0, 10), pady=4)
 
-        tk.Label(form, text=L("remote_write_roots")).grid(row=4, column=0, sticky="w", pady=3)
+        _lab(perm, L("remote_write_roots")).grid(row=1, column=0, sticky="w",
+                                                padx=(10, 6), pady=4)
         roots_var = tk.StringVar(value=conf.get("REMOTE_ALLOW_WRITE", ""))
-        tk.Entry(form, textvariable=roots_var, width=40).grid(
-            row=4, column=1, sticky="we", padx=(8, 0), pady=3)
+        _entry(perm, roots_var).grid(row=1, column=1, sticky="we", padx=(0, 10), pady=4)
+        hint_row = 2
         for hint in ("remote_mode_hint", "remote_write_roots_hint"):
-            tk.Label(dlg, text=L(hint), justify=tk.LEFT,
-                     wraplength=470, fg="#555555").pack(padx=16, pady=(0, 4))
+            _lab(perm, L(hint), fg=th["dim"], wraplength=500).grid(
+                row=hint_row, column=0, columnspan=2, sticky="w", padx=10, pady=(0, 4))
+            hint_row += 1
 
+        # ---- 服务与结果：结果固定在这一块，不再「点一次跳一次」----
+        svc = _group("remote_group_svc")
+        svc.columnconfigure(0, weight=1)
         status_var = tk.StringVar()
-        status_lbl = tk.Label(dlg, textvariable=status_var, anchor="w", justify=tk.LEFT,
-                              wraplength=470)
+        status_lbl = _lab(svc, anchor="w", wraplength=500, textvariable=status_var)
+        status_lbl.grid(row=0, column=0, columnspan=2, sticky="w", padx=10, pady=(4, 0))
 
         svc_var = tk.StringVar()
-        svc_lbl = tk.Label(dlg, textvariable=svc_var, anchor="w", justify=tk.LEFT,
-                           wraplength=470, fg="#0055aa")
-        svc_lbl.pack(padx=16, anchor="w")
+        svc_lbl = _lab(svc, anchor="w", wraplength=500, fg=th["ai"], textvariable=svc_var)
+        svc_lbl.grid(row=1, column=0, columnspan=2, sticky="w", padx=10, pady=(2, 0))
+
+        res_var = tk.StringVar()
+        res_lbl = _lab(svc, anchor="w", wraplength=500, fg=th["err"], textvariable=res_var)
+        res_lbl.grid(row=2, column=0, columnspan=2, sticky="w", padx=10, pady=(4, 8))
 
         def refresh_service():
             st = remote_service_status()
@@ -2618,19 +2710,20 @@ class AdvisorGUI:
         def do_start():
             script = find_wecom_ws_script()
             if not script:
-                res_var.set(L("remote_no_script_start")); res_lbl.pack(padx=16, anchor="w")
+                res_var.set(L("remote_no_script_paths")
+                            % "\n".join("  " + p for p in wecom_ws_search_paths()))
                 return
             # 用面板里当前选的档位（已经保存过才算数：读文件里的真值）
             cur = read_kv_conf(WECOM_WS_CONF_PATH)
             ok, msg = start_remote_service(
                 script, cur.get("REMOTE_MODE", "default") or "default",
                 cur.get("REMOTE_ALLOW_WRITE", ""))
-            res_var.set(msg); res_lbl.pack(padx=16, anchor="w")
+            res_var.set(msg)
             refresh_service()
 
         def do_stop():
             ok, msg = stop_remote_service()
-            res_var.set(msg); res_lbl.pack(padx=16, anchor="w")
+            res_var.set(msg)
             refresh_service()
 
         def refresh_status():
@@ -2641,7 +2734,6 @@ class AdvisorGUI:
                 status_var.set(L("remote_status_ready", when=cur["last_activity"]))
             else:
                 status_var.set(L("remote_status_never"))
-            status_lbl.pack(padx=16, anchor="w")
 
         refresh_status()
         refresh_service()
@@ -2649,7 +2741,7 @@ class AdvisorGUI:
         res_var = tk.StringVar()
         res_lbl = tk.Label(dlg, textvariable=res_var, justify=tk.LEFT, wraplength=470)
 
-        btns = tk.Frame(dlg)
+        btns = tk.Frame(dlg, bg=th["bg"])
         btns.pack(pady=(8, 6))
 
         def do_save():
@@ -2657,10 +2749,10 @@ class AdvisorGUI:
             sec = sec_var.get().strip()
             cur = read_kv_conf(WECOM_WS_CONF_PATH)
             if not bot:
-                res_var.set(L("remote_need_botid")); res_lbl.pack(padx=16, anchor="w")
+                res_var.set(L("remote_need_botid"))
                 return
             if not sec and not cur.get("BOT_SECRET"):
-                res_var.set(L("remote_need_secret")); res_lbl.pack(padx=16, anchor="w")
+                res_var.set(L("remote_need_secret"))
                 return
             # 档位与可写目录：跟凭据写同一份文件，重启远程服务后生效
             sel_label = mode_var.get()
@@ -2671,7 +2763,7 @@ class AdvisorGUI:
             roots = ",".join([p.strip() for p in roots_var.get().split(",") if p.strip()])
             if roots and sel_mode == "default":
                 # 只读档配可写目录是自相矛盾的，别存进去让它在暗处失效
-                res_var.set(L("remote_need_mode")); res_lbl.pack(padx=16, anchor="w")
+                res_var.set(L("remote_need_mode"))
                 return
             upd = {"BOT_ID": bot,
                    "REMOTE_MODE": sel_mode,
@@ -2686,19 +2778,18 @@ class AdvisorGUI:
                 if allow:
                     write_kv_conf_atomic(REMOTE_CONF_PATH, {"ALLOW": allow})
             except Exception as e:      # 写失败必须说出来，不许静默
-                res_var.set("保存失败：%s" % e); res_lbl.pack(padx=16, anchor="w")
+                res_var.set("保存失败：%s" % e)
                 return
             sec_var.set("")             # 保存后清空，旧值不回填
             res_var.set(L("remote_saved", path=WECOM_WS_CONF_PATH))
-            res_lbl.pack(padx=16, anchor="w")
             refresh_status()
 
         def do_test():
             script = find_wecom_ws_script()
             if not script:
-                res_var.set(L("remote_no_script")); res_lbl.pack(padx=16, anchor="w")
+                res_var.set(L("remote_no_script"))
                 return
-            res_var.set(L("remote_testing")); res_lbl.pack(padx=16, anchor="w")
+            res_var.set(L("remote_testing"))
             test_btn.configure(state=tk.DISABLED)
             # ★ 子线程只管算，绝不在子线程里碰 Tk：
             #   从别的线程调 after()/改控件在 Tk 里是不安全的（实测会静默不执行，
@@ -2715,7 +2806,6 @@ class AdvisorGUI:
                     self.root.after(150, poll)
                     return
                 res_var.set(("OK " if ok else "NG ") + out)
-                res_lbl.pack(padx=16, anchor="w")
                 try:
                     test_btn.configure(state=tk.NORMAL)
                 except Exception:
@@ -2732,8 +2822,8 @@ class AdvisorGUI:
         stop_btn.pack(side=tk.LEFT, padx=4)
         test_btn.pack(side=tk.LEFT, padx=4)
         tk.Button(btns, text=L("remote_close"), command=dlg.destroy).pack(side=tk.LEFT, padx=4)
-        tk.Label(dlg, text=L("remote_ok_hint"), justify=tk.LEFT,
-                 wraplength=470).pack(padx=16, pady=(0, 12))
+        _lab(dlg, L("remote_ok_hint"), fg=th["dim"], wraplength=520).pack(
+            padx=18, pady=(0, 12), anchor="w")
         dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
 
     def _ask_passphrase(self, prompt, recover=False):

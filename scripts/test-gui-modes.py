@@ -233,7 +233,26 @@ def main():
                      'models': [{'id': _default_model(), 'label': 'DS', 'provider': 'deepseek'}]})
         root.update()
         check(len(hit) >= 2, 'ready 之后也会给一次焦点（%d 次）' % len(hit))
+        # 起動直後は focus_force() までやる（macOS は focus_set だけだと
+        # 「窓は出ているのに打っても入らない」になる）。ここでは
+        # 「窓自体にフォーカスを取らせにいく」動作を確認する。
+        forced = []
+        orig_force = app.root.focus_force
+        app.root.focus_force = lambda: forced.append(1)
+        app._focus_write_zone(force=True)
+        app.root.focus_force = orig_force
+        check(len(forced) >= 1, '起動直後は窓ごとフォーカスを取る（focus_force）')
         app.write_zone.focus_set = orig_focus
+
+        print('[输入区/输出区] 必须看得出哪块是打的、哪块是记录')
+        theme = G.THEMES[app.theme_name]
+        note_bg = str(app.note.cget('bg'))
+        write_bg = str(app.write_zone.cget('bg'))
+        check(write_bg != note_bg,
+              '输入框底色与会话底色不同（%s vs %s）' % (write_bg, note_bg))
+        sep = getattr(app, 'write_sep', None)
+        check(sep is not None and str(sep.cget('bg')) == str(theme['rule']),
+              '输入框上方有一条分隔线', None if sep is None else str(sep.cget('bg')))
 
         print('[后端退出] 必须把原因说出来，不能只把输入框杀掉')
         # 真机报障：GUI 打开后输入框打不了字 —— 实际是后端进程已经退出，

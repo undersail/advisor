@@ -105,6 +105,7 @@ advisor --continue 名字         # 接着叫这个名字的那场
 advisor --name 名字             # 给这场起个名字，以后好接
 advisor --search 关键词         # 在历史里全文搜索（明文直读；加密的就先给口令）
 advisor --encrypt-history       # 改成口令加密保存（也可 CLAUDE_ENCRYPT_HISTORY=1）
+advisor --make-plain-history    # 把已有的加密历史转成明文（备份→解密→删 key.enc）
 advisor --change-passphrase     # 改口令（只在加密历史下有意义）
 advisor --set-recovery          # 设置/修改恢复用的密保（同上）
 advisor --no-history            # 本次不保存（等价 CLAUDE_NO_HISTORY=1）

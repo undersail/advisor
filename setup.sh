@@ -493,6 +493,12 @@ cp "$SCRIPT_DIR/models.txt" "$BUILD_DIR/models.txt"
 cp "$SCRIPT_DIR/providers.txt" "$BUILD_DIR/providers.txt"
 [ -f "$SCRIPT_DIR/gui/advisor_gui.py" ] && cp "$SCRIPT_DIR/gui/advisor_gui.py" "$BUILD_DIR/advisor_gui.py"
 [ -f "$SCRIPT_DIR/launcher/advisor.png" ] && cp "$SCRIPT_DIR/launcher/advisor.png" "$BUILD_DIR/advisor.png"
+# remote/ も一緒に置く。GUI のリモートパネルはここから wecom-ws.pl を探すので、
+# 置き忘れると「找不到 wecom-ws.pl」で起動できない（実機で出た）。
+if [ -d "$SCRIPT_DIR/remote" ]; then
+  mkdir -p "$BUILD_DIR/remote"
+  cp "$SCRIPT_DIR"/remote/*.pl "$BUILD_DIR/remote/" 2>/dev/null || true
+fi
 msg placed_files "$BUILD_DIR"
 
 # --- 4. advisor コマンド(ラッパー)の設置 ---

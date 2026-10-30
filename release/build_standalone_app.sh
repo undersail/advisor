@@ -74,6 +74,10 @@ APP = ["advisor_gui.py"]
 DATA_FILES = [
     ("", ["$SCRIPT_DIR/agent/claude-agent.pl", "$SCRIPT_DIR/models.txt",
           "$SCRIPT_DIR/providers.txt", "$SCRIPT_DIR/VERSION"]),
+    # remote/ は GUI のリモートパネルが wecom-ws.pl / gateway.pl を探す場所。
+    # 入れ忘れると「找不到 wecom-ws.pl」になる（実機で出た）。
+    ("remote", ["$SCRIPT_DIR/remote/wecom-ws.pl", "$SCRIPT_DIR/remote/gateway.pl",
+                "$SCRIPT_DIR/remote/notify.pl", "$SCRIPT_DIR/remote/platform.pl"]),
 ]
 OPTIONS = {
     "argv_emulation": False,

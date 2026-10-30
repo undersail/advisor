@@ -1039,6 +1039,43 @@ my %S = (
         en => "(%d encrypted conversation(s) could not be read: no key.enc here. Start with --encrypt-history and enter the passphrase to open them.)\n",
         zh => "（有 %d 个加密会话读不了：这个目录里没有 key.enc。要用口令打开它们，用 --encrypt-history 启动并输入口令。）\n",
     },
+    plain_hist_nothing => {
+        ja => "平文で保存する履歴しかありません（切り替える必要はありません）。\n",
+        en => "History is already plain: nothing to convert.\n",
+        zh => "历史已经是明文了，不需要转换。\n"},
+    plain_hist_no_key => {
+        ja => "復号できない %.0f 個の暗号化履歴があります（key.enc がありません）。\n",
+        en => "There are %.0f encrypted conversations that cannot be opened: no key.enc here.\n",
+        zh => "有 %.0f 个加密会话打不开：这个目录里没有 key.enc。\n"},
+    plain_hist_pass_prompt => {
+        ja => "現在のパスフレーズ: ", en => "Current passphrase: ",
+        zh => "当前口令："},
+    plain_hist_cancelled => {
+        ja => "中止しました（何も変更していません）。\n",
+        en => "Cancelled; nothing was changed.\n",
+        zh => "已取消，什么都没有改动。\n"},
+    plain_hist_bad_pass => {
+        ja => "パスフレーズが違います（何も変更していません）。\n",
+        en => "Wrong passphrase; nothing was changed.\n",
+        zh => "口令不对，什么都没有改动。\n"},
+    plain_hist_backup_failed => {
+        ja => "バックアップを作れませんでした（%s）。中止します。\n",
+        en => "Could not create a backup (%s). Aborted.\n",
+        zh => "备份没能创建（%s），已中止。\n"},
+    plain_hist_decrypt_failed => {
+        ja => "%d 個の履歴を復号できませんでした（例: %s）。\n何も消していません。\n",
+        en => "%d conversation(s) could not be decrypted (e.g. %s).\nNothing was deleted.\n",
+        zh => "有 %d 个会话解不开（例如 %s），什么都没有删除。\n"},
+    plain_hist_backup_kept => {
+        ja => "バックアップは残してあります: %s\n",
+        en => "The backup is kept at: %s\n",
+        zh => "备份保留在：%s\n"},
+    plain_hist_done => {
+        ja => "%d 件を平文に変換しました（%s）。\nバックアップ: %s\n"
+              . "次回からパスフレーズは訊きません。\n",
+        en => "Converted %d conversation(s) in %s.\nBackup: %s\n"
+              . "You will not be asked for a passphrase again.\n",
+        zh => "已把 %d 个会话转成明文（%s）。\n备份：%s\n以后启动不再询问口令。\n"},
     hist_plain_mode      => {
         en => "History is saved as plain text (mode 0600) in %s. Use --encrypt-history if you want it protected by a passphrase.\n",
         zh => "历史以明文保存在 %s（权限 0600）。想要口令加密，用 --encrypt-history 启动。\n",
@@ -1193,6 +1230,7 @@ my $SEARCH         = '';  # --search <語>: 保存済みの会話を全文検索
 my $RESUME         = 0;   # --resume: 保存済みの会話を選んで続きから再開
 my $CHANGE_PASS    = 0;   # --change-passphrase: 履歴パスフレーズを変更して終了
 my $SET_RECOVERY   = 0;   # --set-recovery: 合言葉(復旧用の秘密の質問)を設定して終了
+my $MAKE_PLAIN     = 0;   # --make-plain-history: 既存の暗号化履歴を平文へ移して終了
 my $GUI            = 0;   # --gui: 端末用の表示をやめ、1行1件のJSONで入出力する
 # --tools=a,b : 使えるツールを絞る（能力の絞り込み。増やす方向には働かない）
 # 遠隔から使う場合はここで read_file,list_dir を渡す —— ただしその判断は
@@ -1268,6 +1306,8 @@ for my $arg (@ARGV) {
     if ($arg =~ /^--search=(.*)$/)     { $SEARCH = $1; }
     if ($arg eq '--resume')            { $RESUME = 1; }
     if ($arg eq '--change-passphrase') { $CHANGE_PASS = 1; }
+    # 既存の暗号化履歴を平文へ切り替える（一方通行なので、明示的に叩いた時だけ）。
+    if ($arg eq '--make-plain-history') { $MAKE_PLAIN = 1; }
     if ($arg eq '--set-recovery')      { $SET_RECOVERY = 1; }
     if ($arg eq '--gui')               { $GUI = 1; }
     # --rpc は --gui と完全に同じプロトコル。名前だけ用途で分けている
@@ -2595,7 +2635,15 @@ sub hist_encrypt {
 
 sub hist_plain_encrypted {   # そのファイルは暗号化されているか
     my ($path) = @_;
-    return ($path =~ /\.json\.enc$/) ? 1 : 0;
+    # ★ 以前は /\ .json\.enc$ / だけを見ていたため、**包んだマスター鍵**
+    #   （key.enc / key.recovery.enc）と旧形式 .check が「平文」と判定され、
+    #   openssl を通さずに UTF-8 テキストとして読んでいた。結果、正しい
+    #   パスフレーズでも必ず失敗し、しかもファイル全体が化けた文字列として
+    #   読み込まれて「does not map to Unicode」の警告が大量に出ていた。
+    #   拡張子 .enc と旧 .check はすべて暗号文として扱う。
+    return 1 if $path =~ /\.enc$/;
+    return 1 if $path =~ m{/\.check$};
+    return 0;
 }
 
 sub hist_decrypt {
@@ -2802,6 +2850,73 @@ sub migrate_check_file {
 # 履歴のロックを解除し、$ENV{CLAUDE_HIST_PASS} にマスター鍵をセットして
 # 1 を返す。初回は新規設定、以降はパスフレーズ(または合言葉)で解錠する。
 # 中止/失敗なら 0(履歴なしで続行)。
+# 既存の暗号化履歴を平文へ切り替える。
+# 一回だけパスフレーズ（または CLAUDE_HIST_PASS）を受け取り、全部復号してから
+# key.enc を消す —— 途中で失敗したら **何も消さない**（読めない履歴を作らない）。
+# 先に必ずバックアップを取る（cp -R。macOS 標準）。
+sub make_plain_history {
+    my @enc = grep { /\.json\.enc$/ } history_files();
+    my $key_path = -f $KEY_FILE ? $KEY_FILE : (-f $HISTORY_CHECK ? $HISTORY_CHECK : '');
+    unless ($key_path ne '' || @enc) {
+        print L('plain_hist_nothing');
+        return 0;
+    }
+    unless ($key_path ne '') {
+        print L('plain_hist_no_key', scalar @enc);
+        return 1;
+    }
+
+    my $secret = $ENV{CLAUDE_HIST_PASS};
+    if (!defined $secret || $secret eq '') {
+        $secret = read_secret(L('plain_hist_pass_prompt'));
+        unless (defined $secret && $secret ne '') {
+            print L('plain_hist_cancelled');
+            return 1;
+        }
+    }
+    my $master = _open_master($secret, $key_path);
+    unless (defined $master) {
+        print L('plain_hist_bad_pass');
+        return 1;
+    }
+
+    # バックアップ（復号前の状態をそのまま残す）
+    require File::Basename;
+    my $parent = File::Basename::dirname($HISTORY_DIR);
+    my $base   = File::Basename::basename($HISTORY_DIR);
+    my $backup = "$parent/$base-backup-" . _timestamp();
+    my $rc = system('cp', '-R', $HISTORY_DIR, $backup);
+    if ($rc != 0 || !-d $backup) {
+        print L('plain_hist_backup_failed', $backup);
+        return 1;
+    }
+    chmod 0700, $backup;
+
+    # 復号して *.json を書く。1つでも失敗したら中断（消さない）。
+    my (@ok, @ng);
+    for my $f (@enc) {
+        my $plain = _unwrap_with($master, "$HISTORY_DIR/$f");
+        if (!defined $plain) { push @ng, $f; next; }
+        (my $out = $f) =~ s/\.enc$//;
+        eval { _write_private("$HISTORY_DIR/$out", $plain); 1 } or do { push @ng, $f; next; };
+        push @ok, $out;
+    }
+    if (@ng) {
+        print L('plain_hist_decrypt_failed', scalar @ng, join(', ', @ng[0 .. ($#ng > 2 ? 2 : $#ng)]));
+        print L('plain_hist_backup_kept', $backup);
+        return 1;
+    }
+
+    # ここから先は消す。復号済みの *.json があるのでデータは失われない。
+    for my $f (@enc) { unlink "$HISTORY_DIR/$f"; }
+    for my $k ($KEY_FILE, $HISTORY_CHECK, $KEY_RECOVERY, $KEY_RECOVERY_Q) {
+        unlink $k if -f $k;
+    }
+    $HIST_PLAIN = 1;
+    print L('plain_hist_done', scalar @ok, $HISTORY_DIR, $backup);
+    return 0;
+}
+
 sub unlock_history {
     for my $d ("$ENV{HOME}/.claude-agent", $HISTORY_DIR) {
         mkdir($d, 0700) unless -d $d;
@@ -2911,7 +3026,20 @@ sub unlock_history {
             my $prompt = $has_recovery
                 ? L('hist_pass_no_recovery')
                 : L('hist_pass_no_recovery2');
-            my $pass = read_secret($prompt);
+            # CLAUDE_HIST_PASS が渡されていれば、それを口令として試す
+            # （自動化・リモート・--make-plain-history と同じ経路）。
+            # 違っていれば今まで通り対話で訊き直すので、失敗しても詰まらない。
+            my $from_env = (defined $ENV{CLAUDE_HIST_PASS} && $ENV{CLAUDE_HIST_PASS} ne '')
+                ? $ENV{CLAUDE_HIST_PASS} : undef;
+            my $pass = defined $from_env ? $from_env : read_secret($prompt);
+            if (defined $from_env) {
+                my $m0 = _open_master($from_env, $KEY_FILE);
+                if (defined $m0) { $ENV{CLAUDE_HIST_PASS} = $m0; return 1; }
+                # 環境変数が違っていた → 変数を捨てて対話に切り替える
+                delete $ENV{CLAUDE_HIST_PASS};
+                print L('wrong_passphrase');
+                $pass = read_secret($prompt);
+            }
             unless (defined $pass && $pass ne '') {
                 print L('starting_no_history');
                 return 0;
@@ -4396,6 +4524,11 @@ sub run_tool {
 # 会話ループ
 # ------------------------------------------------------------------
 my @messages;
+
+# --- 履歴: 暗号化 → 平文への切り替え（明示的に叩いた時だけ） ---
+if ($MAKE_PLAIN) {
+    exit make_plain_history();
+}
 
 # --- 履歴: ロック解除 / 一覧表示 / 再開 ---
 if ($HISTORY_ENABLED) {

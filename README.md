@@ -25,6 +25,7 @@ English: [README.en.md](README.en.md) ｜ 完整说明：[docs/user_manual.md](d
   临时目录，`~/.ssh`、`~/.claude-agent` 这类目录即使显式加入也拒绝。
 - **对话历史保存在本地，默认明文**（`0600`，目录 `0700`，启动不问口令）；
   想要加密就 `--encrypt-history`，用口令 + 可选密保问题保护；`--no-history` 可以整场不落盘。
+  机器上还留着旧密钥、每次都要口令：`--make-plain-history` 一次性转成明文（先备份，再解密，最后删 `key.enc`）。
 - **会话接续与找回**：`--continue` 直接接着最近一场（不弹菜单），`--name` 起名后
   `--continue 名字` 按名接，`--search 关键词` 在历史里全文搜索；会话内也能用 `/name`
   `/history` `/search`，图形界面还有「会话」菜单（接着上次 / 起名 / 搜索），不用记参数。手机远程时同一发送者

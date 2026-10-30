@@ -150,7 +150,31 @@ def main():
             gi = {}
         if gi:
             by_row[int(gi.get('row', -1))] = e
-    bot_ent, sec_ent, allow_e = by_row.get(0), by_row.get(1), by_row.get(2)
+    # 面板改成按分组（凭据 / 权限 / 服务）排版后，行号在各组里重号，
+    # 所以按**创建顺序**定位（BotID / Secret / 白名单 / 可写目录）。
+    def group_frame(key):
+        for w in widgets(dlg):
+            if w.winfo_class() in ('Labelframe', 'TLabelframe') and \
+                    str(w.cget('text')) == gui.L(key):
+                return w
+        return None
+
+    def entries_in(frame):
+        out = []
+        def walk(w):
+            for c in w.winfo_children():
+                if c.winfo_class() in ('Entry', 'TEntry'):
+                    out.append(c)
+                walk(c)
+        if frame is not None:
+            walk(frame)
+        return out
+
+    cred_ents = entries_in(group_frame('remote_group_cred'))
+    perm_ents = entries_in(group_frame('remote_group_perm'))
+    bot_ent = cred_ents[0] if len(cred_ents) > 0 else None
+    sec_ent = cred_ents[1] if len(cred_ents) > 1 else None
+    allow_e = cred_ents[2] if len(cred_ents) > 2 else None
     check('三个输入框都在（按行定位）', all(x is not None for x in (bot_ent, sec_ent, allow_e)),
           sorted(by_row))
     if bot_ent is None or sec_ent is None:
@@ -166,11 +190,21 @@ def main():
     mode_box = combos[0] if combos else None
     check('面板有「远程权限」下拉（手机端改不了，本机才有入口）',
           mode_box is not None, [w.winfo_class() for w in widgets(dlg)][:12])
-    check('没有配过时默认显示「只读」',
-          mode_box is not None and mode_box.get() == gui.L('remote_readonly_label'),
+    # 档位名称必须与本机模式菜单**完全一样**（同一套 _S 条目），两处说法不同是缺陷
+    check('档位下拉的三个名称与前面对话里的模式名一致',
+          mode_box is not None and [str(x) for x in mode_box.cget('values')] ==
+          [gui.L('mode_default'), gui.L('mode_accept_edits'), gui.L('mode_bypass')],
+          [str(x) for x in mode_box.cget('values')] if mode_box else None)
+    check('没有配过时默认停在第一档（与本机同一个名字）',
+          mode_box is not None and mode_box.get() == gui.L('mode_default'),
           mode_box.get() if mode_box else None)
-    roots_ent = by_row.get(4)
-    check('面板有「可写目录」输入框', roots_ent is not None, sorted(by_row))
+    roots_ent = perm_ents[0] if perm_ents else None
+    check('面板有「可写目录」输入框', roots_ent is not None, len(perm_ents))
+    # 找不到 wecom-ws.pl 时要报「找过哪些路径」，不能只说一句找不到
+    paths = gui.wecom_ws_search_paths()
+    check('缺脚本时能报出搜索过的路径（含仓库 remote/ 与 ~/claude-build）',
+          len(paths) >= 3 and any('remote/wecom-ws.pl' in x.replace(chr(92), '/')
+                                  for x in paths), paths)
 
     save_btn = find_button(dlg, gui.L('remote_save'))
     check('面板有「保存」按钮', save_btn is not None)
@@ -262,7 +296,7 @@ def main():
     # ---------------- 远程权限档位与可写目录 ----------------
     if mode_box is not None and roots_ent is not None:
         before_mode = open(conf_path, encoding='utf-8').read()
-        mode_box.set(gui.L('remote_readonly_label'))
+        mode_box.set(gui.L('mode_default'))
         roots_ent.delete(0, tk.END)
         roots_ent.insert(0, '/tmp/should-not-save')
         if save_btn:
@@ -274,14 +308,14 @@ def main():
               and gui.L('remote_need_mode') in texts,
               texts[-160:])
 
-        mode_box.set(gui.L('remote_accept_label'))
+        mode_box.set(gui.L('mode_accept_edits'))
         roots_ent.delete(0, tk.END)
         roots_ent.insert(0, '/tmp/a, /tmp/b')
         if save_btn:
             save_btn.invoke()
             root.update()
         written = open(conf_path, encoding='utf-8').read()
-        check('选「可编辑」后把档位写进同一份配置（REMOTE_MODE）',
+        check('选「写文件免确认」后把档位写进同一份配置（REMOTE_MODE）',
               'REMOTE_MODE=accept-edits' in written, written[-200:])
         check('可写目录写进去时去了空格（REMOTE_ALLOW_WRITE）',
               'REMOTE_ALLOW_WRITE=/tmp/a,/tmp/b' in written, written[-200:])
@@ -299,14 +333,32 @@ def main():
         root.update()
         dlg2 = find_dialog(root, gui.L('remote_title'))
         boxes2 = [w for w in widgets(dlg2) if w.winfo_class() == 'TCombobox'] if dlg2 else []
-        rows2 = {}
-        for e in (find_entries(dlg2) if dlg2 else []):
-            try:
-                rows2[int(e.grid_info().get('row', -1))] = e
-            except Exception:
-                pass
-        check('重启后面板读回档位「可编辑」（不用重填）',
-              bool(boxes2) and boxes2[0].get() == gui.L('remote_accept_label'),
+        # 分组排版后行号在各组里重号，按分组取输入框
+        def group2(key):
+            for w in (widgets(dlg2) if dlg2 else []):
+                if w.winfo_class() in ('Labelframe', 'TLabelframe') and \
+                        str(w.cget('text')) == gui.L(key):
+                    return w
+            return None
+
+        def entries2(frame):
+            out = []
+            def walk(w):
+                for c in w.winfo_children():
+                    if c.winfo_class() in ('Entry', 'TEntry'):
+                        out.append(c)
+                    walk(c)
+            if frame is not None:
+                walk(frame)
+            return out
+
+        cred2 = entries2(group2('remote_group_cred'))
+        perm2 = entries2(group2('remote_group_perm'))
+        rows2 = {0: cred2[0] if len(cred2) > 0 else None,
+                 1: cred2[1] if len(cred2) > 1 else None,
+                 4: perm2[0] if perm2 else None}
+        check('重启后面板读回档位「写文件免确认」（不用重填）',
+              bool(boxes2) and boxes2[0].get() == gui.L('mode_accept_edits'),
               boxes2[0].get() if boxes2 else None)
         check('重启后读回可写目录',
               rows2.get(4) is not None and rows2[4].get() == '/tmp/a,/tmp/b',
