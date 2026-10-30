@@ -101,7 +101,7 @@ class Agent:
     """起一个 `--rpc` agent，把 HOME 指到临时目录（不碰真实配置）。"""
 
     def __init__(self, home, base_url, mode=None, extra_env=None, work=None,
-                 tools=None, no_config=False, lang='zh'):
+                 tools=None, no_config=False, lang='zh', extra_args=None):
         env = {
             'HOME': home,
             'PATH': os.environ.get('PATH', '/usr/bin:/bin'),
@@ -124,6 +124,8 @@ class Agent:
             args.append('--tools=' + ','.join(tools))
         if no_config:
             args.append('--no-config')
+        if extra_args:
+            args.extend(extra_args)
         self.p = subprocess.Popen(
             args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             env=env, cwd=(work or home), text=True, bufsize=1, start_new_session=True)

@@ -92,8 +92,12 @@ advisor --version
 **历史与会话**（**默认明文保存，不问口令**）：
 
 ```bash
-advisor --list-history          # 列出历史会话（明文/加密的都列）
-advisor --resume                # 继续上次的会话
+advisor --list-history          # 列出历史会话（明文/加密的都列，带名字）
+advisor --resume                # 从列表里挑一场继续
+advisor --continue              # 直接接着最近一场（等价 -c）
+advisor --continue 名字         # 接着叫这个名字的那场
+advisor --name 名字             # 给这场起个名字，以后好接
+advisor --search 关键词         # 在历史里全文搜索（明文直读；加密的就先给口令）
 advisor --encrypt-history       # 改成口令加密保存（也可 CLAUDE_ENCRYPT_HISTORY=1）
 advisor --change-passphrase     # 改口令（只在加密历史下有意义）
 advisor --set-recovery          # 设置/修改恢复用的密保（同上）
@@ -107,6 +111,10 @@ advisor --no-history            # 本次不保存（等价 CLAUDE_NO_HISTORY=1�
 - **不会悄悄切换**：目录里已经有 `key.enc`（也就是说你以前设过口令）时，即使不加参数
   也还是走口令流程 —— 程序不会把加密历史变成明文。
 - 两种格式可以混在：切到加密之后，只有新会话是加密的，旧的明文会话照样能列出和续聊。
+- **接续的三种方式**：`--resume`（列出来挑一场）、`--continue`（不问，直接接最近一场）、
+  `--continue 名字`（按名字接，适合「项目甲/项目乙」分开聊）。
+- **找回旧内容**：`--search 关键词` 会把命中的会话和前后片段列出来。加密历史里搜不到时，
+  先按 `--encrypt-history` 启动一次（输入口令），再搜。
 - 明文意味着：**同一台 Mac 上的其他用户账号、iCloud/备份、送修**都可能看到这些文件。
   在意的话就用 `--encrypt-history`，或者用完 `--no-history`。
 

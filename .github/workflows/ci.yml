@@ -274,10 +274,10 @@ jobs:
           # 这条以前只在本地手工跑，等于没有防线：别名被删/改坏没人会发现。
           python3 scripts/audit-commands.py
 
-      - name: 历史存储（默认明文 0600 / 加密可选 / 不悄悄降级 / 两种格式混在）
+      - name: 会话接续与检索（--continue 不弹菜单 / --name / --search / 中文 argv）
         run: |
           set -o pipefail
-          python3 scripts/test-history-storage.py
+          python3 scripts/test-session-continue.py
 
       - name: 历史存储（默认明文 0600 / 加密可选 / 不悄悄降级 / 两种格式混在）
         run: |

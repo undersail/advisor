@@ -84,14 +84,24 @@ def make_home():
     return home, agent
 
 
-def drive(args, text, answer=None, wait=20.0, home=None, agent=None):
+def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
+          from_='u1', hist_pass=None):
     """跑一轮：发一条消息，必要时回一个 y/n，收齐 ask 与 reply。"""
     home = home or make_home()[0]
     agent = agent or os.path.join(home, 'fake_agent.pl')
     argv_file = os.path.join(home, 'argv.txt')
+    if hist_pass is not None:
+        # 远程历史口令走 remote.conf（网关读这个文件）。配了它才写历史。
+        conf_dir = os.path.join(home, '.claude-agent')
+        os.makedirs(conf_dir, exist_ok=True)
+        with open(os.path.join(conf_dir, 'remote.conf'), 'w', encoding='utf-8') as f:
+            f.write('HIST_PASS = %s\nALLOW = u1,wxid_alice,wxid_bob\n' % hist_pass)
     env = dict(os.environ)
-    env.update({'HOME': home, 'CLAUDE_AGENT': agent, 'FAKE_ARGV_FILE': argv_file,
-                'CLAUDE_NO_HISTORY': '1'})
+    env.update({'HOME': home, 'CLAUDE_AGENT': agent, 'FAKE_ARGV_FILE': argv_file})
+    if hist_pass is None:
+        env['CLAUDE_NO_HISTORY'] = '1'
+    else:
+        env.pop('CLAUDE_NO_HISTORY', None)
     p = subprocess.Popen(['perl', GW, '--stdin'] + args, stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          text=True, bufsize=1, env=env)
@@ -99,7 +109,7 @@ def drive(args, text, answer=None, wait=20.0, home=None, agent=None):
     err = ''
     deadline = time.time() + wait
     try:
-        p.stdin.write(json.dumps({'from': 'u1', 'text': text}) + '\n')
+        p.stdin.write(json.dumps({'from': from_, 'text': text}) + '\n')
         p.stdin.flush()
         answered = False
         while time.time() < deadline:
@@ -145,6 +155,46 @@ def drive(args, text, answer=None, wait=20.0, home=None, agent=None):
     audit = open(audit_path, encoding='utf-8').read() if os.path.exists(audit_path) else ''
     return {'asks': asks, 'replies': replies, 'argv': argv, 'rc': p.returncode,
             'err': err, 'audit': audit, 'home': home}
+
+
+def case_session_continue():
+    print('[远程] 同一发送者接着上次的会话（--name/--continue 由网关传下去）')
+    print('::notice::[远程] 同一发送者接着上次的会话')
+
+    home = make_home()[0]
+    r = drive([], '第一条', home=home, from_='wxid_alice', hist_pass='pw-remote')
+    names = [a for a in r['argv'] if a.startswith('--name=remote:')]
+    conts = [a for a in r['argv'] if a.startswith('--continue=remote:')]
+    check('配了远程历史口令时，网关传下 --name', len(names) == 1, str(r['argv']))
+    check('并且传下 --continue（同一发送者接上次）', len(conts) == 1, str(r['argv']))
+    check('--name 与 --continue 用的是同一个键',
+          names and conts and names[0].split('=', 1)[1] == conts[0].split('=', 1)[1],
+          str((names, conts)))
+    check('仍然带 --no-config（远程不给配置入口）', '--no-config' in r['argv'], str(r['argv']))
+    check('审计里记了一条 session_resume', 'session_resume' in r['audit'], r['audit'][-300:])
+
+    # 同一发送者两次 → 同一个键
+    r2 = drive([], '第二条', home=home, from_='wxid_alice', hist_pass='pw-remote')
+    key2 = [a for a in r2['argv'] if a.startswith('--name=remote:')]
+    check('同一发送者两次的键一致（会接着同一场）',
+          bool(key2) and key2[0] == names[0], str((names, key2)))
+
+    # 不同发送者 → 不同的键
+    r3 = drive([], '别人的第一条', home=home, from_='wxid_bob', hist_pass='pw-remote')
+    key3 = [a for a in r3['argv'] if a.startswith('--name=remote:')]
+    check('不同发送者的键不同（各聊各的）', bool(key3) and key3[0] != names[0], str((names, key3)))
+    check('发送者 ID 本身不进命令行参数', 'wxid_bob' not in ' '.join(r3['argv']), str(r3['argv']))
+    # 監査ログは従来どおり from= を残す（誰が頼んだかを追うため）。ハッシュ化するのは
+    # 「会話ファイル名と --name/--continue の鍵」だけ —— そちらには生のIDを出さない。
+    resume = [l for l in r3['audit'].splitlines() if 'session_resume' in l]
+    check('session_resume 的键里没有原始发送者 ID',
+          bool(resume) and all('wxid_bob' not in l for l in resume), str(resume))
+
+    # 没配远程历史口令 → 不传 --continue（没历史可接）
+    home2 = make_home()[0]
+    r4 = drive([], '没配口令', home=home2, from_='wxid_alice')
+    check('没配远程历史口令时不传 --continue',
+          not [a for a in r4['argv'] if a.startswith('--continue=')], str(r4['argv']))
 
 
 def main():
@@ -340,6 +390,8 @@ def main():
     out = argv_out.stdout.decode('utf-8', 'replace')
     check('--once 的中文参数也原样（argv 显式解码）',
           '中文测试' in out and 'ä' not in out, out[-200:])
+
+    case_session_continue()
 
     print('%d/%d 通过' % (PASS, PASS + FAIL))
     return 0

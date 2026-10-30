@@ -30,6 +30,10 @@ Chinese: [README.md](README.md) ｜ Full guide: [docs/user_manual.md](docs/user_
 - **Local history, plain text by default** (mode `0600`, directory `0700`, no passphrase prompt);
   start with `--encrypt-history` to protect it with a passphrase plus an optional recovery
   question, or `--no-history` to keep nothing on disk.
+- **Continue and search sessions**: `--continue` picks up the latest conversation without a
+  menu, `--name` + `--continue <name>` resumes by name, and `--search <word>` greps saved
+  conversations. Over the phone gateway each sender resumes their own thread, even after a
+  service restart.
 - **It remembers you, and learns procedures** — durable facts live in
   `~/.claude-agent/memory.md` (plain text, mode 0600; `/remember` adds one, `/memory` shows and
   prunes). Write "how this kind of task should go" as Markdown in `~/.claude-agent/skills/`:

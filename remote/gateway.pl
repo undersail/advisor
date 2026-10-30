@@ -33,6 +33,7 @@ use strict;
 use warnings;
 use utf8;
 use Encode qw(decode);
+use Digest::MD5 qw(md5_hex);   # core 同梱（5.8+）。送信者をそのまま履歴に残さないためだけに使う
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use IO::Select;
@@ -313,6 +314,13 @@ sub config_sanity {
     return \@warn;
 }
 
+# 送信者ごとに「続ける会話」を決めるための鍵。
+# 送信者IDそのものをファイル名や履歴に残したくないのでハッシュ化する。
+sub remote_session_key {
+    my ($from) = @_;
+    return substr(md5_hex(defined $from && length $from ? $from : 'unknown'), 0, 12);
+}
+
 sub spawn_session {
     my ($from, $conf) = @_;
     my $envfile = $conf->{AGENT_ENV_FILE} || "$ENV{HOME}/.claude-agent-env";
@@ -324,8 +332,10 @@ sub spawn_session {
     # 在日本语系统的机器上就会用日文回中文提问 —— 所以这里显式定语言。
     $env{CLAUDE_LANG} = (defined $conf->{LANG} && $conf->{LANG} =~ /^(zh|ja|en)/)
         ? lc($1) : 'zh';
+    my $hist_on = 0;
     if (defined $conf->{HIST_PASS} && $conf->{HIST_PASS} =~ /\S/) {
         $env{CLAUDE_HIST_PASS} = $conf->{HIST_PASS};
+        $hist_on = 1;
     }
     else {
         # 远程历史口令没配就不写历史 —— 半吊子的加密不如没有。
@@ -341,6 +351,14 @@ sub spawn_session {
         my @extra;
         push @extra, '--mode=' . $REMOTE_WRITE_MODE if $REMOTE_WRITE_MODE ne '';
         push @extra, ('--allow-write=' . $_) for @REMOTE_ROOTS;
+        # 送信者ごとに前回の続きから。サービスを再起動しても同じ人の会話は途切れない
+        # （Hermes でいう「チャネルごとに同じセッションへ戻る」に相当）。
+        # 名前が無ければ子側が新規会話として始めるので、ここで存在確認は要らない。
+        if ($hist_on) {
+            my $key = 'remote:' . remote_session_key($from);
+            push @extra, "--name=$key", "--continue=$key";
+            audit('session_resume', "key=$key");
+        }
         open3($in, $out, $errh, 'perl', $AGENT, '--rpc', '--no-config',
               '--tools=' . join(',', effective_tools()), @extra);
     };

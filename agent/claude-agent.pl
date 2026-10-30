@@ -24,6 +24,10 @@ use Cwd ();
 binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
 
+# コマンドライン引数は「バイト列」で渡ってくる。UTF-8 として解釈しておかないと、
+# 中国語の検索語や名前が壊れる（実例: --search 报价 が æ¥ä»· になっていた）。
+for my $__a (@ARGV) { utf8::decode($__a) unless utf8::is_utf8($__a); }
+
 # STDINはあえて生バイトのまま(:encoding層を付けない)にしておく。
 # Perl 5.8.6のPerlIO :encoding(UTF-8) は、実際のキーボード入力のように
 # バイトが少しずつ届く対話的な読み込みだと、マルチバイト文字の途中で
@@ -976,6 +980,36 @@ my %S = (
         en => "Skills in %s (%d):\n",
         zh => "技能目录 %s（共 %d 个）：\n",
     },
+    continue_loaded      => {
+        ja => "直前の会話（%s%d 件）を続けます。\n",
+        en => "Continuing the previous conversation (%s%d messages).\n",
+        zh => "接着上一场对话（%s%d 条消息）继续。\n",
+    },
+    continue_none        => {
+        ja => "続けられる会話がないので、新しい会話として始めます%s。\n",
+        en => "Nothing to continue, so this starts a new conversation%s.\n",
+        zh => "没有可以接着的对话，这次当作新会话开始%s。\n",
+    },
+    search_header        => {
+        ja => "「%s」で保存済みの会話を検索します:\n",
+        en => "Searching saved conversations for \"%s\":\n",
+        zh => "在已保存的对话里搜索「%s」：\n",
+    },
+    search_none          => {
+        ja => "「%s」に一致する会話はありませんでした。\n",
+        en => "No saved conversation matched \"%s\".\n",
+        zh => "没有匹配「%s」的对话。\n",
+    },
+    search_skipped       => {
+        ja => "（%d 件は復号できず読み飛ばしました。--encrypt-history で合言葉を入力すると読めます）\n",
+        en => "(%d file(s) were skipped because they could not be decrypted; start with --encrypt-history and enter the passphrase.)\n",
+        zh => "（有 %d 个文件解不开所以跳过了；用 --encrypt-history 启动并输入口令就能读）\n",
+    },
+    search_needs_word    => {
+        ja => "--search には検索語が必要です（例: --search 見積）\n",
+        en => "--search needs a word (e.g. --search invoice)\n",
+        zh => "--search 需要一个词（例如 --search 报价）\n",
+    },
     hist_skip_enc        => {
         en => "(%d encrypted conversation(s) could not be read: no key.enc here. Start with --encrypt-history and enter the passphrase to open them.)\n",
         zh => "（有 %d 个加密会话读不了：这个目录里没有 key.enc。要用口令打开它们，用 --encrypt-history 启动并输入口令。）\n",
@@ -1127,6 +1161,10 @@ my $ENCRYPT_HISTORY = (defined $ENV{CLAUDE_ENCRYPT_HISTORY}
 my $HIST_PLAIN      = 0;   # この会話は平文で保存する（unlock_history が決める）
 
 my $LIST_HISTORY   = 0;   # --list-history: 保存済みの会話を一覧表示して終了
+my $CONTINUE       = 0;   # --continue: 直前の会話をそのまま続ける（選択メニューを出さない）
+my $CONTINUE_NAME  = '';  # --continue <名前>: 名前で選んで続ける
+my $SESSION_NAME   = '';  # --name <名前>: この会話に名前を付ける
+my $SEARCH         = '';  # --search <語>: 保存済みの会話を全文検索して終了
 my $RESUME         = 0;   # --resume: 保存済みの会話を選んで続きから再開
 my $CHANGE_PASS    = 0;   # --change-passphrase: 履歴パスフレーズを変更して終了
 my $SET_RECOVERY   = 0;   # --set-recovery: 合言葉(復旧用の秘密の質問)を設定して終了
@@ -1176,7 +1214,8 @@ for my $i (0 .. $#ARGV) {
 # --mode / --allow-write も「--mode x」の形を受ける。値の側が「未知の引数」と
 # して黙って捨てられると、指定したつもりで効かない（--tools で実際に起きた）。
 for my $i (0 .. $#ARGV) {
-    for my $opt ('--mode', '--allow-write') {
+    for my $opt ('--mode', '--allow-write', '--continue', '--name', '--search') {
+        next if $i > $#ARGV || !defined $ARGV[$i];
         if ($ARGV[$i] eq $opt && defined $ARGV[$i + 1]) {
             $ARGV[$i] = "$opt=$ARGV[$i + 1]";
             splice(@ARGV, $i + 1, 1);
@@ -1194,6 +1233,14 @@ for my $arg (@ARGV) {
         exit 0;
     }
     if ($arg eq '--list-history')      { $LIST_HISTORY = 1; }
+    if ($arg eq '--continue' || $arg eq '-c') { $CONTINUE = 1; }
+    if ($arg =~ /^--continue=(.*)$/)   { $CONTINUE = 1; $CONTINUE_NAME = $1; }
+    if ($arg =~ /^--name=(.*)$/)       { $SESSION_NAME = $1; }
+    if ($arg eq '--search' || $arg eq '--search=') {
+        print STDERR L('search_needs_word');
+        exit 2;
+    }
+    if ($arg =~ /^--search=(.*)$/)     { $SEARCH = $1; }
     if ($arg eq '--resume')            { $RESUME = 1; }
     if ($arg eq '--change-passphrase') { $CHANGE_PASS = 1; }
     if ($arg eq '--set-recovery')      { $SET_RECOVERY = 1; }
@@ -1270,6 +1317,9 @@ sub print_help {
   -h, --help            显示本帮助
       --version         显示版本
       --list-history    列出已保存的对话并退出
+      --continue, -c    接着最近一场对话继续（也可 --continue 名字）
+      --name <名字>     给这场对话起名字，之后可用 --continue 名字 接着
+      --search <词>     在已保存的对话里全文搜索并退出
       --resume          选择已保存的对话继续
       --change-passphrase 修改历史记录口令并退出
       --set-recovery    设置密保问题（找回口令用）并退出
@@ -1313,6 +1363,9 @@ EOH
   -h, --help            このヘルプを表示
       --version         バージョンを表示
       --list-history    保存済みの会話を一覧表示して終了
+      --continue, -c    直前の会話を続ける（--continue 名前 も可）
+      --name <名前>     この会話に名前を付ける
+      --search <語>     保存済みの会話を全文検索して終了
       --resume          保存済みの会話を選んで続きから再開
       --change-passphrase 履歴パスフレーズを変更して終了
       --set-recovery    合言葉(復旧用の秘密の質問)を設定して終了
@@ -2881,11 +2934,13 @@ sub unlock_history {
 sub save_history {
     my ($messages_ref) = @_;
     return unless $SESSION_FILE;
-    my $json = MiniJSON::encode({
+    my %rec = (
         model    => $MODEL,
         started  => $STARTED,
         messages => $messages_ref,
-    });
+    );
+    $rec{name} = $SESSION_NAME if defined $SESSION_NAME && $SESSION_NAME ne '';
+    my $json = MiniJSON::encode(\%rec);
     if ($HIST_PLAIN) {
         # 平文でも 0600。ディレクトリは 0700（unlock_history で作る）。
         _write_private($SESSION_FILE, $json);
@@ -4285,12 +4340,86 @@ if ($LIST_HISTORY) {
         $undecryptable++ unless defined $raw;
         if (defined $raw) {
             my $d = eval { MiniJSON::decode($raw) };
-            $line = $d ? (($d->{started} || $f) . '  ' . first_user_line($d)) : L('corrupted');
+            if ($d) {
+                my $nm = (defined $d->{name} && $d->{name} ne '')
+                    ? '[' . $d->{name} . '] ' : '';
+                $line = $nm . ($d->{started} || $f) . '  ' . first_user_line($d);
+            }
+            else { $line = L('corrupted'); }
         }
         printf "  %2d) %s\n", $i++, $line;
     }
     # 平文運用なのに暗号化履歴が残っている場合、その開き方を 1 行だけ添える
     print L('hist_skip_enc', $undecryptable) if $HIST_PLAIN && $undecryptable > 0;
+    exit 0;
+}
+
+# --- --continue: メニューを出さずに続ける（名前指定があればその会話） ---
+if ($CONTINUE && !$RESUME) {
+    unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
+    my ($pick, $pick_data);
+    for my $f (history_files()) {
+        my $raw = hist_decrypt("$HISTORY_DIR/$f");
+        next unless defined $raw;
+        my $d = eval { MiniJSON::decode($raw) };
+        next unless $d && $d->{messages} && @{ $d->{messages} };
+        if ($CONTINUE_NAME ne '') {
+            next unless defined $d->{name} && $d->{name} eq $CONTINUE_NAME;
+        }
+        $pick      = $f;
+        $pick_data = $d;
+        last;    # history_files は新しい順
+    }
+    if ($pick) {
+        @messages = @{ $pick_data->{messages} };
+        $SESSION_FILE = "$HISTORY_DIR/$pick";
+        $SESSION_NAME = $pick_data->{name}
+            if $SESSION_NAME eq '' && defined $pick_data->{name};
+        print L('continue_loaded',
+                (defined $pick_data->{name} ? '[' . $pick_data->{name} . '] ' : ''),
+                scalar(@messages));
+    }
+    else {
+        print L('continue_none',
+                ($CONTINUE_NAME ne '' ? "（$CONTINUE_NAME）" : ''));
+    }
+}
+
+# --- --search: 保存済みの会話を全文検索して終了 ---
+if ($SEARCH ne '') {
+    unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
+    my $hits = 0;
+    my $skipped = 0;
+    my $needle = lc $SEARCH;
+    print L('search_header', $SEARCH);
+    for my $f (history_files()) {
+        my $raw = hist_decrypt("$HISTORY_DIR/$f");
+        if (!defined $raw) { $skipped++; next; }
+        my $d = eval { MiniJSON::decode($raw) };
+        next unless $d;
+        my @lines;
+        for my $m (@{ $d->{messages} || [] }) {
+            my $c = ref($m->{content}) ? '' : ($m->{content} // '');
+            next if $c eq '';
+            my $pos = index(lc $c, $needle);
+            next if $pos < 0;
+            # 命中位置の前後を文字単位で切り出す（バイトで切ると中国語が壊れる）
+            my $from = $pos - 40 > 0 ? $pos - 40 : 0;
+            my $frag = substr($c, $from, length($SEARCH) + 80);
+            $frag = '…' . $frag if $from > 0;
+            $frag .= '…' if $from + length($SEARCH) + 80 < length($c);
+            $frag =~ s/\s+/ /g;
+            push @lines, sprintf("      %s: %s", ($m->{role} || '?'), $frag);
+        }
+        next unless @lines;
+        $hits++;
+        my $nm = (defined $d->{name} && $d->{name} ne '') ? '[' . $d->{name} . '] ' : '';
+        printf "  %s%s  %s\n", $nm, ($d->{started} || $f), first_user_line($d);
+        print "$_\n" for @lines;
+        last if $hits >= 20;
+    }
+    print L('search_none', $SEARCH) if $hits == 0;
+    print L('search_skipped', $skipped) if $skipped > 0;
     exit 0;
 }
 
@@ -4304,8 +4433,10 @@ if ($RESUME) {
         my $raw = hist_decrypt("$HISTORY_DIR/$f");
         my $d = defined($raw) ? eval { MiniJSON::decode($raw) } : undef;
         push @decoded, { file => $f, data => $d };
-        printf "  %2d) %s\n", $i++,
-            $d ? (($d->{started} || $f) . '  ' . first_user_line($d)) : L('unreadable_file', $f);
+        my $nm = ($d && defined $d->{name} && $d->{name} ne '') ? '[' . $d->{name} . '] ' : '';
+        printf "  %2d) %s%s  %s\n", $i++, $nm,
+            ($d ? ($d->{started} || $f) : $f),
+            $d ? first_user_line($d) : L('unreadable_file', $f);
     }
     print L('resume_number');
     my $sel = <STDIN>;

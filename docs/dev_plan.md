@@ -39,8 +39,8 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 21 个，合计 **574 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 11 · remote-notify 22 · **remote 24** · **gateway-write 42** · **mirror-drift 21** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 59** · **gui-remote 44** · **wss-tls 9** · **memory 34** · **skill 19** · **history-storage 23**） |
-| CI | `ci.yml` **3 个 job × 34 步 × 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
+| 测试脚本 | 22 个，合计 **612 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 11 · remote-notify 22 · **remote 24** · **gateway-write 42** · **mirror-drift 21** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 59** · **gui-remote 44** · **wss-tls 9** · **memory 34** · **skill 19** · **history-storage 23** · **session-continue 21**） |
+| CI | `ci.yml` **3 个 job（gates 19 / core 10 / io 12 步，共 41 步）× 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
 | 文案/注册表 | Perl `%S` 147 · GUI `_S` 102 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
@@ -53,7 +53,7 @@
 | 文件 | 作用 |
 |---|---|
 | `.editorconfig` | utf-8 / LF / 2 空格（`.pl` `.py` 为 4） |
-| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 37 步：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**18 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
+| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 41 步：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**21 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
 | `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；**推之前先跑反拉保护**（会覆盖对方提交就中止，见 §8.2）；凭据 `oauth2:`→`undersail:` 自动回退 |
 | `docs/design_doc_advisor.md` | 架构、JSON 行协议、加密密钥层级、已知限制、改动规则 |
 | `docs/releases/` | 发布说明，文件名 = tag 名 |
@@ -86,7 +86,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **172**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `agent/claude-agent.pl` → `my %S` | **178**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
 | `gui/advisor_gui.py` → `_S` | **102** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|<各语言标签>|English label` |
@@ -146,7 +146,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 补中文（现 172 条，随功能增长）
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 178 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 65 条）
@@ -616,3 +616,18 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 - [x] `%S` 新增 2 条（`confirm_fs_op` / `fs_op_refused`）；bypass 的模式说明与切换警告文案重写
 - [x] `test-modes` 两个用例按新语义重写（范围外直接写成功、`cp`/`mv`/`mkdir` 必问、`/etc` 仍拒）
 - [ ] 真机验收（用户）：`--mode=bypass` 下写白名单外文件不提示；`rm -rf` 仍提示
+
+## 15. 会话接续与找回（v0.2.5）
+
+设计见 `docs/design_doc_advisor.md` §5.2（参考 Hermes 的 `--continue` / 会话检索口径）。
+
+- [x] `--continue` / `-c`：接着最近一场，**不弹菜单、不读 STDIN**，写回同一个文件
+- [x] `--continue <名字>` + `--name <名字>`：按名字分线（名字存历史 JSON 的 `name` 字段）
+- [x] `--search <词>`：全文检索，命中处按**字符**截前后 40 字；最多 20 场；解不开的计数说明
+- [x] `--list-history` 显示 `[名字]`
+- [x] 远程网关：按发送者 `remote:<md5前12位>` 传 `--name` / `--continue`，服务重启后同一人接回自己那场
+      （原始 ID 不进键；审计 `from=` 保持原样）
+- [x] **argv 统一按 UTF-8 解码**（`--search 报价` 曾变成 `æ¥ä»·`）
+- [x] `%S` 172 → **178**（新增 6 条）
+- [x] 测试：新增 `scripts/test-session-continue.py` **21 项**；`test-gateway-write` 42 → **52 项**
+- [ ] 真机验收（用户）：`--continue` 直接接上；`--search 中文` 不乱码；手机重启服务后仍接着上一场
