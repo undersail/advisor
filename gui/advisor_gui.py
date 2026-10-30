@@ -602,6 +602,10 @@ _S = {
                            "zh": "请填写 Secret（只需第一次）。"},
     "remote_testing": {"ja": "接続を確認しています…", "en": "Checking connection…",
                        "zh": "正在检查连接…"},
+    "focus_click_hint": {
+        "ja": "（この窓がキーボード入力を受け取れていません。入力欄を一度クリックしてください）",
+        "en": "(This window is not receiving keyboard input. Click the input box once.)",
+        "zh": "（窗口没拿到键盘输入：点一下输入框就能打字了）"},
     "remote_group_cred": {
         "ja": "接続情報", "en": "Connection", "zh": "接入凭据"},
     "remote_group_perm": {
@@ -1330,12 +1334,79 @@ class AdvisorGUI:
         # 起動直後に書き込み欄へフォーカスを渡す。渡さないと「ウィンドウは
         # 出ているのに何を打っても入らない」になる（実機で踏んだ）。
         self._focus_write_zone(force=True)
-        # macOS は窓が落ち着く前だと focus_force が効かないことがあるので、
-        # 少し置いてもう一度だけ試す（打てないままになるのを避ける）。
-        self.root.after(250, lambda: self._focus_write_zone(force=True))
+        self._activate_window()
+        # macOS では「窓は出ているが前面のアプリになっていない」ことがあり、
+        # focus_force 一回では入らない。5 秒間だけ自己監視して、焦点が
+        # 入力欄に来るまで取り直す（来なければ画面に理由を出す）。
+        self._focus_ok = False
+        self.root.after(200, lambda: self._focus_watchdog(0))
         self._start_backend()
         self.root.bind("<FocusIn>", self._on_window_focus, add="+")
+        # 焦点が外れていても打てるように、窓全体でキーを拾う
+        self.root.bind("<Key>", self._on_root_key, add="+")
         self.root.after(80, self._pump)
+
+    def _activate_window(self):
+        """窗を前面のアプリにする。macOS では topmost を一瞬立てるのが効く。"""
+        try:
+            self.root.deiconify()
+            self.root.lift()
+            self.root.attributes("-topmost", True)
+            self.root.after(300, lambda: self.root.attributes("-topmost", False))
+            self.root.focus_force()
+        except Exception:
+            pass
+
+    def _focus_watchdog(self, tries):
+        """起動後 5 秒だけ、焦点が入力欄に来たか見張って取り直す。
+
+        Xvfb のように「常に焦点なし」の環境では諦めて理由を出すだけで、
+        無限に叩き続けない（テストやヘッドレスで暴走させない）。
+        """
+        try:
+            if self.root.focus_get() is self.write_zone:
+                self._focus_ok = True
+                return
+            if tries >= 12:
+                if not getattr(self, "_focus_ok", False):
+                    self._focus_hint_shown = True
+                    # 状態表示にも出す（注記が読めない状況でも気づけるように）
+                    try:
+                        self.status_var.set(L("focus_click_hint"))
+                    except Exception:
+                        pass
+                    try:
+                        self._append(L("focus_click_hint"), "dim")
+                    except Exception:
+                        pass
+                return
+            if str(self.write_zone.cget("state")) not in ("disabled", "1"):
+                self.root.focus_force()
+                self.write_zone.focus_set()
+            self.root.after(400, lambda: self._focus_watchdog(tries + 1))
+        except Exception:
+            pass
+
+    def _on_root_key(self, event):
+        """焦点が入力欄に無いまま打たれたキーを入力欄へ流す（最後の砦）。
+
+        窓が前面でも、焦点がどこにも無いと打った文字が捨てられてしまい
+        「入力できない」になる。印字可能な文字だけ拾って入力欄に差し込む。
+        """
+        try:
+            if event.widget is self.write_zone:
+                return None
+            if str(self.write_zone.cget("state")) in ("disabled", "1"):
+                return None
+            ch = getattr(event, "char", "") or ""
+            if ch and ch.isprintable() and not (event.state & 0x4):
+                self.write_zone.focus_set()
+                self._focus_ok = True
+                self.write_zone.insert(tk.INSERT, ch)
+                return "break"
+        except Exception:
+            pass
+        return None
 
     def _on_window_focus(self, _event=None):
         try:

@@ -43,7 +43,7 @@
 | CI | `ci.yml` **3 个 job（gates 19 / core 10 / io 12 步，共 41 步）× 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
-| 文案/注册表 | Perl `%S` 147 · GUI `_S` 117 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
+| 文案/注册表 | Perl `%S` 147 · GUI `_S` 118 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
 | 泄漏 | 70 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
 
 审计记录：`docs/audits/audit_advisor_v0.2.1.md`（v0.2.1 快照）、`docs/audits/audit_advisor_v0.2.1_r2.md`（之后的第二轮）。
@@ -87,7 +87,7 @@
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
 | `agent/claude-agent.pl` → `my %S` | **192**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
-| `gui/advisor_gui.py` → `_S` | **117** | 同上，`L()` 里 `ja, en = _S[key]` |
+| `gui/advisor_gui.py` → `_S` | **118** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|<各语言标签>|English label` |
 | 文档 | README.md(中文，默认) / README.en.md / release/ReadMe_ZH.txt / ReadMe_EN.txt | 中文为主、英文为辅 |
@@ -640,7 +640,7 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 - [x] 三条命令在 `--no-config`（手机远程）里一律拒绝，文案与 `/mode` `/key` 一致
 - [x] GUI 菜单 **会话**：接着上次 / 接着指定 / 列出现有对话 / 起名 / 搜索；
       前两个 = 带 `--continue` 重启后端，并明确提示「上面内容不重放」
-- [x] `%S` 192 → **184**（新增 6 条）；GUI `_S` 117 → **113**
+- [x] `%S` 192 → **184**（新增 6 条）；GUI `_S` 118 → **113**
 - [x] 测试：`test-session-continue` 21 → **31 项**（含受限会话拒绝）；`test-gui-modes` 25 → **35 项**
       （菜单五项齐全、`--continue` 真的进了后端命令行、起名走普通一轮输入）
 - [ ] 真机验收（用户）：GUI「会话 → 接着上次」后能接上；菜单里没有需要手敲参数的地方
@@ -654,3 +654,14 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 | 根因修复 | `hist_plain_encrypted()` 把 `key.enc`/`.check` 误判为明文，导致口令永远打不开 |
 | 配套 | CLI 解口令时可读 `CLAUDE_HIST_PASS`（自动化与远端同一条路） |
 | 测试 | `test-history-storage` 23 → 38 项（真实加解密、口令错不删钥匙、必须留备份） |
+
+## 18. GUI 打不了字：焦点看护与按键兜底（本轮）
+
+| 项目 | 内容 |
+|---|---|
+| 现象 | 窗口出来了，打什么字都不进去（macOS 上窗口没成为「前台应用」时发生） |
+| 做法1 | 启动时 `deiconify` / `lift` / `topmost` 闪一下 / `focus_force` |
+| 做法2 | 启动后 5 秒内每 400ms 自查：焦点不在输入框就再抢；**12 次仍不行才放弃** |
+| 做法3 | 放弃时在状态栏与会话里说明「点一下输入框」，不让人干瞪眼 |
+| 做法4 | 兜底：焦点在任何地方打的**可打印字符**都被送进输入框（带 Ctrl 的组合键不拦） |
+| 测试 | `test-gui-modes` 38 → 42（放弃要说、正常不插噪声、焦点外按键不丢、focus 在内不重复插） |

@@ -244,6 +244,46 @@ def main():
         check(len(forced) >= 1, '起動直後は窓ごとフォーカスを取る（focus_force）')
         app.write_zone.focus_set = orig_focus
 
+        print('[焦点看护] 焦点抢不到时要说出来，而不是默默打不了字')
+        app._focus_ok = False
+        orig_get = app.root.focus_get
+        app.root.focus_get = lambda: None      # 模拟「焦点根本没落到任何控件」
+        app._focus_watchdog(12)                # 12 次仍拿不到 → 应该说话
+        app.root.focus_get = orig_get
+        root.update()
+        check(getattr(app, '_focus_hint_shown', False) and
+              '点一下输入框' in str(app.status_var.get()),
+              '放弃时明确说「点一下输入框」，不让人干瞪眼',
+              str(app.status_var.get()))
+        # 看护成功时不许乱说话
+        app._focus_ok = True
+        app._focus_hint_shown = False
+        before = str(app.status_var.get())
+        app._focus_watchdog(12)
+        root.update()
+        check(str(app.status_var.get()) == before and not app._focus_hint_shown,
+              '焦点正常时不插多余提示（不制造噪声）')
+
+        print('[按键兜底] 焦点不在输入框时，打的字也不能丢')
+        class _Ev(object):
+            widget = app.note
+            char = '你'
+            state = 0
+        app._write_show_marker()
+        app._on_root_key(_Ev())
+        root.update()
+        check('你' in app.write_zone.get('1.0', 'end-1c'),
+              '焦点在外面时按键被送进输入框（打不了字的兜底）',
+              repr(app.write_zone.get('1.0', 'end-1c')))
+        # 写在输入框里的时候不能再插一遍（否则每个字都重复）
+        class _Ev2(object):
+            widget = app.write_zone
+            char = '好'
+            state = 0
+        app._on_root_key(_Ev2())
+        check(app.write_zone.get('1.0', 'end-1c').count('好') == 0,
+              '已经focus在输入框时不重复插入')
+
         print('[输入区/输出区] 必须看得出哪块是打的、哪块是记录')
         theme = G.THEMES[app.theme_name]
         note_bg = str(app.note.cget('bg'))
