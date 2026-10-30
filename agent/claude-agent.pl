@@ -966,6 +966,26 @@ my %S = (
         en => "Skills in %s (%d):\n",
         zh => "技能目录 %s（共 %d 个）：\n",
     },
+    hist_skip_enc        => {
+        en => "(%d encrypted conversation(s) could not be read: no key.enc here. Start with --encrypt-history and enter the passphrase to open them.)\n",
+        zh => "（有 %d 个加密会话读不了：这个目录里没有 key.enc。要用口令打开它们，用 --encrypt-history 启动并输入口令。）\n",
+    },
+    hist_plain_mode      => {
+        en => "History is saved as plain text (mode 0600) in %s. Use --encrypt-history if you want it protected by a passphrase.\n",
+        zh => "历史以明文保存在 %s（权限 0600）。想要口令加密，用 --encrypt-history 启动。\n",
+    },
+    hist_plain_no_pass   => {
+        en => "This session saves history as plain text, so there is no passphrase to change.\nStart with --encrypt-history to switch to an encrypted history.\n",
+        zh => "本次的历史是明文保存的，没有口令可改。\n想要加密，用 --encrypt-history 启动。\n",
+    },
+    hist_plain_no_recovery => {
+        en => "This session saves history as plain text, so there is no recovery question.\nStart with --encrypt-history to use one.\n",
+        zh => "本次的历史是明文保存的，没有密保问题。\n想要的话，用 --encrypt-history 启动。\n",
+    },
+    hist_encrypted_on    => {
+        en => "History is encrypted with your passphrase.\n",
+        zh => "历史已用口令加密。\n",
+    },
     skills_none          => {
         en => "No skills yet. Drop one into %s（a directory containing SKILL.md, or a single .md file）。\n",
         zh => "还没有技能。放一个到 %s 即可（一个包含 SKILL.md 的目录，或单个 .md 文件）。\n",
@@ -1087,6 +1107,15 @@ sub provider_label {
 # モデル切り替えは ~/bin/claude (シェルラッパー) 側の -m/--select-model で
 # 行い、ここではCLAUDE_MODEL環境変数を読むだけにして本体は単純に保つ。
 # ------------------------------------------------------------------
+# 履歴の保存形式（v0.2.5 で既定を反転した）:
+#   --encrypt-history / CLAUDE_ENCRYPT_HISTORY=1 → 口令で暗号化
+#   既定 → 平文（0600、ディレクトリ 0700）で保存し、パスフレーズを訊かない
+# ただし既に暗号化履歴（key.enc、または旧 .check）がある場合は、勝手に平文へ
+# 落とさず従来どおり解錠フローに入る（下の unlock_history を参照）。
+my $ENCRYPT_HISTORY = (defined $ENV{CLAUDE_ENCRYPT_HISTORY}
+                       && $ENV{CLAUDE_ENCRYPT_HISTORY} ne '' && $ENV{CLAUDE_ENCRYPT_HISTORY} ne '0') ? 1 : 0;
+my $HIST_PLAIN      = 0;   # この会話は平文で保存する（unlock_history が決める）
+
 my $LIST_HISTORY   = 0;   # --list-history: 保存済みの会話を一覧表示して終了
 my $RESUME         = 0;   # --resume: 保存済みの会話を選んで続きから再開
 my $CHANGE_PASS    = 0;   # --change-passphrase: 履歴パスフレーズを変更して終了
@@ -1166,6 +1195,7 @@ for my $arg (@ARGV) {
     # --no-config: 設定を変えるコマンドを一切受け付けない（能力の絞り込み）。
     # 中継・埋め込みから使う想定で、キーの入力経路も同時に塞ぐ。
     if ($arg eq '--no-config')         { $NO_CONFIG = 1; }
+    if ($arg eq '--encrypt-history')   { $ENCRYPT_HISTORY = 1; }
     if ($arg =~ /^--mode=(.*)$/)       { $MODE_ARG = $1; }
     if ($arg =~ /^--allow-write=(.*)$/) { push @WRITE_ROOTS_RAW, $1; }
 }
@@ -1233,6 +1263,7 @@ sub print_help {
       --resume          选择已保存的对话继续
       --change-passphrase 修改历史记录口令并退出
       --set-recovery    设置密保问题（找回口令用）并退出
+      --encrypt-history 用口令加密保存历史（默认是明文保存，不询问口令）
       --tools=<a,b>     只用列出的工具（能力收窄；名字写错会报错退出）
       --no-config       本次会话不接受配置类命令（厂商/模型/模式/可写范围/密钥）
       --mode=<名字>     交互模式：default / accept-edits / bypass（默认 default）
@@ -1248,6 +1279,7 @@ sub print_help {
   CLAUDE_CACERT      CA 证书文件（默认: 未指定，使用系统 curl 的信任库）
   CLAUDE_HISTORY_DIR 历史记录目录（默认 ~/.claude-agent/history）
   CLAUDE_NO_HISTORY  设为 1 则不保存对话（也不询问口令）
+  CLAUDE_ENCRYPT_HISTORY 设为 1 则用口令加密保存历史（等同 --encrypt-history）
   CLAUDE_OPENSSL     openssl 命令路径（默认: openssl）
   CLAUDE_MODE        交互模式 default / accept-edits / bypass（等同 --mode）
   CLAUDE_ALLOW_WRITE 追加可写目录，冒号分隔（等同 --allow-write）
@@ -1274,6 +1306,7 @@ EOH
       --resume          保存済みの会話を選んで続きから再開
       --change-passphrase 履歴パスフレーズを変更して終了
       --set-recovery    合言葉(復旧用の秘密の質問)を設定して終了
+      --encrypt-history 履歴をパスフレーズで暗号化して保存する（既定は平文・合言葉を訊かない）
       --tools=<a,b>     指定したツールだけ使う (絞る方向のみ。名前を間違えると終了)
       --no-config       設定系コマンドを受け付けない (厂商/モデル/モード/書き込み範囲/キー)
       --mode=<名前>     対話モード: default / accept-edits / bypass (既定 default)
@@ -1289,6 +1322,7 @@ EOH
   CLAUDE_CACERT      CA証明書ファイル (既定: 未指定。システムcurlの信頼ストアを使用)
   CLAUDE_HISTORY_DIR 履歴ディレクトリ (既定 ~/.claude-agent/history)
   CLAUDE_NO_HISTORY  1にすると会話を保存しない(パスフレーズも尋ねない)
+  CLAUDE_ENCRYPT_HISTORY 1にすると履歴を暗号化保存（--encrypt-history と同じ）
   CLAUDE_OPENSSL     opensslコマンドのパス (既定: openssl)
   CLAUDE_MODE        対話モード default / accept-edits / bypass (--mode と同じ)
   CLAUDE_ALLOW_WRITE 書き込みを許すディレクトリを追加 (コロン区切り)
@@ -1345,7 +1379,6 @@ my %MODEL_META;             # モデルID => { provider, base_url, notools }
 #   url_template   %s にモデルIDを埋めるエンドポイント
 #   api_version    anthropic-version ヘッダの値(必要なときだけ)
 #   build / parse  内部形式(Anthropic content blocks)との相互変換
-# ------------------------------------------------------------------
 # ------------------------------------------------------------------
 # プロバイダ登録表
 #
@@ -2466,8 +2499,21 @@ sub hist_encrypt {
     return $rc == 0;
 }
 
+sub hist_plain_encrypted {   # そのファイルは暗号化されているか
+    my ($path) = @_;
+    return ($path =~ /\.json\.enc$/) ? 1 : 0;
+}
+
 sub hist_decrypt {
     my ($in_path) = @_;
+    # 平文の履歴はそのまま読む（パスフレーズ不要）
+    unless (hist_plain_encrypted($in_path)) {
+        open(my $fh, '<:encoding(UTF-8)', $in_path) or return undef;
+        local $/;
+        my $raw = <$fh>;
+        close $fh;
+        return $raw;
+    }
     my $tmp = "/tmp/claude-hist-$$-" . int(rand(1_000_000_000));
     my $rc = _run_quiet($OPENSSL, 'enc', '-d', '-aes-256-cbc', '-md', 'md5',
                     '-pass', 'env:CLAUDE_HIST_PASS',
@@ -2667,6 +2713,21 @@ sub unlock_history {
         mkdir($d, 0700) unless -d $d;
     }
 
+    # ★ 平文モード（既定）。ただし「既に暗号化履歴がある」なら平文にはしない
+    #   —— ユーザーが暗号化して守っていたものを、黙って平文に落とすのは事故。
+    unless ($ENCRYPT_HISTORY) {
+        # 「暗号化履歴があるか」の判定は **主鍵の痕跡**（key.enc / 旧 .check）で見る。
+        # *.json.enc だけあって key.enc が無い場合は復号できない孤児ファイルなので、
+        # それを理由にパスフレーズを訊くと、平文運用に切り替えたユーザーが
+        # 理由も分からず鍵を求められる（実際にテストで踏んだ）。
+        my $legacy = (-f $KEY_FILE || -f $HISTORY_CHECK) ? 1 : 0;
+        unless ($legacy) {
+            $HIST_PLAIN = 1;
+            print L('hist_plain_mode', $HISTORY_DIR) unless $GUI;
+            return 1;
+        }
+    }
+
     # GUI モード: パスフレーズは1回入力(確認欄なし)。代わりに「合言葉」を
     # 必須にして、忘れたときの復旧口を必ず用意する。旧形式移行は端末側で。
     if ($GUI) {
@@ -2811,6 +2872,12 @@ sub save_history {
         started  => $STARTED,
         messages => $messages_ref,
     });
+    if ($HIST_PLAIN) {
+        # 平文でも 0600。ディレクトリは 0700（unlock_history で作る）。
+        _write_private($SESSION_FILE, $json);
+        chmod 0600, $SESSION_FILE;
+        return;
+    }
     hist_encrypt($json, $SESSION_FILE);
     chmod 0600, $SESSION_FILE;
 }
@@ -2818,7 +2885,9 @@ sub save_history {
 # 保存済みの会話ファイル(新しい順。ファイル名先頭がタイムスタンプ)
 sub history_files {
     opendir(my $dh, $HISTORY_DIR) or return ();
-    my @f = grep { /\.json\.enc$/ } readdir($dh);
+    # 平文（*.json）と暗号化（*.json.enc）が混在しうる（形式を切り替えた直後）。
+    # ファイル名の先頭がタイムスタンプなので、降順ソートで新しい順になる。
+    my @f = grep { /\.json(\.enc)?$/ } readdir($dh);
     closedir $dh;
     return sort { $b cmp $a } @f;
 }
@@ -4121,12 +4190,14 @@ if ($HISTORY_ENABLED) {
 
 if ($CHANGE_PASS) {
     unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
+    if ($HIST_PLAIN) { print L('hist_plain_no_pass'); exit 0; }
     reset_passphrase($ENV{CLAUDE_HIST_PASS});   # unlock後、CLAUDE_HIST_PASSにはマスター鍵が入っている
     exit 0;
 }
 
 if ($SET_RECOVERY) {
     unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
+    if ($HIST_PLAIN) { print L('hist_plain_no_recovery'); exit 0; }
     set_recovery($ENV{CLAUDE_HIST_PASS});
     exit 0;
 }
@@ -4136,15 +4207,19 @@ if ($LIST_HISTORY) {
     my @files = history_files();
     unless (@files) { print L('no_saved_conv'); exit 0; }
     my $i = 1;
+    my $undecryptable = 0;
     for my $f (@files) {
         my $raw = hist_decrypt("$HISTORY_DIR/$f");
         my $line = L('cannot_decrypt');
+        $undecryptable++ unless defined $raw;
         if (defined $raw) {
             my $d = eval { MiniJSON::decode($raw) };
             $line = $d ? (($d->{started} || $f) . '  ' . first_user_line($d)) : L('corrupted');
         }
         printf "  %2d) %s\n", $i++, $line;
     }
+    # 平文運用なのに暗号化履歴が残っている場合、その開き方を 1 行だけ添える
+    print L('hist_skip_enc', $undecryptable) if $HIST_PLAIN && $undecryptable > 0;
     exit 0;
 }
 
@@ -4177,7 +4252,8 @@ if ($RESUME) {
 
 # 新規会話のときの保存先
 if ($HISTORY_ENABLED && !$SESSION_FILE) {
-    $SESSION_FILE = "$HISTORY_DIR/$STARTED.json.enc";
+    $SESSION_FILE = $HIST_PLAIN ? "$HISTORY_DIR/$STARTED.json"
+                                : "$HISTORY_DIR/$STARTED.json.enc";
 }
 
 # --- GUI モード: JSON でやり取りするループ(Python/tkinter から駆動) ---

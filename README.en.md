@@ -25,8 +25,9 @@ Chinese: [README.md](README.md) ｜ Full guide: [docs/user_manual.md](docs/user_
   **Dangerous commands are still confirmed even in `bypass`**, and no answer means denied.
   Writable scope defaults to the current directory and temp only; `~/.ssh` and
   `~/.claude-agent` are refused even if you add them explicitly.
-- **Encrypted local history** — protected by a passphrase plus an optional recovery question.
-  `--no-history` keeps nothing on disk.
+- **Local history, plain text by default** (mode `0600`, directory `0700`, no passphrase prompt);
+  start with `--encrypt-history` to protect it with a passphrase plus an optional recovery
+  question, or `--no-history` to keep nothing on disk.
 - **It remembers you, and learns procedures** — durable facts live in
   `~/.claude-agent/memory.md` (plain text, mode 0600; `/remember` adds one, `/memory` shows and
   prunes). Write "how this kind of task should go" as Markdown in `~/.claude-agent/skills/`:

@@ -89,16 +89,26 @@ advisor --version
 | `/skills` | 列出本机技能（见第 6 节） |
 | `/help` | 中文帮助 |
 
-**历史与会话**（默认加密保存）：
+**历史与会话**（**默认明文保存，不问口令**）：
 
 ```bash
-advisor --list-history        # 列出历史会话
-advisor --resume              # 继续上次的会话
-advisor --change-passphrase   # 改历史口令
-advisor --set-recovery        # 设置/修改恢复用的合口令
+advisor --list-history          # 列出历史会话（明文/加密的都列）
+advisor --resume                # 继续上次的会话
+advisor --encrypt-history       # 改成口令加密保存（也可 CLAUDE_ENCRYPT_HISTORY=1）
+advisor --change-passphrase     # 改口令（只在加密历史下有意义）
+advisor --set-recovery          # 设置/修改恢复用的密保（同上）
+advisor --no-history            # 本次不保存（等价 CLAUDE_NO_HISTORY=1）
 ```
 
-历史口令只有你自己知道；口令丢了里面的历史打不开（程序不会假装能恢复）。
+- **默认是明文**：`~/.claude-agent/history/<时间戳>.json`，文件权限 `0600`、目录 `0700`。
+  启动不问口令，也不会因为忘记口令而丢掉历史。
+- **想要加密**就用 `--encrypt-history` 启动：走口令流程，存成 `*.json.enc`，
+  口令丢了里面的历史打不开（程序不会假装能恢复）。
+- **不会悄悄切换**：目录里已经有 `key.enc`（也就是说你以前设过口令）时，即使不加参数
+  也还是走口令流程 —— 程序不会把加密历史变成明文。
+- 两种格式可以混在：切到加密之后，只有新会话是加密的，旧的明文会话照样能列出和续聊。
+- 明文意味着：**同一台 Mac 上的其他用户账号、iCloud/备份、送修**都可能看到这些文件。
+  在意的话就用 `--encrypt-history`，或者用完 `--no-history`。
 
 ---
 
@@ -156,7 +166,8 @@ Advisor 可以读写文件、执行命令，**默认每一类操作都会先问�
 
 - **一个文件最多 2000 字符**。超过就只把前面一段放进提示词，并且会告诉模型「被截断了」；
   再想写新的一条会被拒绝，提示你去编辑文件删掉一些。
-- 记忆是**明文**的（不像对话历史那样加密）。理由：每次启动都要输口令才能加载记忆，不值当。
+- 记忆是**明文**的（对话历史默认也是明文；两者想加密都各自有开关）。理由：每次启动都要
+  输口令才能加载记忆，不值当。
   它放在 `~/.claude-agent/` 下（不进 git），权限 0600。
 - 记忆里的话**不是命令**。当它与本次对话的要求冲突时，以本次对话为准。
 - 想彻底关掉：删掉这个文件即可；想换位置：设置环境变量 `CLAUDE_MEMORY_FILE`。
@@ -334,6 +345,8 @@ echo "构建完成" | perl remote/notify.pl -  # 发任意文本
 | 路径 | 内容 | 权限 |
 |---|---|---|
 | `~/.claude-agent-env` | 厂商、模型、API 密钥 | 0600 |
+| `~/.claude-agent/history/*.json` | 对话历史（**明文**，默认） | 0600（目录 0700） |
+| `~/.claude-agent/history/*.json.enc` | 对话历史（`--encrypt-history` 的加密形式） | 0600 |
 | `~/.claude-agent/remote.conf` | 白名单 `ALLOW`、通知 webhook、远程历史口令 | 0600 |
 | `~/.claude-agent/platform.conf` | 企微/飞书回调凭据 | 0600 |
 | `~/.claude-agent/wecom-ws.conf` | 企微长连接 BotID / Secret / 档位 / 可写目录 | 0600 |
@@ -425,7 +438,8 @@ grep -o '^export [A-Za-z0-9_]*' ~/.claude-agent-env   # 只看变量名，不打
 - **远程权限自己定**：默认只读；放开要显式在启动时指定；手机上改不了
 - **确认不会被绕过**：危险操作在任何模式都要人确认，没人确认就按拒绝处理
 - **审计只追加**：`audit.log`（0600）记录谁在什么时候让这台机器做了什么
-- **历史加密**：会话历史用你的口令加密；口令丢了就打不开（不假装能恢复）
+- **历史存储**：默认明文（`0600`，目录 `0700`），启动不问口令；要防同机他人/备份带走，
+  用 `--encrypt-history` 上口令（口令丢了就打不开，程序不假装能恢复）
 
 ---
 
@@ -437,6 +451,8 @@ advisor                              # 进入会话
 advisor -m deepseek-chat             # 指定模型
 advisor --list-models                # 全部模型
 advisor --resume                     # 继续上次会话
+advisor --encrypt-history            # 口令加密保存历史（默认明文，不问口令）
+advisor --no-history                 # 本次不保存历史
 advisor --mode=accept-edits --allow-write=~/proj   # 带可写范围启动
 
 # 远程：企微长连接（推荐）

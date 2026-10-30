@@ -39,7 +39,7 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 20 个，合计 **551 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 11 · remote-notify 22 · **remote 24** · **gateway-write 42** · **mirror-drift 21** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 59** · **gui-remote 44** · **wss-tls 9** · **memory 34** · **skill 19**） |
+| 测试脚本 | 21 个，合计 **574 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 11 · remote-notify 22 · **remote 24** · **gateway-write 42** · **mirror-drift 21** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 59** · **gui-remote 44** · **wss-tls 9** · **memory 34** · **skill 19** · **history-storage 23**） |
 | CI | `ci.yml` **3 个 job × 34 步 × 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
@@ -86,7 +86,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **165**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `agent/claude-agent.pl` → `my %S` | **170**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
 | `gui/advisor_gui.py` → `_S` | **102** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|<各语言标签>|English label` |
@@ -146,7 +146,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 补中文（现 165 条，随功能增长）
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 170 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 65 条）
@@ -588,3 +588,17 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 - [x] 文档：`user_manual.md` §6（记忆与技能）、§8 数据位置表、§3 命令表；
   `design_doc_advisor.md` §4.7；两份 README 的功能与限制
 - [ ] 真机验收（用户）：记忆在重启后仍生效；放一个真技能（比如备份流程）让模型按它做一遍
+
+## 13. 历史存储默认值反转（v0.2.5）
+
+设计见 `docs/design_doc_advisor.md` §5。
+
+- [x] 默认改为**明文**保存：`history/<时间戳>.json`，`0600`，目录 `0700`，启动不问口令
+- [x] `--encrypt-history` / `CLAUDE_ENCRYPT_HISTORY=1` 回到口令加密（`*.json.enc` + `key.enc`）
+- [x] **不悄悄降级**：存在 `key.enc`（或旧 `.check`）时仍走口令流程
+- [x] **孤儿 `.json.enc` 不拖人下水**：无 `key.enc` 的加密文件不改变模式，`--list-history` 里说明怎么打开
+- [x] 混合格式：`history_files()` 认 `.json` 与 `.json.enc`，`hist_decrypt()` 按后缀决定解不解
+- [x] 明文模式下 `--change-passphrase` / `--set-recovery` 给明确说明（不是崩，也不假装成功）
+- [x] `%S` 新增 5 条（中/英），`--help` 增 `--encrypt-history` 与 `CLAUDE_ENCRYPT_HISTORY`（中/日）
+- [x] `scripts/test-history-storage.py` **23 项**，已进 CI
+- [ ] 真机验收（用户）：默认启动不问口令；`--list-history` 能看到旧会话；`--encrypt-history` 能设口令
