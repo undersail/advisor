@@ -27,6 +27,10 @@ Chinese: [README.md](README.md) ｜ Full guide: [docs/user_manual.md](docs/user_
   `~/.claude-agent` are refused even if you add them explicitly.
 - **Encrypted local history** — protected by a passphrase plus an optional recovery question.
   `--no-history` keeps nothing on disk.
+- **It remembers you, and learns procedures** — durable facts live in
+  `~/.claude-agent/memory.md` (plain text, mode 0600; `/remember` adds one, `/memory` shows and
+  prunes). Write "how this kind of task should go" as Markdown in `~/.claude-agent/skills/`:
+  the agent sees only a name and a one-line description, and reads the file when it fits.
 - **Work from your phone (optional)** — WeCom (WeChat Work) "smart robot · long connection"
   needs only a BotID and a Secret: no public domain, no cloud account. Permissions are fixed
   when the service starts on the Mac, and anything needing confirmation is sent to your phone
@@ -114,6 +118,8 @@ for example) set `CLAUDE_BASE_URL`.
 |---|---|
 | Providers and keys | `~/.claude-agent-env` (mode 0600, **must be owned by your user**) |
 | Conversation history (encrypted) | `~/.claude-agent/history/` |
+| Long-term memory (**plain text**) | `~/.claude-agent/memory.md` |
+| Skills | `~/.claude-agent/skills/` |
 | Remote allow-list / notifications | `~/.claude-agent/remote.conf` |
 | WeCom long-connection credentials | `~/.claude-agent/wecom-ws.conf` |
 | Remote audit log (append-only) | `~/.claude-agent/audit.log` |

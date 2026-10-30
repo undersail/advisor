@@ -47,7 +47,7 @@ echo '{"from":"alice","text":"你好"}' | perl remote/gateway.pl --stdin
 ```
 
 **操作手册（启动 / 选档 / 多启动保护 / 保活 / 退出 / 排错 / 开机自启）**：
-[`docs/user_manual.md`](../docs/user_manual.md)（第 6 节 远程接入）
+[`docs/user_manual.md`](../docs/user_manual.md)（第 7 节 远程接入）
 
 ## 远程权限：启动时定，手机端改不了
 

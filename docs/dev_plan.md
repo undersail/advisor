@@ -39,7 +39,7 @@
 | 项 | 现状 |
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
-| 测试脚本 | 18 个，合计 **498 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 11 · remote-notify 22 · **remote 24** · **gateway-write 42** · **mirror-drift 21** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 59** · **gui-remote 44** · **wss-tls 9**） |
+| 测试脚本 | 20 个，合计 **551 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 11 · remote-notify 22 · **remote 24** · **gateway-write 42** · **mirror-drift 21** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 59** · **gui-remote 44** · **wss-tls 9** · **memory 34** · **skill 19**） |
 | CI | `ci.yml` **3 个 job × 34 步 × 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
@@ -86,7 +86,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **147**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `agent/claude-agent.pl` → `my %S` | **165**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
 | `gui/advisor_gui.py` → `_S` | **102** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|<各语言标签>|English label` |
@@ -146,7 +146,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 补中文（现 147 条，随功能增长）
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 165 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 65 条）
@@ -568,3 +568,23 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
   （`%S` / `_S` 里的 `ja` 列）作为历史保留，`check-i18n.py` 仍校验其占位符一致性，但**不再新增**。
 - **运行时语言的判定顺序**：`CLAUDE_LANG`（`zh`/`en`/`ja`）→ macOS 系统语言
   （`defaults read -g AppleLocale`）→ 都取不到就用**中文**。
+
+## 12. 长期记忆与技能（v0.2.5）
+
+设计见 `docs/design_doc_advisor.md` §4.7。落地清单：
+
+- [x] `agent/claude-agent.pl`：
+  - 新增 `memory_path()` / `skills_dir()`（`CLAUDE_MEMORY_FILE` / `CLAUDE_SKILLS_DIR` 可覆盖）
+  - 新增 `read_memory()`（带上限截断）、`read_memory_raw()`、`memory_add()`、
+    `memory_remove_line()`、`memory_clear()`、`print_memory()`
+  - 新增 `skills_list()` / `skill_entry()` / `print_skills()`（`<名>/SKILL.md` 与 `<名>.md` 都收）
+  - `system_prompt()` 追加两段：记忆全文（含「当前对话优先」与截断说明）、技能清单
+  - 新命令 `/memory`（查看 / `rm <n>` / `clear`）、`/remember <事实>`、`/skills`
+  - 新工具 `remember`：**任何模式都先 confirmation**，用户回 y 才写
+  - `--no-config`（远程、嵌入式）里 `/memory` `/remember` `/skills` 一并拒绝
+  - `%S` 新增 18 条（中文 + 英文；按语言政策不再加日文，`ja` 走回退到 `en`）
+- [x] `scripts/agent_harness.py`：两个测试共用的假端点 + `--rpc` 驱动（含取 system prompt / tool_result）
+- [x] `scripts/test-memory.py` **34 项**、`scripts/test-skill.py` **19 项**，都已进 CI
+- [x] 文档：`user_manual.md` §6（记忆与技能）、§8 数据位置表、§3 命令表；
+  `design_doc_advisor.md` §4.7；两份 README 的功能与限制
+- [ ] 真机验收（用户）：记忆在重启后仍生效；放一个真技能（比如备份流程）让模型按它做一遍

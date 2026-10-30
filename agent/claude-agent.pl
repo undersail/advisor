@@ -129,6 +129,9 @@ if ($LANGCODE ne 'ja' && $LANGCODE ne 'en' && $LANGCODE ne 'zh') {
 #   { ja => .., en => .., zh => .. } … 中国語を足した形式
 # %s プレースホルダは sprintf で埋める(L(key, arg1, arg2...))。
 # 引数の順序と個数は全言語で揃えること(ずれると表示が壊れる)。
+# 长期记忆注入上限（字符）。超过就截断并在注入里说明 —— 别把 token 白烧掉。
+my $MEMORY_MAX_CHARS = 2000;
+
 my %S = (
     need_key             => {
         ja => "%s を設定してください\n",
@@ -887,6 +890,86 @@ my %S = (
         en => "Recent auto-approvals (%s):\n",
         zh => "最近的自动批准（%s）：\n",
     },
+    # ---- 长期记忆 / 技能（中文 + 英文；按项目语言政策不再新增日文，
+    #      ja 缺 key 时由 LANG_FALLBACK 落到 en） ----
+    memory_usage         => {
+        en => "Usage: /remember <fact>   save one durable fact\n"
+            . "       /memory            show what is remembered\n"
+            . "       /memory rm <n>     delete line n\n"
+            . "       /memory clear      delete everything\n",
+        zh => "用法：/remember <事实>  记下一条长期有效的事实\n"
+            . "      /memory          查看已记住的内容\n"
+            . "      /memory rm <n>   删除第 n 行\n"
+            . "      /memory clear    全部清空\n",
+    },
+    memory_empty         => {
+        en => "Long-term memory is empty (%s).\n",
+        zh => "长期记忆还是空的（%s）。\n",
+    },
+    memory_head          => {
+        en => "Long-term memory: %s（%d lines, %d characters）\n",
+        zh => "长期记忆：%s（%d 行，%d 字符）\n",
+    },
+    memory_cut           => {
+        en => "(the file is longer than the %d characters that get sent; only the first %d are shown)\n",
+        zh => "（文件超过注入上限 %d 字符，只送了前 %d 字符）\n",
+    },
+    memory_saved         => {
+        en => "Remembered: %s\n",
+        zh => "已记住：%s\n",
+    },
+    memory_full          => {
+        en => "Long-term memory is full (%d characters). Trim %s and try again.\n",
+        zh => "长期记忆已到上限（%d 字符）。请编辑 %s 删掉一些再试。\n",
+    },
+    memory_add_empty     => {
+        en => "Nothing to remember (the fact was empty).\n",
+        zh => "内容是空的，没有记下任何东西。\n",
+    },
+    memory_cannot_write  => {
+        en => "Could not write long-term memory: %s (%s)\n",
+        zh => "写不进长期记忆文件：%s（%s）\n",
+    },
+    memory_rm_usage      => {
+        en => "Usage: /memory rm <line number>  (numbering comes from /memory)\n",
+        zh => "用法：/memory rm <行号>（行号见 /memory）\n",
+    },
+    memory_rm_bad        => {
+        en => "Long-term memory has no line %s.\n",
+        zh => "长期记忆里没有第 %s 行。\n",
+    },
+    memory_rm_done       => {
+        en => "Deleted line %s: %s\n",
+        zh => "已删除第 %s 行：%s\n",
+    },
+    memory_cleared       => {
+        en => "Long-term memory cleared.\n",
+        zh => "长期记忆已清空。\n",
+    },
+    memory_clear_kept    => {
+        en => "Left long-term memory as it was.\n",
+        zh => "保留原样，没有清空。\n",
+    },
+    memory_clear_confirm => {
+        en => "Delete ALL long-term memory?",
+        zh => "确认清空全部长期记忆？",
+    },
+    confirm_remember     => {
+        en => "The model wants to remember this about you:\n  %s\nSave it to long-term memory?",
+        zh => "模型想记住关于你的一件事：\n  %s\n写进长期记忆？",
+    },
+    memory_save_cancelled => {
+        en => "Not saved to long-term memory.\n",
+        zh => "没有写进长期记忆。\n",
+    },
+    skills_head          => {
+        en => "Skills in %s (%d):\n",
+        zh => "技能目录 %s（共 %d 个）：\n",
+    },
+    skills_none          => {
+        en => "No skills yet. Drop one into %s（a directory containing SKILL.md, or a single .md file）。\n",
+        zh => "还没有技能。放一个到 %s 即可（一个包含 SKILL.md 的目录，或单个 .md 文件）。\n",
+    },
 );
 
 sub L {
@@ -1173,6 +1256,7 @@ sub print_help {
 
 对话中可用 /claude・/gemini 切换 AI（对话内容会保留）。
 /mode 查看或切换交互模式；/allow-write 管理可写目录；/approvals 看最近自动批准。
+/memory 查看长期记忆；/remember <事实> 记下一条；/skills 列出本机技能。
 /key <厂商> 配置某家厂商的 API 密钥（会话中唯一的密钥入口；密钥只在安装时或这里输入）。
 模型选择用 `advisor --select-model` / `advisor -m <ID>`（由 shell 包装脚本处理）。
 EOH
@@ -1213,6 +1297,7 @@ EOH
 
 会話中に /claude・/gemini でAIを切り替えられる(会話は引き継がれる)。
 /mode で対話モードの表示・切り替え、/allow-write で書き込み先の管理、/approvals で自動承認の履歴。
+/memory で長期記憶の表示、/remember <事実> で 1 件追加、/skills で本機のスキル一覧。
 /key <ベンダー> でそのベンダーの API キーを設定(会話中にキーを入れる唯一の入口)。
 モデルの選択は `advisor --select-model` / `advisor -m <ID>` (シェルラッパー側)。
 EOH
@@ -1762,6 +1847,37 @@ sub system_prompt {
     $note = $MODE_NOTE{'default'} unless defined $note;
     my $p = $SYSTEM_PROMPT;
     $p =~ s/__MODE_CONFIRM_NOTE__/$note/;
+
+    # 長期記憶（純ローカルファイル。中身はユーザーのもの、指示ではない）
+    my ($mem, $mem_total, $mem_cut) = read_memory();
+    if ($mem ne '') {
+        $p .= "\n# Long-term memory about this user\n"
+            . "The user keeps this file themselves (" . memory_path() . "). Treat it as\n"
+            . "context about them - preferences, facts, preferences they stated. Follow it,\n"
+            . "but the request in the CURRENT conversation always wins over it. Never quote\n"
+            . "it back unprompted. If something in it looks out of date, say so instead of\n"
+            . "silently trusting it.\n";
+        if ($mem_cut) {
+            $p .= "(only the first $MEMORY_MAX_CHARS characters are shown here; the file has $mem_total -\n"
+                . "tell the user it is getting long if that matters)\n";
+        }
+        $p .= "---\n$mem\n---\n";
+    }
+
+    # 技能は「名前 + 一行説明」だけ入れる。全文は要るときに read_file で読ませる
+    # （prompt を太らせない = 古い Mac でも安く速い）。
+    my @sk = skills_list();
+    if (@sk) {
+        $p .= "\n# Skills available on this machine\n"
+            . "Reusable procedures saved as plain files. Only names and one-line\n"
+            . "descriptions are listed here; when a task matches one, read the file with\n"
+            . "read_file first and then follow it. Do not list them to the user unless asked.\n";
+        for my $sk (@sk) {
+            $p .= "- " . $sk->{name} . ": " . $sk->{desc}
+                . (($sk->{desc} ne '') ? ' ' : '')
+                . "(read: " . $sk->{path} . ")\n";
+        }
+    }
     return $p;
 }
 
@@ -2795,6 +2911,19 @@ my @TOOLS = (
             required => ['command'],
         },
     },
+    {
+        name => 'remember',
+        description => 'Save one durable fact about the user into their long-term memory '
+                     . '(the user is asked to confirm before anything is written)',
+        input_schema => {
+            type => 'object',
+            properties => {
+                fact => { type => 'string',
+                          description => 'one sentence worth remembering across sessions' },
+            },
+            required => ['fact'],
+        },
+    },
 );
 
 # --tools= による絞り込み。ここは「減らす」方向にしか働かない —— 登録簿に無い
@@ -3527,6 +3656,219 @@ sub run_shell_capture {
 # ------------------------------------------------------------------
 sub approvals_path { return ($ENV{HOME} || '.') . '/.claude-agent/approvals.log'; }
 
+# ------------------------------------------------------------------
+# 長期記憶とスキル
+#   どちらも ~/.claude-agent/ 配下の素のテキスト。暗号化しない ——
+#   memory は毎ターン system prompt に載せるので、起動のたびに合言葉を
+#   訊くのは割に合わない。代わりに 0600 / 置き場所は ~/.claude-agent 配下
+#   （gitignore 済み）に限定し、README と手冊に「平文で置く」と明記する。
+# ------------------------------------------------------------------
+# 上限は冒頭の $MEMORY_MAX_CHARS（system_prompt からも見えるようにしている）
+
+sub memory_path {
+    my $e = $ENV{CLAUDE_MEMORY_FILE};
+    return $e if defined $e && $e ne '';
+    return ($ENV{HOME} || '.') . '/.claude-agent/memory.md';
+}
+
+sub skills_dir {
+    my $e = $ENV{CLAUDE_SKILLS_DIR};
+    return $e if defined $e && $e ne '';
+    return ($ENV{HOME} || '.') . '/.claude-agent/skills';
+}
+
+# 返り値: (注入する本文, 全長, 切ったか)
+sub read_memory {
+    my $path = memory_path();
+    return ('', 0, 0) unless -f $path;
+    open(my $fh, '<:encoding(UTF-8)', $path) or return ('', 0, 0);
+    local $/;
+    my $raw = <$fh>;
+    close $fh;
+    $raw = '' unless defined $raw;
+    $raw =~ s/\r\n/\n/g;
+    $raw =~ s/\s+$//;
+    my $total = length($raw);
+    return ('', 0, 0) if $total == 0;
+    if ($total > $MEMORY_MAX_CHARS) {
+        my $cut = substr($raw, 0, $MEMORY_MAX_CHARS);
+        $cut =~ s/\n[^\n]*$//;    # 行の途中で切らない
+        $cut = $raw =~ /\n/ ? $cut : substr($raw, 0, $MEMORY_MAX_CHARS);
+        return ($cut, $total, 1);
+    }
+    return ($raw, $total, 0);
+}
+
+# 素の本文（注入用の切り詰めなし）。行単位の操作はこちら。
+sub read_memory_raw {
+    my $path = memory_path();
+    return '' unless -f $path;
+    open(my $fh, '<:encoding(UTF-8)', $path) or return '';
+    local $/;
+    my $raw = <$fh>;
+    close $fh;
+    $raw = '' unless defined $raw;
+    $raw =~ s/\r\n/\n/g;
+    return $raw;
+}
+
+sub today_stamp {
+    my @t = localtime;
+    return sprintf('%04d-%02d-%02d', $t[5] + 1900, $t[4] + 1, $t[3]);
+}
+
+# 一行足す。返り値: (成功したか, 画面に出す文言)
+sub memory_add {
+    my ($fact) = @_;
+    $fact = '' unless defined $fact;
+    $fact =~ s/\s+/ /g;
+    $fact =~ s/^\s+//; $fact =~ s/\s+$//;
+    $fact =~ s/^[-*]\s*//;
+    return (0, L('memory_add_empty')) if $fact eq '';
+
+    my $path = memory_path();
+    my $dir  = $path;
+    $dir =~ s{/[^/]+$}{};
+    if ($dir ne '' && !-d $dir) {
+        mkdir $dir or return (0, L('memory_cannot_write', $dir, $!));
+        chmod 0700, $dir;
+    }
+
+    my $raw = read_memory_raw();
+    my $line = '- ' . $fact . '（' . today_stamp() . "）\n";
+    my $base = $raw;
+    $base =~ s/\s+$//;
+    my $new = ($base eq '') ? $line : $base . "\n" . $line;
+    if (length($new) > $MEMORY_MAX_CHARS) {
+        return (0, L('memory_full', $MEMORY_MAX_CHARS, $path));
+    }
+    open(my $out, '>:encoding(UTF-8)', $path) or return (0, L('memory_cannot_write', $path, $!));
+    print $out $new;
+    close $out;
+    chmod 0600, $path;
+    return (1, L('memory_saved', $fact));
+}
+
+sub memory_clear {
+    my $path = memory_path();
+    open(my $out, '>:encoding(UTF-8)', $path) or return L('memory_cannot_write', $path, $!);
+    close $out;
+    chmod 0600, $path;
+    return L('memory_cleared');
+}
+
+sub memory_remove_line {
+    my ($n) = @_;
+    my $raw = read_memory_raw();
+    my @lines = split(/\n/, $raw, -1);
+    pop @lines while @lines && $lines[-1] eq '';
+    if ($n < 1 || $n > scalar(@lines)) {
+        return L('memory_rm_bad', $n);
+    }
+    my $gone = $lines[$n - 1];
+    splice(@lines, $n - 1, 1);
+    my $path = memory_path();
+    my $body = @lines ? join("\n", @lines) . "\n" : '';
+    open(my $out, '>:encoding(UTF-8)', $path) or return L('memory_cannot_write', $path, $!);
+    print $out $body;
+    close $out;
+    chmod 0600, $path;
+    return L('memory_rm_done', $n, $gone);
+}
+
+sub print_memory {
+    my $path = memory_path();
+    my $raw  = read_memory_raw();
+    my @lines = grep { length } split(/\n/, $raw);
+    if (!@lines) {
+        emit_note(L('memory_empty', $path));
+        emit_note(L('memory_usage'));
+        return;
+    }
+    emit_note(L('memory_head', $path, scalar(@lines), length($raw)));
+    my $i = 0;
+    for my $l (@lines) {
+        $i++;
+        emit_note(sprintf("%2d. %s\n", $i, $l));
+    }
+    if (length($raw) > $MEMORY_MAX_CHARS) {
+        emit_note(L('memory_cut', $MEMORY_MAX_CHARS, $MEMORY_MAX_CHARS));
+    }
+}
+
+# 技能 1 件を {name, desc, path} に。説明は frontmatter の description、
+# 無ければ最初の見出し、それも無ければ最初の非空行。
+sub skill_entry {
+    my ($name, $path) = @_;
+    my $desc = '';
+    if (open(my $fh, '<:encoding(UTF-8)', $path)) {
+        my @lines;
+        while (my $l = <$fh>) {
+            $l =~ s/\r?\n$//;
+            push @lines, $l;
+        }
+        close $fh;
+        my $in_fm = 0;
+        for my $i (0 .. $#lines) {
+            my $l = $lines[$i];
+            if ($i == 0 && $l =~ /^---\s*$/) { $in_fm = 1; next; }
+            if ($in_fm) {
+                last if $l =~ /^---\s*$/;
+                if ($l =~ /^description\s*:\s*(.+?)\s*$/) { $desc = $1; last; }
+                next;
+            }
+        }
+        if ($desc eq '') {
+            for my $l (@lines) {
+                next if $l =~ /^\s*$/;
+                next if $l =~ /^---\s*$/;
+                if ($l =~ /^#+\s*(.+?)\s*$/) { $desc = $1; last; }
+                $desc = $l if $desc eq '';
+            }
+        }
+    }
+    $desc =~ s/^["']//;
+    $desc =~ s/["']$//;
+    $desc =~ s/\s+/ /g;
+    $desc =~ s/^\s+//; $desc =~ s/\s+$//;
+    $desc = substr($desc, 0, 80) . '…' if length($desc) > 80;
+    return { name => $name, desc => $desc, path => $path };
+}
+
+# skills/ を走査。`<名前>/SKILL.md` と `<名前>.md` の両方を受ける。
+sub skills_list {
+    my $dir = skills_dir();
+    my @out;
+    opendir(my $dh, $dir) or return @out;
+    my @entries = sort grep { $_ ne '.' && $_ ne '..' } readdir($dh);
+    closedir $dh;
+    for my $e (@entries) {
+        if (-d "$dir/$e") {
+            my $p = "$dir/$e/SKILL.md";
+            push @out, skill_entry($e, $p) if -f $p;
+        }
+        elsif ($e =~ /\.md$/i && -f "$dir/$e") {
+            (my $name = $e) =~ s/\.md$//i;
+            push @out, skill_entry($name, "$dir/$e");
+        }
+    }
+    return @out;
+}
+
+sub print_skills {
+    my $dir = skills_dir();
+    my @sk = skills_list();
+    unless (@sk) {
+        emit_note(L('skills_none', $dir));
+        return;
+    }
+    emit_note(L('skills_head', $dir, scalar(@sk)));
+    for my $sk (@sk) {
+        emit_note('- ' . $sk->{name} . ($sk->{desc} ne '' ? '：' . $sk->{desc} : '')
+                  . "\n  " . $sk->{path} . "\n");
+    }
+}
+
 sub approvals_log {
     my ($tool, $target, $result) = @_;
     my $path = approvals_path();
@@ -3648,6 +3990,18 @@ sub run_tool {
         }
     }
 
+    if ($name eq 'remember') {
+        # 長期記憶はどのモードでも必ず人に確認する（bypass でも例外にしない）。
+        # 記憶は書いた後ずっと効くので、確認を飛ばすと事故が残り続ける。
+        my $fact = (ref $input eq 'HASH' && defined $input->{fact}) ? $input->{fact} : '';
+        unless (confirm(L('confirm_remember', substr($fact, 0, 200)), { strict => 1 })) {
+            approvals_log('remember', substr($fact, 0, 60), 'refused');
+            return L('memory_save_cancelled');
+        }
+        my ($ok, $msg) = memory_add($fact);
+        approvals_log('remember', substr($fact, 0, 60), $ok ? 'saved' : 'refused');
+        return $msg;
+    }
     if ($name eq 'read_file') {
         my $path = $input->{path};
         open(my $fh, '<:encoding(UTF-8)', $path) or return L('cannot_open_read', $path, $!);
@@ -3963,7 +4317,8 @@ sub handle_turn {
     # 制限付きセッションでは設定系コマンドを受け付けない（对话は通す）。
     if ($NO_CONFIG) {
         my $pcmd = ($input =~ m{^/([a-z][a-z0-9_]*)\s*$}) ? provider_from_command($1) : '';
-        if ($pcmd ne '' || $input =~ m{^/(?:model|models|mode|allow-write|key)\b}) {
+        if ($pcmd ne ''
+            || $input =~ m{^/(?:model|models|mode|allow-write|key|memory|remember|skills)\b}) {
             # 受限会话（远程/嵌入式）里这是一句"给对面看的回答"，不是本地提示，
             # 所以走 text 事件：网关与平台只把 text / error 当回复带走。
             if ($GUI) { gui_send({ t => 'text', text => L('config_locked') }); }
@@ -3982,6 +4337,42 @@ sub handle_turn {
         $a =~ s/^\s+//; $a =~ s/\s+$//;
         if ($a =~ /^(yes|はい|是)$/i) { apply_mode($want); }
         else { emit_note(L('mode_bypass_cancelled')); }
+        return;
+    }
+
+    # /memory・/remember・/skills も同じくここで完結（モデルに渡さない）。
+    if ($input =~ m{^/memory\s*$}) {
+        print_memory();
+        return;
+    }
+    if ($input =~ m{^/memory\s+clear\s*$}) {
+        if (confirm(L('memory_clear_confirm'), { strict => 1 })) {
+            emit_note(memory_clear());
+        } else {
+            emit_note(L('memory_clear_kept'));
+        }
+        return;
+    }
+    if ($input =~ m{^/memory\s+rm\s+(\d+)\s*$}) {
+        emit_note(memory_remove_line($1));
+        return;
+    }
+    if ($input =~ m{^/memory\s+(.+?)\s*$}) {
+        emit_note(L('memory_usage'));
+        return;
+    }
+    if ($input =~ m{^/remember\s+(.+?)\s*$}) {
+        my ($ok, $msg) = memory_add($1);
+        emit_note($msg);
+        approvals_log('remember', substr($1, 0, 60), $ok ? 'saved' : 'refused');
+        return;
+    }
+    if ($input =~ m{^/remember\s*$}) {
+        emit_note(L('memory_usage'));
+        return;
+    }
+    if ($input =~ m{^/skills\s*$}) {
+        print_skills();
         return;
     }
 

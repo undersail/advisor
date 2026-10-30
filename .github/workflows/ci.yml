@@ -274,6 +274,16 @@ jobs:
           # 这条以前只在本地手工跑，等于没有防线：别名被删/改坏没人会发现。
           python3 scripts/audit-commands.py
 
+      - name: 长期记忆（写入要确认 / 注入 system prompt / 上限与截断 / 受限会话拒绝）
+        run: |
+          set -o pipefail
+          python3 scripts/test-memory.py
+
+      - name: 技能目录（只注入名字+描述，正文按需 read_file）
+        run: |
+          set -o pipefail
+          python3 scripts/test-skill.py
+
       - name: 密钥策略（只在安装时输入，会话中不索要）
         run: |
           set -o pipefail

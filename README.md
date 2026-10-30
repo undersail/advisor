@@ -23,6 +23,9 @@ English: [README.en.md](README.en.md) ｜ 完整说明：[docs/user_manual.md](d
   **危险命令即使在 `bypass` 也会问**，没人应答按拒绝处理。可写范围默认只有当前目录和
   临时目录，`~/.ssh`、`~/.claude-agent` 这类目录即使显式加入也拒绝。
 - **对话历史加密保存在本地** —— 口令 + 可选密保问题；`--no-history` 可以整场不落盘。
+- **记得住你，也学得会套路** —— 长期事实写在 `~/.claude-agent/memory.md`（明文 0600，
+  `/remember` 记一条、`/memory` 增删看）；把「这类任务先做什么」写成 Markdown 放进
+  `~/.claude-agent/skills/`，模型只看到名字和一行描述，用得上时才去读全文。
 - **从手机派活（可选）** —— 企业微信「智能机器人 · 长连接」只要 BotID + Secret，
   不需要公网域名、不需要云账号；权限在 Mac 上启动时定档，需要确认的操作发到手机上回 `y`/`n`。
   飞书走回调模式（需要你自己的公网可达地址）。
@@ -104,6 +107,8 @@ GUI 里页眉有 `[ 对话 ] [ 命令 ]` 两个标签、`[ 切换 AI ]`、`[ 继
 |---|---|
 | 厂商与密钥 | `~/.claude-agent-env`（权限 0600，**必须归当前用户所有**） |
 | 对话历史（加密） | `~/.claude-agent/history/` |
+| 长期记忆（**明文**） | `~/.claude-agent/memory.md` |
+| 技能 | `~/.claude-agent/skills/` |
 | 远程白名单 / 通知 | `~/.claude-agent/remote.conf` |
 | 企微长连接凭据 | `~/.claude-agent/wecom-ws.conf` |
 | 远程审计日志（只追加） | `~/.claude-agent/audit.log` |
