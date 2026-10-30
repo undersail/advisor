@@ -30,6 +30,7 @@ import tkinter as tk
 import webbrowser
 from tkinter import font as tkfont
 from tkinter import messagebox
+from tkinter import simpledialog
 from tkinter import ttk
 
 # 本文の左インセット(px)。ノート左の赤い縦罫(大学ノートの余白線)の
@@ -449,6 +450,40 @@ _S = {
     },
     # ---- 远程接入（企业微信 長接続 / 长连接）----
     "menu_tools": {"ja": "ツール", "en": "Tools", "zh": "工具"},
+    "menu_session": {"ja": "セッション", "en": "Session", "zh": "会话"},
+    "menu_session_continue": {
+        "ja": "前回の続きから再開", "en": "Continue latest conversation",
+        "zh": "接着上次的对话"},
+    "menu_session_continue_named": {
+        "ja": "名前を指定して再開…", "en": "Continue a named conversation…",
+        "zh": "接着指定的对话…"},
+    "menu_session_list": {
+        "ja": "保存済みの一覧", "en": "List saved conversations",
+        "zh": "列出现有对话"},
+    "menu_session_name": {
+        "ja": "この会話に名前を付ける…", "en": "Name this conversation…",
+        "zh": "给本会话起名…"},
+    "menu_session_search": {
+        "ja": "保存済みを検索…", "en": "Search saved conversations…",
+        "zh": "搜索历史…"},
+    "session_continue_note": {
+        "ja": "\n--- %s（前回の会話を読み込んで再開しました。上の表示は再現しません）---\n",
+        "en": "\n--- %s (previous conversation loaded; earlier text is not replayed) ---\n",
+        "zh": "\n--- %s（已载入上一场对话；上面的内容不会重放）---\n"},
+    "session_continue_none_note": {
+        "ja": "\n--- %s（続けられる会話が見つからず、新しい会話で始まります）---\n",
+        "en": "\n--- %s (nothing to continue; starting a new conversation) ---\n",
+        "zh": "\n--- %s（没有可接着的对话，这次是新会话）---\n"},
+    "session_ask_name_title": {
+        "ja": "この会話の名前", "en": "Name for this conversation",
+        "zh": "给这场会话起个名字"},
+    "session_ask_continue_title": {
+        "ja": "続ける会話の名前（保存済みの一覧は「保存済みの一覧」で確認）",
+        "en": "Name of the conversation to continue",
+        "zh": "要接着哪一场（名字；可用「列出现有对话」查看）"},
+    "session_ask_search_title": {
+        "ja": "検索する語", "en": "Word to search",
+        "zh": "要搜索的词"},
     "remote_menu": {"ja": "リモート接続…", "en": "Remote Access…", "zh": "远程接入…"},
     "remote_title": {"ja": "リモート接続（企業微信・長接続）",
                      "en": "Remote Access (WeCom · long connection)",
@@ -1240,6 +1275,9 @@ class AdvisorGUI:
 
         self.events = queue.Queue()
         self.proc = None
+        # バックエンド起動時に足す引数（--continue など）。セッションの続きは
+        # 「起動時の引数」で決まるので、切り替え＝再起動になる。
+        self._extra_args = []
         self.busy = False
         self.pane = "chat"                      # "chat" / "cmd"
         self.cwd = os.path.expanduser("~")      # コマンドパネルの現在地
@@ -1431,6 +1469,23 @@ class AdvisorGUI:
         edit_menu.add_separator()
         edit_menu.add_command(label=L("menu_select_all"), accelerator="Cmd-A",
                                command=self._menu_select_all)
+
+        # セッション：保存済みの会話を続ける／名前を付ける／検索する。
+        # 手で --continue などを打たなくても使えるようにするための入口。
+        session_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label=L("menu_session"), menu=session_menu)
+        self.session_menu = session_menu   # テストが中身を内省できるように保持する
+        session_menu.add_command(label=L("menu_session_continue"),
+                                 command=self._session_continue_last)
+        session_menu.add_command(label=L("menu_session_continue_named"),
+                                 command=self._session_continue_named)
+        session_menu.add_command(label=L("menu_session_list"),
+                                 command=lambda: self._session_cmd("/history"))
+        session_menu.add_separator()
+        session_menu.add_command(label=L("menu_session_name"),
+                                 command=self._session_name)
+        session_menu.add_command(label=L("menu_session_search"),
+                                 command=self._session_search)
 
         # ツール：リモート接続の設定（キーの登録と同じく、GUIから完結させる）
         tools_menu = tk.Menu(menubar, tearoff=0)
@@ -2251,6 +2306,8 @@ class AdvisorGUI:
     # ---------- バックエンド ----------
     def _start_backend(self):
         cmd, env = build_backend_command_and_env()
+        if cmd is not None and self._extra_args:
+            cmd = list(cmd) + list(self._extra_args)
         if cmd is None:
             messagebox.showerror(L("cannot_start_title"),
                                   L("cannot_start_body", err="claude-agent.pl"))
@@ -2954,6 +3011,62 @@ class AdvisorGUI:
         self._set_busy(True)
         self.status_var.set(L("querying_status"))
         self._write({"t": "user", "text": text})
+
+    # ---------- セッション（履歴の続き・名前・検索） ----------
+    def _session_cmd(self, text):
+        """`/history` などを 1 ターンとして送る（ローカルで完結するコマンド）。"""
+        if not (self.proc and self.proc.poll() is None):
+            return
+        self._append(text, "you")
+        self._set_busy(True)
+        self.status_var.set(L("querying_status"))
+        self._write({"t": "user", "text": text})
+
+    def _session_name(self):
+        nm = simpledialog.askstring(L("menu_session_name"),
+                                    L("session_ask_name_title"), parent=self.root)
+        if nm and nm.strip():
+            self._session_cmd("/name " + nm.strip())
+
+    def _session_search(self):
+        w = simpledialog.askstring(L("menu_session_search"),
+                                   L("session_ask_search_title"), parent=self.root)
+        if w and w.strip():
+            self._session_cmd("/search " + w.strip())
+
+    def _session_continue_last(self):
+        self._session_restart(["--continue"], L("session_continue_note"))
+
+    def _session_continue_named(self):
+        nm = simpledialog.askstring(L("menu_session_continue_named"),
+                                    L("session_ask_continue_title"), parent=self.root)
+        if nm is None:
+            return
+        nm = nm.strip()
+        if not nm:
+            return
+        self._session_restart(["--continue=" + nm], L("session_continue_note"))
+
+    def _session_restart(self, extra, note_fmt):
+        """バックエンドを止めて、指定の引数で起動し直す（＝会話を切り替える）。"""
+        label = extra[0].split("=", 1)[-1] if extra else ""
+        try:
+            self._write({"t": "quit"})
+        except Exception:
+            pass
+        try:
+            if self.proc and self.proc.poll() is None:
+                self.proc.terminate()
+                try:
+                    self.proc.wait(timeout=5)
+                except Exception:
+                    self.proc.kill()
+        except Exception:
+            pass
+        self._extra_args = list(extra)
+        # 前の表示はそのまま残す（消すと「今までの話はどこ？」と感じる）。
+        self._append(note_fmt % label, "dim")
+        self._start_backend()
 
     def _on_close(self):
         try:

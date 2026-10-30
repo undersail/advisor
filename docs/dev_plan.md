@@ -43,7 +43,7 @@
 | CI | `ci.yml` **3 个 job（gates 19 / core 10 / io 12 步，共 41 步）× 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
-| 文案/注册表 | Perl `%S` 147 · GUI `_S` 102 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
+| 文案/注册表 | Perl `%S` 147 · GUI `_S` 113 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
 | 泄漏 | 70 个已跟踪文件 + 未跟踪文件 + 全历史，0 命中 |
 
 审计记录：`docs/audits/audit_advisor_v0.2.1.md`（v0.2.1 快照）、`docs/audits/audit_advisor_v0.2.1_r2.md`（之后的第二轮）。
@@ -86,8 +86,8 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **178**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
-| `gui/advisor_gui.py` → `_S` | **102** | 同上，`L()` 里 `ja, en = _S[key]` |
+| `agent/claude-agent.pl` → `my %S` | **183**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `gui/advisor_gui.py` → `_S` | **113** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|<各语言标签>|English label` |
 | 文档 | README.md(中文，默认) / README.en.md / release/ReadMe_ZH.txt / ReadMe_EN.txt | 中文为主、英文为辅 |
@@ -146,7 +146,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 补中文（现 178 条，随功能增长）
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 183 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 65 条）
@@ -631,3 +631,16 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 - [x] `%S` 172 → **178**（新增 6 条）
 - [x] 测试：新增 `scripts/test-session-continue.py` **21 项**；`test-gateway-write` 42 → **52 项**
 - [ ] 真机验收（用户）：`--continue` 直接接上；`--search 中文` 不乱码；手机重启服务后仍接着上一场
+
+## 16. 会话内命令与 GUI 入口（v0.2.5）
+
+- [x] `/name <名字>`：改名并**立刻落盘**（不等本轮结束），下次 `--continue 名字` 能接上
+- [x] `/history`：列出已保存的对话（复用 `history_lines()`，与 `--list-history` 同一实现）
+- [x] `/search <词>`：全文搜索（复用 `search_history_lines()`，与 `--search` 同一实现）
+- [x] 三条命令在 `--no-config`（手机远程）里一律拒绝，文案与 `/mode` `/key` 一致
+- [x] GUI 菜单 **会话**：接着上次 / 接着指定 / 列出现有对话 / 起名 / 搜索；
+      前两个 = 带 `--continue` 重启后端，并明确提示「上面内容不重放」
+- [x] `%S` 183 → **184**（新增 6 条）；GUI `_S` 113 → **113**
+- [x] 测试：`test-session-continue` 21 → **31 项**（含受限会话拒绝）；`test-gui-modes` 25 → **35 项**
+      （菜单五项齐全、`--continue` 真的进了后端命令行、起名走普通一轮输入）
+- [ ] 真机验收（用户）：GUI「会话 → 接着上次」后能接上；菜单里没有需要手敲参数的地方

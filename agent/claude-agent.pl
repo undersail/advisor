@@ -980,6 +980,31 @@ my %S = (
         en => "Skills in %s (%d):\n",
         zh => "技能目录 %s（共 %d 个）：\n",
     },
+    name_usage           => {
+        ja => "使い方: /name <名前>（現在の名前: %s）\n",
+        en => "Usage: /name <name>  (current: %s)\n",
+        zh => "用法：/name <名字>（现在的名字：%s）\n",
+    },
+    name_current_none    => {
+        ja => "なし",
+        en => "none",
+        zh => "没有",
+    },
+    name_set             => {
+        ja => "この会話の名前を「%s」にしました（--continue %s で続けられます）。\n",
+        en => "Named this conversation \"%s\". Resume it with --continue %s.\n",
+        zh => "这场对话的名字改成了「%s」（以后用 --continue %s 接着它）。\n",
+    },
+    search_usage         => {
+        ja => "使い方: /search <語>（保存済みの会話を全文検索）\n",
+        en => "Usage: /search <word>  (full-text search over saved conversations)\n",
+        zh => "用法：/search <词>（在已保存的对话里全文搜索）\n",
+    },
+    history_hint_continue => {
+        ja => "（続けるときは --continue、または --continue <名前>）\n",
+        en => "(To pick up a conversation: --continue, or --continue <name>)\n",
+        zh => "（要接着哪一场：--continue，或 --continue <名字>）\n",
+    },
     continue_loaded      => {
         ja => "直前の会話（%s%d 件）を続けます。\n",
         en => "Continuing the previous conversation (%s%d messages).\n",
@@ -1349,6 +1374,7 @@ sub print_help {
 对话中可用 /claude・/gemini 切换 AI（对话内容会保留）。
 /mode 查看或切换交互模式；/allow-write 管理可写目录；/approvals 看最近自动批准。
 /memory 查看长期记忆；/remember <事实> 记下一条；/skills 列出本机技能。
+/name <名字> 给这场对话起名；/history 列出已保存的对话；/search <词> 在历史里全文搜索。
 /key <厂商> 配置某家厂商的 API 密钥（会话中唯一的密钥入口；密钥只在安装时或这里输入）。
 模型选择用 `advisor --select-model` / `advisor -m <ID>`（由 shell 包装脚本处理）。
 EOH
@@ -1395,6 +1421,7 @@ EOH
 会話中に /claude・/gemini でAIを切り替えられる(会話は引き継がれる)。
 /mode で対話モードの表示・切り替え、/allow-write で書き込み先の管理、/approvals で自動承認の履歴。
 /memory で長期記憶の表示、/remember <事実> で 1 件追加、/skills で本機のスキル一覧。
+/name <名前> でこの会話に名前、/history で保存済み会話の一覧、/search <語> で全文検索。
 /key <ベンダー> でそのベンダーの API キーを設定(会話中にキーを入れる唯一の入口)。
 モデルの選択は `advisor --select-model` / `advisor -m <ID>` (シェルラッパー側)。
 EOH
@@ -2951,6 +2978,67 @@ sub save_history {
     chmod 0600, $SESSION_FILE;
 }
 
+# 保存済みの会話を 1 行ずつ組み立てる（--list-history と /history で共用）。
+# 戻り値: (行の配列, 復号できなかった件数)
+sub history_lines {
+    my @lines;
+    my $undecryptable = 0;
+    my $i = 1;
+    for my $f (history_files()) {
+        my $raw = hist_decrypt("$HISTORY_DIR/$f");
+        my $line = L('cannot_decrypt');
+        $undecryptable++ unless defined $raw;
+        if (defined $raw) {
+            my $d = eval { MiniJSON::decode($raw) };
+            if ($d) {
+                my $nm = (defined $d->{name} && $d->{name} ne '')
+                    ? '[' . $d->{name} . '] ' : '';
+                $line = $nm . ($d->{started} || $f) . '  ' . first_user_line($d);
+            }
+            else { $line = L('corrupted'); }
+        }
+        push @lines, sprintf("  %2d) %s", $i++, $line);
+    }
+    return (\@lines, $undecryptable);
+}
+
+# 保存済みの会話を全文検索する（--search と /search で共用）。
+# 戻り値: (表示行の配列, ヒットした会話数, 復号できなかった件数)
+sub search_history_lines {
+    my ($word) = @_;
+    my @out;
+    my $hits = 0;
+    my $skipped = 0;
+    my $needle = lc $word;
+    for my $f (history_files()) {
+        my $raw = hist_decrypt("$HISTORY_DIR/$f");
+        if (!defined $raw) { $skipped++; next; }
+        my $d = eval { MiniJSON::decode($raw) };
+        next unless $d;
+        my @lines;
+        for my $m (@{ $d->{messages} || [] }) {
+            my $c = ref($m->{content}) ? '' : ($m->{content} // '');
+            next if $c eq '';
+            my $pos = index(lc $c, $needle);
+            next if $pos < 0;
+            # 命中位置の前後を文字単位で切り出す（バイトで切ると中国語が壊れる）
+            my $from = $pos - 40 > 0 ? $pos - 40 : 0;
+            my $frag = substr($c, $from, length($word) + 80);
+            $frag = '…' . $frag if $from > 0;
+            $frag .= '…' if $from + length($word) + 80 < length($c);
+            $frag =~ s/\s+/ /g;
+            push @lines, sprintf("      %s: %s", ($m->{role} || '?'), $frag);
+        }
+        next unless @lines;
+        $hits++;
+        my $nm = (defined $d->{name} && $d->{name} ne '') ? '[' . $d->{name} . '] ' : '';
+        push @out, sprintf("  %s%s  %s", $nm, ($d->{started} || $f), first_user_line($d));
+        push @out, @lines;
+        last if $hits >= 20;
+    }
+    return (\@out, $hits, $skipped);
+}
+
 # 保存済みの会話ファイル(新しい順。ファイル名先頭がタイムスタンプ)
 sub history_files {
     opendir(my $dh, $HISTORY_DIR) or return ();
@@ -4332,23 +4420,8 @@ if ($LIST_HISTORY) {
     unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
     my @files = history_files();
     unless (@files) { print L('no_saved_conv'); exit 0; }
-    my $i = 1;
-    my $undecryptable = 0;
-    for my $f (@files) {
-        my $raw = hist_decrypt("$HISTORY_DIR/$f");
-        my $line = L('cannot_decrypt');
-        $undecryptable++ unless defined $raw;
-        if (defined $raw) {
-            my $d = eval { MiniJSON::decode($raw) };
-            if ($d) {
-                my $nm = (defined $d->{name} && $d->{name} ne '')
-                    ? '[' . $d->{name} . '] ' : '';
-                $line = $nm . ($d->{started} || $f) . '  ' . first_user_line($d);
-            }
-            else { $line = L('corrupted'); }
-        }
-        printf "  %2d) %s\n", $i++, $line;
-    }
+    my ($lines, $undecryptable) = history_lines();
+    print "$_\n" for @$lines;
     # 平文運用なのに暗号化履歴が残っている場合、その開き方を 1 行だけ添える
     print L('hist_skip_enc', $undecryptable) if $HIST_PLAIN && $undecryptable > 0;
     exit 0;
@@ -4388,36 +4461,9 @@ if ($CONTINUE && !$RESUME) {
 # --- --search: 保存済みの会話を全文検索して終了 ---
 if ($SEARCH ne '') {
     unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
-    my $hits = 0;
-    my $skipped = 0;
-    my $needle = lc $SEARCH;
     print L('search_header', $SEARCH);
-    for my $f (history_files()) {
-        my $raw = hist_decrypt("$HISTORY_DIR/$f");
-        if (!defined $raw) { $skipped++; next; }
-        my $d = eval { MiniJSON::decode($raw) };
-        next unless $d;
-        my @lines;
-        for my $m (@{ $d->{messages} || [] }) {
-            my $c = ref($m->{content}) ? '' : ($m->{content} // '');
-            next if $c eq '';
-            my $pos = index(lc $c, $needle);
-            next if $pos < 0;
-            # 命中位置の前後を文字単位で切り出す（バイトで切ると中国語が壊れる）
-            my $from = $pos - 40 > 0 ? $pos - 40 : 0;
-            my $frag = substr($c, $from, length($SEARCH) + 80);
-            $frag = '…' . $frag if $from > 0;
-            $frag .= '…' if $from + length($SEARCH) + 80 < length($c);
-            $frag =~ s/\s+/ /g;
-            push @lines, sprintf("      %s: %s", ($m->{role} || '?'), $frag);
-        }
-        next unless @lines;
-        $hits++;
-        my $nm = (defined $d->{name} && $d->{name} ne '') ? '[' . $d->{name} . '] ' : '';
-        printf "  %s%s  %s\n", $nm, ($d->{started} || $f), first_user_line($d);
-        print "$_\n" for @lines;
-        last if $hits >= 20;
-    }
+    my ($lines, $hits, $skipped) = search_history_lines($SEARCH);
+    print "$_\n" for @$lines;
     print L('search_none', $SEARCH) if $hits == 0;
     print L('search_skipped', $skipped) if $skipped > 0;
     exit 0;
@@ -4596,7 +4642,7 @@ sub handle_turn {
     if ($NO_CONFIG) {
         my $pcmd = ($input =~ m{^/([a-z][a-z0-9_]*)\s*$}) ? provider_from_command($1) : '';
         if ($pcmd ne ''
-            || $input =~ m{^/(?:model|models|mode|allow-write|key|memory|remember|skills)\b}) {
+            || $input =~ m{^/(?:model|models|mode|allow-write|key|memory|remember|skills|name|history|search)\b}) {
             # 受限会话（远程/嵌入式）里这是一句"给对面看的回答"，不是本地提示，
             # 所以走 text 事件：网关与平台只把 text / error 当回复带走。
             if ($GUI) { gui_send({ t => 'text', text => L('config_locked') }); }
@@ -4651,6 +4697,47 @@ sub handle_turn {
     }
     if ($input =~ m{^/skills\s*$}) {
         print_skills();
+        return;
+    }
+
+    # /name・/history・/search も同じくここで完結（モデルに渡さない）。
+    if ($input =~ m{^/name\s*$}) {
+        emit_note(L('name_usage',
+                    ($SESSION_NAME ne '' ? $SESSION_NAME : L('name_current_none'))));
+        return;
+    }
+    if ($input =~ m{^/name\s+(.+?)\s*$}) {
+        my $nm = $1;
+        # ファイル名には使わないので、履歴 JSON にそのまま入る文字だけ軽く整える
+        $nm =~ s/[\r\n\t]+/ /g;
+        unless ($HISTORY_ENABLED) { emit_note(L('history_unavailable')); return; }
+        $SESSION_NAME = $nm;
+        save_history(\@messages) if @messages;   # 既存ファイルにも即座に反映（無ければ次の保存で）
+        approvals_log('name', substr($nm, 0, 60), 'set');
+        emit_note(L('name_set', $nm));
+        return;
+    }
+    if ($input =~ m{^/history\s*$}) {
+        unless ($HISTORY_ENABLED) { emit_note(L('history_unavailable')); return; }
+        my ($lines, $undecryptable) = history_lines();
+        if (!@$lines) { emit_note(L('no_saved_conv')); return; }
+        emit_note($_) for @$lines;
+        emit_note(L('hist_skip_enc', $undecryptable)) if $undecryptable > 0;
+        emit_note(L('history_hint_continue'));
+        return;
+    }
+    if ($input =~ m{^/search\s*$}) {
+        emit_note(L('search_usage'));
+        return;
+    }
+    if ($input =~ m{^/search\s+(.+?)\s*$}) {
+        unless ($HISTORY_ENABLED) { emit_note(L('history_unavailable')); return; }
+        my $word = $1;
+        my ($lines, $hits, $skipped) = search_history_lines($word);
+        emit_note(L('search_header', $word));
+        if ($hits == 0) { emit_note(L('search_none', $word)); }
+        else { emit_note($_) for @$lines; }
+        emit_note(L('search_skipped', $skipped)) if $skipped > 0;
         return;
     }
 

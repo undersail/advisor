@@ -26,7 +26,8 @@ English: [README.en.md](README.en.md) ｜ 完整说明：[docs/user_manual.md](d
 - **对话历史保存在本地，默认明文**（`0600`，目录 `0700`，启动不问口令）；
   想要加密就 `--encrypt-history`，用口令 + 可选密保问题保护；`--no-history` 可以整场不落盘。
 - **会话接续与找回**：`--continue` 直接接着最近一场（不弹菜单），`--name` 起名后
-  `--continue 名字` 按名接，`--search 关键词` 在历史里全文搜索。手机远程时同一发送者
+  `--continue 名字` 按名接，`--search 关键词` 在历史里全文搜索；会话内也能用 `/name`
+  `/history` `/search`，图形界面还有「会话」菜单（接着上次 / 起名 / 搜索），不用记参数。手机远程时同一发送者
   会自动接上自己上一场，服务重启也不丢。
 - **记得住你，也学得会套路** —— 长期事实写在 `~/.claude-agent/memory.md`（明文 0600，
   `/remember` 记一条、`/memory` 增删看）；把「这类任务先做什么」写成 Markdown 放进

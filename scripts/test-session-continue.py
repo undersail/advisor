@@ -125,6 +125,38 @@ def main():
         rc, out = run_cli(home, '--search')
         H.check(rc == 2 and '需要一个词' in out, '--search 不带词时退出码 2 并说明', 'rc=%d %s' % (rc, out[:160]))
 
+        # ---- C2) 会话内三条命令：/name /history /search（不用退出再敲参数）
+        a = H.Agent(home, base, extra_env={'CLAUDE_NO_HISTORY': '0'})
+        ev = a.turn('/name 我的实验')
+        blobs = ''.join(H.texts(ev))
+        H.check('我的实验' in blobs, '/name 报告改名成功', blobs[:200])
+        ev = a.turn('/history')
+        blobs = ''.join(H.texts(ev))
+        H.check('[我的实验]' in blobs, '/history 列出来的名字已更新', blobs[:300])
+        H.check('--continue' in blobs, '/history 顺带提示怎么接着（--continue）', blobs[:300])
+        ev = a.turn('/search 第一场')
+        blobs = ''.join(H.texts(ev))
+        H.check('搜索' in blobs and '第一场' in blobs, '/search 在会话内就能查', blobs[:300])
+        ev = a.turn('/search')
+        blobs = ''.join(H.texts(ev))
+        H.check('用法' in blobs, '/search 不带词时给用法', blobs[:200])
+        ev = a.turn('/name')
+        blobs = ''.join(H.texts(ev))
+        H.check('我的实验' in blobs and '用法' in blobs, '/name 不带名字时给用法并显示现在的名字', blobs[:200])
+        a.stop()
+        # /name 立刻落盘（不等这一轮结束）
+        hit = [f for f in files(hist)
+               if '我的实验' in io.open(os.path.join(hist, f), encoding='utf-8').read()]
+        H.check(bool(hit), '/name 之后名字已经在历史文件里', str(files(hist)))
+
+        # 受限会话（远程/嵌入式）：三条命令一律拒绝
+        r = H.Agent(home, base, extra_env={'CLAUDE_NO_HISTORY': '0'}, no_config=True)
+        for cmd, label in (('/name 远程起名', '/name'), ('/history', '/history'), ('/search x', '/search')):
+            ev = r.turn(cmd)
+            blobs = ''.join(H.texts(ev))
+            H.check('不能修改配置' in blobs, '受限会话里 %s 被拒绝' % label, blobs[:200])
+        r.stop()
+
         # ---- D) 加密历史：无口令时跳过并说明（不静默、也不崩）
         home2 = os.path.join(work, 'home2')
         hist2 = os.path.join(home2, '.claude-agent', 'history')

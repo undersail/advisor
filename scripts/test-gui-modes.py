@@ -11,6 +11,7 @@
 
 没有 DISPLAY 时跳过（macOS 无人值守跑不了这套，别让它变红）。
 """
+import io
 import os
 import shutil
 import sys
@@ -114,6 +115,8 @@ def main():
     # 起動まで含めると、鍵やモデルの状態次第で確認ダイアログに入り、
     # 無人実行ではそこで止まる）。
     if cls is not None:
+        # 本物は取っておく（[会话] のところで「--continue が後端に渡るか」を見たい）
+        cls._real_start_backend = cls._start_backend
         cls._start_backend = lambda self: None
         cls._write_show_marker = lambda self: None
     if cls is None:
@@ -253,6 +256,78 @@ def main():
         root.update()
         check(str(app.write_zone.cget('state')) in ('normal', 0),
               '后端 ready 后输入框恢复可用', app.write_zone.cget('state'))
+
+        print('[会话] 会话菜单：接续/起名/搜索的入口都在')
+        sm = getattr(app, 'session_menu', None)
+        check(sm is not None, '存在「会话」菜单')
+        labels = []
+        if sm is not None:
+            last = sm.index('end')
+            if last is not None:
+                for i in range(last + 1):
+                    try:
+                        labels.append(sm.entrycget(i, 'label'))
+                    except Exception:
+                        pass
+        check(len(labels) == 5, '五个入口（%s）' % labels)
+        check(any('接着上次' in x for x in labels), '有「接着上次」')
+        check(any('指定的对话' in x for x in labels), '有「接着指定的对话」')
+        check(any('列出现有对话' in x for x in labels), '有「列出现有对话」')
+        check(any('起名' in x for x in labels), '有「起名」')
+        check(any('搜索' in x for x in labels), '有「搜索」')
+
+        print('[会话] 接续＝重启后端并带上 --continue（不是假装切换）')
+        recorded = {}
+
+        class _FakePopen(object):
+            def __init__(self, cmd, **kw):
+                recorded['cmd'] = list(cmd)
+                self.stdout = io.StringIO('')
+                self.stderr = io.StringIO('')
+                self.stdin = io.StringIO('')
+                self.returncode = None
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                pass
+
+            def wait(self, timeout=None):
+                return 0
+
+            def kill(self):
+                pass
+
+        real_popen = G.subprocess.Popen
+        real_build = G.build_backend_command_and_env
+        try:
+            G.build_backend_command_and_env = lambda: (['perl', 'agent.pl'], {})
+            G.subprocess.Popen = _FakePopen
+            app._start_backend = lambda: G.AdvisorGUI._real_start_backend(app)
+            app._session_restart(['--continue=我的实验'], G.L('session_continue_note'))
+            app._start_backend = lambda: None
+            root.update()
+            cmd = recorded.get('cmd') or []
+            check('--continue=我的实验' in cmd, '重启时把 --continue 传给了后端（%s）' % cmd)
+            check(app._extra_args == ['--continue=我的实验'], '参数记在了 _extra_args 里')
+        finally:
+            G.subprocess.Popen = real_popen
+            G.build_backend_command_and_env = real_build
+
+        print('[会话] 起名/搜索走普通一轮输入（不给后端加协议）')
+        sent = []
+        app._write = lambda obj: sent.append(obj)
+        app._append = lambda *a, **k: None      # 画面输出与本次断言无关
+        app._set_busy = lambda *a, **k: None
+        try:
+            app.status_var.set('')
+        except Exception:
+            pass
+        app.proc = recorded_cmd_ok = type('P', (), {'poll': lambda self: None})()
+        app._session_cmd('/name 我的实验')
+        check(bool(sent) and sent[-1].get('text') == '/name 我的实验',
+              '起名命令被当作一轮输入发出（%s）' % (sent[-1] if sent else None))
 
         print('[主题] 换主题后徽标颜色仍然跟随')
         other = [k for k in G.THEMES if k != app.theme_name]

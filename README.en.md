@@ -32,7 +32,9 @@ Chinese: [README.md](README.md) ｜ Full guide: [docs/user_manual.md](docs/user_
   question, or `--no-history` to keep nothing on disk.
 - **Continue and search sessions**: `--continue` picks up the latest conversation without a
   menu, `--name` + `--continue <name>` resumes by name, and `--search <word>` greps saved
-  conversations. Over the phone gateway each sender resumes their own thread, even after a
+  conversations. The same three things are available in-session as `/name`, `/history` and
+  `/search`, and the GUI has a **Session** menu (continue / list / name / search) so no flags
+  are needed. Over the phone gateway each sender resumes their own thread, even after a
   service restart.
 - **It remembers you, and learns procedures** — durable facts live in
   `~/.claude-agent/memory.md` (plain text, mode 0600; `/remember` adds one, `/memory` shows and
