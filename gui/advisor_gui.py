@@ -37,7 +37,7 @@ from tkinter import ttk
 # 从它紧右边开始书写，因此取较小的值。
 EDGE = 10
 
-# ---------- 言語 ----------
+# ---------- 语言 ----------
 # 下载用户七成来自海外，因此双语/多语支持成为必需。
 # LANG 环境变量在双击启动 GUI 应用时可能为空
 # （因为不经过登录 shell），不可靠。因此直接读取 macOS 自身的
@@ -448,7 +448,7 @@ _S = {
         "it in, and we'll switch right over.",
         "zh": "{provider} 还没有登记 API 密钥。获取后粘贴进去，就会直接切换。",
     },
-    # ---- 远程接入（企业微信 長接続 / 长连接）----
+    # ---- 远程接入（企业微信 · 长连接）----
     "menu_tools": {"ja": "ツール", "en": "Tools", "zh": "工具"},
     "menu_session": {"ja": "セッション", "en": "Session", "zh": "会话"},
     "menu_session_continue": {
@@ -1673,7 +1673,7 @@ class AdvisorGUI:
         except Exception:
             pass
 
-    # ---------- 画面 ----------
+    # ---------- 界面 ----------
     def _build_ui(self):
         self.bar = tk.Frame(self.root)
         self.bar.pack(fill=tk.X)
@@ -1816,22 +1816,22 @@ class AdvisorGUI:
         self.note.bind(
             "<Configure>",
             lambda e: (self._relayout(e), self._request_draw_grid(self.note, "_grid_note")))
-        # トラックパッドの既定のスクロールは半端なpxで止まるため、罫線と
-        # 文字がその瞬間だけズレて見える。1行(=pitch)単位でしか止まら
-        # ないようにする。
+        # 触控板的默认滚动会停在半个像素上，导致分隔线与
+        # 文字在那一瞬间看起来错位。改成只以 1 行（=pitch）为
+        # 单位停留。
         self.note.bind("<MouseWheel>", self._on_note_wheel)
 
-        # ================= コマンドペイン =================
-        # 背景は黒地(端末風)でテーマに関係なく固定。文字色だけ
-        # _style_cmd_pane() でテーマに合わせて変える(ハッカーなら緑、
-        # それ以外は既定の配色)。ここでは初期値としてCBだけ使う。
+        # ================= 命令面板 ================= 
+        # 背景固定为黑底（终端风），与主题无关。文字色只由
+        # _style_cmd_pane() 按主题调整（黑客主题用绿，
+        # 其他用默认配色）。这里只把 CB 当初始值。
         self.CB = CB = "#0f1115"
-        CF = CIN = CERR = CDIM = CSUCCESS = "#d6d6d6"  # 後で _style_cmd_pane が上書きする
+        CF = CIN = CERR = CDIM = CSUCCESS = "#d6d6d6"  # 稍后由 _style_cmd_pane 覆盖
         self.cmd_pane = tk.Frame(self.pane_host, bg=CB)
         self.cmd_pane.place(relx=0, rely=0, relwidth=1, relheight=1)
-        # フォルダパスが深くなると長くなり、同じ行だと入力欄を圧迫して
-        # いたため、パス表示は独立した1行(上)にして、入力欄(下)は常に
-        # フル幅を使えるようにする。
+        # 目录路径深了会变长，放在同一行会挤压输入框，
+        # 所以路径显示单独占一行（上），输入框（下）始终
+        # 能用满整个宽度。
         self.cmd_row = tk.Frame(self.cmd_pane, bg=CB)
         self.cmd_row.pack(side=tk.BOTTOM, fill=tk.X)
         self.cmd_prompt = tk.Label(self.cmd_pane, textvariable=self.cmd_prompt_var,
@@ -1840,10 +1840,10 @@ class AdvisorGUI:
         self.cmd_stop_btn = tk.Button(self.cmd_row, text=L("stop_btn"), width=5,
                                       state=tk.DISABLED, command=self._cmd_stop)
         self.cmd_stop_btn.pack(side=tk.RIGHT, padx=(2, 8), pady=6)
-        # パス込みの長いコマンドが窮屈で見づらいとの指摘で、2行→3行に
-        # (あくまで1コマンドの表示領域で、複数行のスクリプトを書く欄
-        # ではないため、Returnは改行ではなく送信、Up/Downはカーソル移動
-        # ではなく履歴呼び出しのまま)。
+        # 带路径的长命令太挤、不好看，所以从 2 行改成 3 行
+        # （这只是单条命令的显示区域，不是写多行脚本的地方，
+        # 所以 Return 不是换行而是发送，Up/Down 不是移动光标
+        # 而是照旧调用历史）。
         self.cmd_entry = tk.Text(self.cmd_row, height=3, wrap=tk.CHAR, relief=tk.FLAT,
                                  bg="#1a1d22", fg=CF, insertbackground=CF,
                                  highlightthickness=0, padx=4, pady=2)
@@ -1852,7 +1852,7 @@ class AdvisorGUI:
         self.cmd_entry.bind("<Up>", self._cmd_hist_prev)
         self.cmd_entry.bind("<Down>", self._cmd_hist_next)
         self.cmd_entry.bind("<Control-c>", lambda e: (self._cmd_stop(), "break")[1])
-        self.cmd_hist = []          # コマンド履歴(このセッション限り)
+        self.cmd_hist = []          # 命令历史（仅本次会话）
         self.cmd_hist_idx = None
         self.cmid = cmid = tk.Frame(self.cmd_pane, bg=CB)
         cmid.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
@@ -1869,7 +1869,7 @@ class AdvisorGUI:
         self._cmd_refresh_prompt()
 
         self.pane = "chat"
-        self.chat_pane.tkraise()   # 起動直後は会話ペインを前面に
+        self.chat_pane.tkraise()   # 启动后先把对话面板放到前面
 
     def _show_pane(self, name):
         self.pane = name
@@ -1882,12 +1882,12 @@ class AdvisorGUI:
         self._style_tabs()
 
     def _style_tabs(self):
-        """ヘッダーのボタン全部(会話/コマンド のタブ + 見た目/AI切替/
-        続きから)を同じ調子にする。ノートモードは手書き風＋下線、
-        コーディング/ハッカーは枠を使わず「[ 項目 ]」の無骨な見た目に
-        統一する(以前の押しボタン風の枠は、ノートだけ枠が無いのが
-        不揃いだと指摘された)。タブだけ選択中を太字にする。
-        (全部 tk.Label なので activebackground 等 Button専用オプションは使えない)"""
+        """把头部所有按钮（对话/命令 标签页 + 外观/AI 切换/
+        从上次继续）统一成同一风格。笔记模式用手写风＋下划线，
+        编程/黑客不用边框，统一成「[ 项目 ]」这种朴素外观
+        （以前那种按钮式边框，被指出只有笔记没有边框，显得不齐）。
+        只把选中的标签页加粗。
+        （全部是 tk.Label，所以用不了 activebackground 等 Button 专用选项）"""
         t = THEMES[self.theme_name]
         paper = self.theme_name == "paper"
         active = getattr(self, "pane", "chat")
@@ -1895,23 +1895,23 @@ class AdvisorGUI:
         utils = ((self.hist_btn, L("hist_btn")), (self.switch_btn, L("switch_btn")),
                  (self.mode_btn, L("mode_btn")),
                  (self.theme_btn, theme_label(t) + " ▾"))
-        # 左右端を赤線に揃えたのはノート(縦線・罫線がある)向けの調整。
-        # コーディング/ハッカーは全面黒で赤線が無く、[ ]で幅も食うため、
-        # 同じ余白だと「続きから」が完全に隠れるほど窮屈だった。
-        # ノートのレイアウトは変えず、それ以外だけ余白を詰める。
+        # 左右两端与红线对齐是为笔记（有竖线、横线）做的调整。
+        # 编程/黑客是全黑且没有红线，[ ] 又占宽度，
+        # 用同样的留白会挤到「从上次继续」完全被遮住。
+        # 笔记的布局不动，只把其他模式的留白收紧。
         self.tab_chat.pack_configure(padx=(56 if paper else 4, 1))
         self.theme_btn.pack_configure(padx=(6, 56 if paper else 4))
-        # ボタン間の隙間・ボタン自身の内側余白も、コーディング/ハッカーは
-        # 詰める(フォントも1段階小さくする)。ノートは変えない。
+        # 按钮之间的间隙、按钮自身的内边距，在编程/黑客下也
+        # 收紧（字体也小一档）。笔记不改。
         gap = 6 if paper else 2
         self.model_lbl.pack_configure(padx=(10 if paper else 4))
         self.tab_cmd.pack_configure(padx=(1 if paper else gap))
         self.switch_btn.pack_configure(padx=gap)
         self.hist_btn.pack_configure(padx=gap)
-        # 非選択タブの色。dimは背景とのコントラストが低すぎて
-        # (テーマにより約2.8〜4.2:1)背景に溶け込み、選択中と区別しづらい
-        # との指摘があった。aiは各テーマで元々コントラストが高く
-        # (7.7〜11.8:1)、選択中(fg)ともきちんと色が違うので、これに変える。
+        # 未选中标签页的颜色。dim 与背景的对比度太低
+        # （按主题约 2.8〜4.2:1），会融进背景、难以与选中态区分，
+        # 收到过这样的反馈。ai 在各主题里本来就对比度高
+        # （7.7〜11.8:1），与选中态（fg）的颜色也明显不同，所以改用它。
         off_color = t["ai"]
 
         def deco(label):
@@ -1921,7 +1921,7 @@ class AdvisorGUI:
             on = (name == active) or (name == "chat" and active not in ("chat", "cmd"))
             if paper:
                 f = self.font
-                fs = max(9, f[1] - 1)   # 少し小さめにして幅を詰める
+                fs = max(9, f[1] - 1)   # 稍小一点以收窄宽度
                 fnt = (f[0], fs, "bold", "underline") if on \
                     else (f[0], fs, "underline")
                 btn.config(text=deco(label), relief=tk.FLAT, bd=0, highlightthickness=0,
@@ -1934,15 +1934,15 @@ class AdvisorGUI:
         for btn, label in utils:
             if paper:
                 f = self.font
-                fs = max(10, f[1])   # 手書き風は小さいと潰れるので本文サイズのまま
+                fs = max(10, f[1])   # 手写风字体小了会糊，所以保持正文字号
                 btn.config(text=deco(label), relief=tk.FLAT, bd=0, highlightthickness=0,
                            font=(f[0], fs, "underline"), fg=t["dim"], bg=t["bg"])
             else:
-                # 常時使うボタンなのでdimではなくfgにする(理由は上のtabsと同じ)。
+                # 常用按钮所以用 fg 而不是 dim（理由与上面的 tabs 相同）。
                 btn.config(text=deco(label), relief=tk.FLAT, bd=0, highlightthickness=0,
                            font=("Hiragino Sans", 10), fg=t["fg"], bg=t["bg"], padx=2)
 
-    # ---------- コマンドパネル ----------
+    # ---------- 命令面板 ----------
     def _cmd_env(self):
         env = dict(os.environ)
         env["PATH"] = (os.path.expanduser("~/bin") +
@@ -1969,8 +1969,8 @@ class AdvisorGUI:
         self.cmd_out.config(state=tk.DISABLED)
 
     def _cmd_set_running(self, on):
-        # 入力欄は無効化しない(無効化すると Ctrl-C や ↑↓ のキー入力を
-        # 受け取れなくなるため)。二重実行は _cmd_submit のガードで防ぐ。
+        # 不禁用输入框（禁用后就收不到 Ctrl-C 和 ↑↓ 的按键
+        # 输入）。重复执行由 _cmd_submit 里的守卫防止。
         self.cmd_stop_btn.config(state=tk.NORMAL if on else tk.DISABLED)
         self.cmd_entry.focus_set()
 
@@ -1999,7 +1999,7 @@ class AdvisorGUI:
             if os.path.isdir(target):
                 self.cwd = target
                 self._cmd_refresh_prompt()
-                self._write({"t": "cwd", "path": self.cwd})   # AI のツールにも反映
+                self._write({"t": "cwd", "path": self.cwd})   # 也反映到 AI 的工具
             else:
                 self._cmd_echo(L("no_such_folder", path=target), "cerr")
             return
@@ -2009,8 +2009,8 @@ class AdvisorGUI:
 
     def _cmd_run(self, cmd):
         try:
-            # 独立したプロセスグループで起動する。中止のとき、シェルだけでなく
-            # その子(ssh/scp 等)まで一括で止められるようにするため。
+            # 在独立的进程组里启动。中止时能连同 shell 的
+            # 子进程（ssh/scp 等）一起停掉。
             p = subprocess.Popen(cmd, shell=True, cwd=self.cwd, env=self._cmd_env(),
                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                  text=True, bufsize=1, encoding="utf-8",
@@ -2030,13 +2030,13 @@ class AdvisorGUI:
         if p is None:
             return
         try:
-            os.killpg(os.getpgid(p.pid), signal.SIGTERM)   # プロセスグループごと
+            os.killpg(os.getpgid(p.pid), signal.SIGTERM)   # 整个进程组
         except Exception:
             try:
                 p.terminate()
             except Exception:
                 pass
-        # まだ生きていたら少し待って強制終了
+        # 若还活着就稍等片刻再强制结束
         self.root.after(1500, lambda: self._cmd_kill(p))
 
     def _cmd_kill(self, p):
@@ -2066,15 +2066,15 @@ class AdvisorGUI:
         self.cmd_hist_idx += 1
         self.cmd_entry.delete("1.0", tk.END)
         if self.cmd_hist_idx >= len(self.cmd_hist):
-            self.cmd_hist_idx = None            # 最新より下 = 空に
+            self.cmd_hist_idx = None            # 比最新更往下 = 清空
         else:
             self.cmd_entry.insert("1.0", self.cmd_hist[self.cmd_hist_idx])
         return "break"
 
     def _request_draw_holes(self):
-        """_draw_holes は穴を全部描き直す(delete して作り直す)ので、
-        タブの切り替えなどで <Configure> が連続して何度も飛んでくると
-        そのたびに全部作り直してしまい遅くなる。after_idle でまとめる。"""
+        """_draw_holes 会重画所有孔洞（delete 后重建），所以
+        标签页切换等导致 <Configure> 连续多次到来时，
+        每次都会全部重建而变慢。用 after_idle 合并处理。"""
         if getattr(self, "_holes_pending", False):
             return
         self._holes_pending = True
@@ -2085,8 +2085,8 @@ class AdvisorGUI:
         self.root.after_idle(go)
 
     def _draw_holes(self):
-        # ノート本文の左と、書き込み欄の左と、両方に同じ穴を敷く
-        # (書き込み欄までルーズリーフの続きに見えるように)
+        # 在笔记正文左侧和书写区左侧都铺同样的孔洞
+        # （让书写区看起来像活页本的延续）
         self._draw_holes_on(self.holes)
         self._draw_holes_on(self.write_holes)
 
@@ -2098,23 +2098,23 @@ class AdvisorGUI:
             return
         canvas.config(width=36, bg=t["bg"])
         h = canvas.winfo_height() or 600
-        hole = t.get("code_bg", "#e9e0c8")   # 紙より一段濃いグレー
+        hole = t.get("code_bg", "#e9e0c8")   # 比纸面深一档的灰
         y = 36
         while y < h:
-            # 穴本体(薄グレー) + 左下に濃いめの弧で影っぽく。
-            # 小さめ・間隔を詰めて本物のルーズリーフに近づけた
+            # 孔洞本体（浅灰） + 左下用稍深的弧线做出阴影效果。
+            # 更小、间距更密，以接近真正的活页本
             canvas.create_oval(12, y - 6, 24, y + 6, fill=hole, outline=t["dim"])
             canvas.create_arc(12, y - 6, 24, y + 6, start=120, extent=140,
                               style=tk.ARC, outline=t["dim"], width=2)
             y += 48
-        # 大学ノートの赤い縦罫。ノート本文のすぐ左(この canvas の右端)に。
+        # 大学笔记本的红色竖线。紧靠笔记正文左侧（这个 canvas 的右端）。
         vline = t.get("vline")
         if vline:
             canvas.create_line(35, 0, 35, h, fill=vline, width=1)
 
     def _request_draw_grid(self, widget, pool_attr):
-        """_draw_grid を呼ぶ薄いラッパー。何度呼ばれても取りこぼさない
-        よう after_idle 越しにまとめて1回呼ぶ。"""
+        """调用 _draw_grid 的薄包装。无论调用多少次都不漏画，
+        所以经由 after_idle 合并成一次调用。"""
         pending_attr = pool_attr + "_pending"
         if getattr(self, pending_attr, False):
             return
@@ -2126,19 +2126,19 @@ class AdvisorGUI:
         self.root.after_idle(go)
 
     def _draw_grid(self, widget, pool_attr):
-        """横罫線を、文字の位置を一切見ずに上から下まで固定ピッチで敷く
-        (左の穴・縦の赤線と同じ考え方: 中身を一切見ないので中身とズレる
-        余地が無い)。
+        """横线完全不看文字位置，从上到下按固定间距铺设
+        （与左侧孔洞、垂直红线同一思路：完全不看内容，所以没有与内容
+        错位的余地）。
 
-        以前は見えている行を1つずつ実測して、その行の真下に線を置く
-        方式(_draw_rules)だった。見出し・絵文字・漢字の多い行などで
-        実際の文字の高さが微妙にばらつき、3日以上・何通りも式を変えて
-        調整しても、文字と線が重なる/足りない/ズレるを解消できなかった。
-        穴や縦の赤線が一度も壊れたことがないのは、そもそも中身を見て
-        いないからだと気づき、横罫線もそれに合わせた。ウィジェットの
-        高さだけを見て一定間隔(pitch、_apply_themeで計算)に線を置く。
-        スクロールや挿入のたびに測り直す必要も無くなったので、以前より
-        軽い(スクロールが鈍くなっていた原因もこれだったはず)。"""
+        以前是逐个实测可见行、把线放在该行正下方
+        的方式（_draw_rules）。标题、emoji、汉字多的行等
+        实际文字高度会有细微差异，试了 3 天以上、换了多种公式
+        也没能消除文字与线重叠／不足／错位的问题。
+        孔洞和垂直红线一次都没坏过，是因为它们根本不看内容
+        —— 意识到这一点后，横线也照此处理。只看部件的
+        高度，按固定间距（pitch，在 _apply_theme 里计算）放线。
+        滚动或插入时也不必重新测量，所以比以前
+        更轻（滚动变钝的原因应该也是这个）。"""
         if not hasattr(self, pool_attr):
             setattr(self, pool_attr, [])
         pool = getattr(self, pool_attr)
@@ -2150,9 +2150,9 @@ class AdvisorGUI:
                 ln.place_forget()
             return
         n = int(h // pitch)
-        # 行の切れ目ちょうど(pitch境界)ではなく、文字寄り(半分手前)に
-        # 線を詰める。ピッチ自体はここでは変えないので、揃っている状態は
-        # 崩れない。
+        # 不是卡在行与行的交界处（pitch 边界），而是靠近文字（往前半个）
+        # 把线往里收。pitch 本身在这里不变，所以已经对齐的状态
+        # 不会崩。
         offset = getattr(self, "_line_gap", 0) // 2
         while len(pool) < n:
             pool.append(tk.Frame(widget, height=1, bd=0, highlightthickness=0))
@@ -2173,30 +2173,30 @@ class AdvisorGUI:
 
         self.root.config(bg=t["bg"])
         for w in (self.bar, self.write_row, self.status_frame):
-            w.config(bg=t["bg"])                            # ヘッダーも本文と同色
-        # コーディング/ハッカーはdimの文字が背景に沈んで見づらい
-        # (コントラスト比 約3.9〜4.2:1、fgなら11〜15.6:1)ため、
-        # ノート以外ではヘッダーはfgを使う。
+            w.config(bg=t["bg"])                            # 头部也与正文同色
+        # 编程/黑客主题里 dim 的字会沉进背景、难以辨认
+        # （对比度约 3.9〜4.2:1，用 fg 则是 11〜15.6:1），
+        # 所以笔记以外的主题头部用 fg。
         model_fg = t["dim"] if self.theme_name == "paper" else t["fg"]
         self.model_lbl.config(bg=t["bg"], fg=model_fg, font=(f[0], f[1] - 2))
         self.status_lbl.config(bg=t["bg"], fg=t["dim"], font=(f[0], 10))
-        self._style_tabs()  # 見た目/AI切替/続きから の3つもここでまとめて設定
+        self._style_tabs()  # 外观/AI 切换/从上次继续 这三项也在这里一并设置
         self.cmd_out.config(font=code_f)
         self.cmd_entry.config(font=code_f)
         self.cmd_prompt.config(font=code_f)
         line = t.get("line", t["dim"])
-        self.hdr_rule.config(bg=line)                       # ヘッダー下の罫線(赤)
-        self.in_rule.config(bg=line)                        # 書き込み欄の上の罫線(赤)
+        self.hdr_rule.config(bg=line)                       # 头部下方的线（红）
+        self.in_rule.config(bg=line)                        # 书写区上方的线（红）
         self.note.config(bg=t["bg"], fg=t["fg"], font=f, insertbackground=t["fg"])
 
-        # 罫線を実測して合わせるのはもうやめる。逆に、罫線の間隔(pitch)を
-        # 先に固定で決め、本文の行送り(spacing)をそのpitchに"ぴったり
-        # 一致するよう計算で"合わせる。Tkのフォント指標(ascent/descent)
-        # は整数px、GAPも整数なので、pitch = ascent+descent+GAP は端数の
-        # 出ない厳密な整数になる。spacing2/spacing3にそのGAPをそのまま
-        # 渡せば、Tkが実際に描く行の高さは(見出し・絵文字を含め全行とも
-        # 同じ書体・同じサイズである限り)必ずascent+descent+GAPになり、
-        # pitchと理論上ズレようがない(測って追いかける要素が無い)。
+        # 不再实测线的位置去迁就文字。反过来，先把线的间距（pitch）
+        # 固定下来，再让正文的行距（spacing）用计算
+        # 精确对上这个 pitch。Tk 的字体指标（ascent/descent）
+        # 是整数 px，GAP 也是整数，所以 pitch = ascent+descent+GAP 是
+        # 不会出现小数的严格整数。把这个 GAP 原样传给
+        # spacing2/spacing3，Tk 实际绘制的行高（包含标题、emoji，
+        # 只要所有行字体字号一致）必定是 ascent+descent+GAP，
+        # 理论上不可能与 pitch 错位（没有需要测量追赶的要素）。
         try:
             fm = tkfont.Font(font=f)
             ascent = fm.metrics("ascent")
@@ -2205,20 +2205,20 @@ class AdvisorGUI:
             ascent, descent = int(f[1] * 0.9), int(f[1] * 0.25)
         S = max(6, int(round(f[1] * 0.5)))    # 行間(整数px)
         self.pitch = ascent + descent + S
-        self._line_gap = S   # _draw_grid が罫線を文字寄りに詰めるのに使う
-        self.status_frame.config(height=self.pitch * 2)   # ステータスバーは常に2行ぶん
+        self._line_gap = S   # _draw_grid 把线往文字侧收时使用
+        self.status_frame.config(height=self.pitch * 2)   # 状态栏始终占 2 行
         self.note.config(spacing1=0, spacing2=S, spacing3=S)
 
-        # 書き込み欄。会話欄とは底色を変え、上に 1px の区切り線を置く
-        # （同じ色だと「どこが入力欄か分からない」と言われた）。
-        # 点滅カーソルは止め(insertofftime=0)、空のときは矢印(WRITE_MARK)。
+        # 书写区。与对话区换底色，上方加 1px 的分隔线
+        # （同色时会有人说「不知道哪里是输入框」）。
+        # 停掉闪烁光标（insertofftime=0），为空时显示箭头（WRITE_MARK）。
         write_fg = t["dim"] if getattr(self, "_write_ph", False) else t["input_fg"]
         write_font_size = min(f[1], 13)
         self.write_zone.config(bg=t["input_bg"], fg=write_fg, font=(f[0], write_font_size),
                                insertbackground=t["input_fg"], insertofftime=0,
                                spacing1=0, spacing2=S, spacing3=S)
-        # 右端の手前4文字ぶんで折り返すための余白(全角文字幅≒フォント
-        # サイズとして概算)。
+        # 在靠右端 4 个字符处折行用的留白（按全角字符宽≈字号
+        # 粗略估算）。
         self.write_pad_right.config(bg=t["input_bg"], width=write_font_size * 4)
         try:
             self.write_row.config(bg=t["input_bg"])
@@ -2228,9 +2228,9 @@ class AdvisorGUI:
             pass
         self._draw_holes()
 
-        # 色・書体・寄せだけ。左右の余白(1/3)は _relayout が幅から計算する。
-        # 自分の発言は「右側 2/3 のブロックに置く」が、文字は左そろえ。
-        # (右寄せにすると2行目以降が右にばらけて読みにくい、との指摘)
+        # 只管颜色、字体、对齐。左右留白（1/3）由 _relayout 按宽度计算。
+        # 自己的发言放在「右侧 2/3 的块里」，但文字左对齐。
+        # （右对齐时第二行以后会往右散开、难读，收到过这样的反馈）
         for tg, col in (("you", t["fg"]), ("ai", t["ai"]),
                         ("dim", t["dim"]), ("err", t["err"]), ("gap", t["bg"])):
             self.note.tag_config(tg, foreground=col, justify=tk.LEFT,
@@ -2247,16 +2247,16 @@ class AdvisorGUI:
             self.note.tag_config(tag, foreground=hl.get(key, t["ai"]), font=code_f,
                                  background=t.get("code_bg", t["bg"]))
         self._relayout()
-        # テーマ切替は <Configure> を発生させない(ウィンドウサイズは
-        # 変わらない)ので、色やpitchが変わる罫線はここで明示的に引き直す。
+        # 切换主题不会触发 <Configure>（窗口尺寸不变）
+        # 所以颜色和 pitch 变化的线要在这里显式重画。
         self._request_draw_grid(self.note, "_grid_note")
         self._request_draw_grid(self.write_zone, "_grid_write")
         self._style_cmd_pane()
 
     def _style_cmd_pane(self):
-        """コマンドパネルの配色。ハッカーの時は緑系(エラー/終了コードは
-        赤のまま)、ノートの時は本文と同じ薄いベージュ地に濃紺の文字、
-        それ以外(コーディング)は従来通りの端末風(黒地)のまま。"""
+        """命令面板的配色。黑客主题用绿色系（错误/退出码仍是
+        红色），笔记主题用与正文相同的浅米色底、深蓝字，
+        其他（编程）保持原来的终端风（黑底）。"""
         if self.theme_name == "hacker":
             bg, cf, cin, cdim, csuccess, cerr, entry_bg = (
                 "#000000", "#39ff5a", "#00ff66", "#2e7d4f", "#39ff5a",
@@ -2280,28 +2280,28 @@ class AdvisorGUI:
         self.cmd_prompt.config(fg=cin)
 
     def _relayout(self, event=None):
-        """幅の 1/3 を左右の余白に。自分=左1/3空け右寄せ / 相手=右1/3空け左寄せ。"""
+        """宽度 1/3 作为左右留白。自己=左空 1/3 右对齐 / 对方=右空 1/3 左对齐。"""
         w = self.note.winfo_width()
         if w < 80:
             self.root.after(60, self._relayout)
             return
         third = int(w / 3)
-        near = EDGE                      # 書き出しは赤い縦罫のすぐ右から
-        ch = max(1, self.font[1])        # ざっくり全角1文字ぶん
-        # 質問ブロックを 4 文字ぶん左へ / 解答ブロックを 4 文字ぶん右へ広げる
+        near = EDGE                      # 书写从红色竖线紧右边开始
+        ch = max(1, self.font[1])        # 粗略按一个全角字符宽
+        # 把提问块向左扩展 4 个字符 / 把回答块向右扩展 4 个字符
         you_left = max(near + 2 * ch, third - 4 * ch)
         ai_right = max(2 * ch, third - 4 * ch)
         self.note.tag_config("you", lmargin1=you_left, lmargin2=you_left, rmargin=near)
         for tag in ("ai", "dim", "err"):
             self.note.tag_config(tag, lmargin1=near, lmargin2=near, rmargin=ai_right)
 
-        # テーマを変えたらモード徽標の色も引き直す（テーマの配色から取る）。
+        # 换主题后模式徽标的颜色也重画（取自主题配色）。
         if hasattr(self, "mode_badge"):
             self._apply_mode_colors()
 
     def _popup_menu(self, menu, widget):
-        """見た目/AI切替ボタン用。普通のButtonの真下にメニューを出す
-        (Menubuttonをやめて見た目を他のボタンと揃えるための代わり)。"""
+        """给外观/AI 切换按钮用。在普通 Button 正下方弹出菜单
+        （为了不用 Menubutton、让外观与其他按钮一致而做的替代）。"""
         x = widget.winfo_rootx()
         y = widget.winfo_rooty() + widget.winfo_height()
         try:
@@ -2317,15 +2317,15 @@ class AdvisorGUI:
         save_cfg({"theme": key})
 
     def _block_sep(self):
-        """発言の切れ目に空の1行。先頭では入れない。
-        大学ノートの「1行あけて書く」感じ。行の縦リズムも崩さない。
-        横罫線は全行に敷く方式(_draw_rules)に一本化したので、ここでは
-        個別には挿入しない。"""
+        """发言之间空一行。开头不加。
+        像大学笔记本那样「隔一行写」。也不破坏行的垂直节奏。
+        横线已统一成给所有行都铺的方式（_draw_rules），所以这里
+        不再单独插入。"""
         if self.note.index("end-1c") != "1.0":
             self.note.insert(tk.END, "\n", "gap")
 
     def _append(self, text, tag, anchor=False):
-        """1ブロックを一気に書く(自分の発言・お知らせ・エラー用)。"""
+        """一次写出一整块（自己的发言、通知、错误用）。"""
         self.note.config(state=tk.NORMAL)
         self._block_sep()
         start = self.note.index("end-1c")
@@ -2333,20 +2333,20 @@ class AdvisorGUI:
             self.note.insert(tk.END, "watermark> ", ("prompt", "you"))
         self.note.insert(tk.END, text.rstrip("\n") + "\n", tag)
         if anchor:
-            # 自分の発言の先頭に印。返答が来たらここを画面の一番上に置く
-            # ことで、Enter を押した瞬間に自分の文が消える問題を防ぐ。
+            # 自己发言的开头加标记。回复到来时把这里放到画面最上方，
+            # 以避免「按下 Enter 的瞬间自己的文字就消失」的问题。
             self.note.mark_set("q_anchor", start)
             self.note.mark_gravity("q_anchor", "left")
         self.note.config(state=tk.DISABLED)
 
     def _stream_append(self, text, tag):
-        """AIの返答を少しずつ流し込む(一瞬で入れ替わって読めない問題の対策)。
-        流し込み中は画面を下端に追従させず、直前の自分の発言を上に留める。"""
+        """把 AI 的回复一点点流式写入（针对瞬间替换、来不及读的问题）。
+        流式写入期间不让画面追随底端，而是把刚才自己的发言留在上方。"""
         self.note.config(state=tk.NORMAL)
         self._block_sep()
         self.note.config(state=tk.DISABLED)
         if self.note_has_anchor():
-            self.note.yview("q_anchor")           # 自分の質問を画面最上部へ
+            self.note.yview("q_anchor")           # 把自己的提问放到画面最上方
         self._stream_step(list(text), tag)
 
     def _stream_step(self, chars, tag):
@@ -2361,12 +2361,12 @@ class AdvisorGUI:
         self.note.config(state=tk.NORMAL)
         self.note.insert(tk.END, chunk, tag)
         self.note.config(state=tk.DISABLED)
-        # 返答が書き込み欄の下に隠れて続きに気づけない問題への対応。
-        # 質問直後はq_anchorで質問が見える位置から始まるが、返答が伸びて
-        # 画面の下端に達したら、書いている文字を追いかけて自然に下へ
-        # 流す(短い返答ならここは実質何もしない=見える範囲のままで済む)。
+        # 应对「回复被书写区挡住、看不出还有后续」的问题。
+        # 提问刚结束时会用 q_anchor 从看得见提问的位置开始，回复变长后
+        # 到达画面底端时，就追随正在写入的文字自然向下
+        # 滚动（回复短时这里等于什么都不做＝保持可见范围）。
         self.note.see(tk.END)
-        # 40msでもまだ速いとの指摘でさらに遅く。
+        # 有人反馈 40ms 仍然太快，所以再放慢。
         self.root.after(70, lambda: self._stream_step(chars, tag))
 
     def note_has_anchor(self):
@@ -2377,11 +2377,11 @@ class AdvisorGUI:
             return False
 
     def _on_note_wheel(self, event):
-        """1行(表示上の1単位 = _apply_themeでpitchぴったりに揃えている)
-        単位でしか止まらないようにする。event.deltaを貯めて、1行分
-        たまるたびに yview_scroll(±1, "units") を1回だけ呼ぶ(標準の
-        px単位スクロールは自前で止めるので、既定の処理はさせない
-        = return "break")。THRESHはトラックパッドの感触を見ながらの
+        """只以 1 行（显示上的 1 个单位 = _apply_theme 里对齐到 pitch 的）
+        为单位停留。累积 event.delta，攒够 1 行就只调用一次
+        yview_scroll(±1, "units")（默认的按 px 滚动由我们自己停掉，
+        即不让 Tk 执行默认处理
+        = return "break"）。THRESH 是边摸触控板手感边
         調整値。"""
         self._wheel_accum = getattr(self, "_wheel_accum", 0) + event.delta
         THRESH = 3
@@ -2394,9 +2394,9 @@ class AdvisorGUI:
         return "break"
 
     def _render_reply(self, txt):
-        """```コードブロック``` を含む返答を、地の文とコードに分けて描画する。
-        コードは等幅・淡い背景 + ざっくりシンタックス着色。ストリーム表示は
-        しない(構文の途中で色付けが崩れるため一気に出す)。"""
+        """把含 ```代码块``` 的回复分成正文和代码来绘制。
+        代码用等宽字体、浅色背景 + 粗略语法着色。不做流式显示
+        （语法中途未完成时着色会乱，所以一次性输出）。"""
         self.note.config(state=tk.NORMAL)
         self._block_sep()
         pos = 0
@@ -2413,8 +2413,8 @@ class AdvisorGUI:
         if tail:
             self.note.insert(tk.END, tail + "\n", "ai")
         self.note.config(state=tk.DISABLED)
-        # ストリーム表示(_stream_step)と同じく、末尾が見える位置まで
-        # 下げる。q_anchorだけだと返答が長い時に続きが隠れて見えなかった。
+        # 与流式显示（_stream_step）一样，滚动到能看见末尾的位置。
+        # 只用 q_anchor 时回复较长会看不到后续。
         self.note.see(tk.END)
 
     def _highlight(self, a, b):
@@ -2428,7 +2428,7 @@ class AdvisorGUI:
                 self.note.tag_add(tag, "%s+%dc" % (a, m.start()),
                                   "%s+%dc" % (a, m.end()))
 
-    # ---------- バックエンド ----------
+    # ---------- 后端 ----------
     def _start_backend(self):
         cmd, env = build_backend_command_and_env()
         if cmd is not None and self._extra_args:
@@ -2442,9 +2442,9 @@ class AdvisorGUI:
             self.proc = subprocess.Popen(
                 cmd, env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                # stderr を捨てない: バックエンドが即死したとき、GUI 側に
-                # 「なぜ死んだか」を出す手段がこれしかない（実機で
-                # 「入力できない」だけが見えて原因不明になった）。
+                # 不要丢弃 stderr：后端立刻死掉时，GUI 侧唯一能
+                # 显示「为什么死了」的手段就是这个（真机上只看到
+                # 「输入不了」、完全查不出原因）。
                 stderr=subprocess.PIPE, bufsize=1,
                 universal_newlines=True, encoding="utf-8",
             )
@@ -2459,7 +2459,7 @@ class AdvisorGUI:
     _stderr_tail = None
 
     def _reader_err(self):
-        """バックエンドの stderr を最後の 20 行だけ保持する（常駐ログにはしない）。"""
+        """只保留后端 stderr 的最后 20 行（不做常驻日志）。"""
         try:
             for line in self.proc.stderr:
                 line = line.rstrip("\n")
@@ -2484,7 +2484,7 @@ class AdvisorGUI:
         self.events.put({"t": "bye"})
 
     def _update_mode(self, mode, writable=None):
-        """モードの表示を合わせる。色はテーマの配色から取る（直書きしない）。"""
+        """同步模式的显示。颜色取自主题配色（不要写死）。"""
         if not mode:
             return
         self._mode_key = mode
@@ -2502,7 +2502,7 @@ class AdvisorGUI:
             return
         key = getattr(self, "_mode_key", "default")
         if key == "bypass":
-            fg = t["err"]          # 危険色。常に見えている必要がある
+            fg = t["err"]          # 危险色。必须始终可见
         elif key == "accept-edits":
             fg = t["ai"]
         else:
@@ -2519,7 +2519,7 @@ class AdvisorGUI:
         except (BrokenPipeError, ValueError):
             pass
 
-    # ---------- イベント ----------
+    # ---------- 事件 ----------
     def _pump(self):
         try:
             while True:
@@ -2535,9 +2535,9 @@ class AdvisorGUI:
     def _handle(self, obj):
         t = obj.get("t")
         if t == "ready":
-            # _fill_menu は self._current_model_id を見て「← 使用中」を
-            # 付けるので、_set_model を呼ぶより先に自分でセットしておく
-            # (_set_model 自体は後段の短縮表示更新のために引き続き呼ぶ)。
+            # _fill_menu 会看 self._current_model_id 来加「← 使用中」，
+            # 所以要在调用 _set_model 之前先自己设好
+            # （_set_model 本身仍要继续调用，用于后续更新简短显示）。
             self._current_model_id = obj.get("model", "")
             # 哪些厂商已有密钥只有 agent 知道（它持有密钥、读过 ~/.claude-agent-env），
             # GUI 自己猜会和 agent 的判断打架，所以只接收、不推断。
@@ -2555,9 +2555,9 @@ class AdvisorGUI:
         elif t == "text":
             txt = str(obj.get("text", ""))
             if "```" in txt:
-                self._render_reply(txt)          # コード入り = 一気に着色描画
+                self._render_reply(txt)          # 含代码 = 一次性着色绘制
             else:
-                self._stream_append(txt, "ai")   # 地の文だけ = 流し込み
+                self._stream_append(txt, "ai")   # 只有正文 = 流式写入
         elif t == "note":
             self._append(str(obj.get("text", "")), "dim")
         elif t == "error":
@@ -2568,7 +2568,7 @@ class AdvisorGUI:
             self.status_var.set(obj.get("text", "") or "")
         elif t == "model":
             self._set_model(obj.get("provider", ""), obj.get("model", ""))
-            # 切替後の「← 使用中」を反映するため、メニュー項目を作り直す。
+            # 为了反映切换后的「← 使用中」，重建菜单项。
             self._fill_menu([{"id": k, "label": v} for k, v in
                              getattr(self, "_model_labels", {}).items()])
         elif t == "confirm":
@@ -2598,8 +2598,8 @@ class AdvisorGUI:
             self.cmd_proc = None
             self._cmd_set_running(False)
         elif t == "bye":
-            # バックエンドが終了。黙って入力欄を殺すだけだと「打てない」しか
-            # 分からないので、stderr の最後の数行と直し方を画面に出す。
+            # 后端已退出。只默默把输入框废掉的话，用户只看到「打不了字」，
+            # 所以把 stderr 的最后几行和处理办法显示到画面上。
             self._set_busy(True)
             self._append(L("backend_exit_title"), "err")
             tail = [ln for ln in getattr(self, "_stderr_tail", []) if ln.strip()]
@@ -2608,12 +2608,12 @@ class AdvisorGUI:
             self._append(L("backend_exit_hint"), "dim")
             self.status_var.set(L("bye_status"))
 
-    # ---------- 小物 ----------
+    # ---------- 杂项 ----------
     def _set_model(self, provider, model):
-        # 生のモデルID(例: gemini-3.5-flash-lite)は長すぎてヘッダーを
-        # 圧迫し、「AIを切替」ボタンの文字が切れる原因になっていた。
-        # models.txtの説明(_fill_menuでキャッシュ済み)の em-dash 前の
-        # 短い人間向け名前(例: "Gemini Flash-Lite")があればそちらを使う。
+        # 原始模型 ID（例: gemini-3.5-flash-lite）太长，会
+        # 挤压头部，还导致「切换 AI」按钮的文字被截断。
+        # 若 models.txt 的说明（已由 _fill_menu 缓存）里 em-dash 前面有
+        # 简短的可读名字（例: "Gemini Flash-Lite"），就用它。
         self._current_model_id = model
         label = getattr(self, "_model_labels", {}).get(model)
         if label:
@@ -2626,12 +2626,12 @@ class AdvisorGUI:
         self.switch_menu.delete(0, tk.END)
         self._model_labels = {m.get("id"): m.get("label", "") for m in models}
         current = getattr(self, "_current_model_id", None)
-        # 12件を一次元に並べると探せないので、ベンダーごとの子メニューに束ねる。
-        # 選択時は番号ではなくモデルIDを送る（番号は並び順に依存して脆い）。
+        # 12 个条目排成一维不好找，所以按厂商收进子菜单。
+        # 选择时发送的不是序号而是模型 ID（序号依赖排列顺序，很脆弱）。
         self._provider_menus = {}
         order = []
         for m in models:
-            p = m.get("provider", "") or "その他"
+            p = m.get("provider", "") or "其他"
             if p not in self._provider_menus:
                 lbl = p
                 for name, info in getattr(self, "_providers", []):
@@ -2668,9 +2668,9 @@ class AdvisorGUI:
         dlg.title(L("remote_title"))
         dlg.transient(self.root)
         dlg.grab_set()
-        # 見た目は本体と同じテーマ色・同じ書体にそろえる（既定フォントのままだと
-        # ここだけ文字が細く/小さく見える、という指摘が出た）。
-        # テーマ/書体が無い環境（テスト用のダミー等）でも落ちないように既定へ落とす。
+        # 外观与主体用相同的主题色、相同的字体（用默认字体的话
+        # 只有这里的文字显得细/小，收到过这样的反馈）。
+        # 在没有主题/字体的环境（测试用的假对象等）也回退到默认值，避免崩溃。
         th = THEMES.get(getattr(self, "theme_name", None) or "paper", THEMES["paper"])
         ui_font = getattr(self, "font", None)
 
@@ -2898,7 +2898,7 @@ class AdvisorGUI:
         dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
 
     def _ask_passphrase(self, prompt, recover=False):
-        # 確認欄はなし(1回だけ)。打ち間違い対策は「合言葉」で担保する。
+        # 没有确认框（只做一次）。防打错由「口令」保证。
         dlg = tk.Toplevel(self.root)
         dlg.title(L("passphrase_title"))
         dlg.transient(self.root)
@@ -2926,8 +2926,8 @@ class AdvisorGUI:
                      lambda: (self._write({"t": "passphrase", "value": ""}), dlg.destroy()))
 
     def _ask_recovery(self, mode, question):
-        # 合言葉(秘密の質問)。mode="new"=初回設定(質問+答え)、
-        # mode="unlock"=復旧(答えだけ)。答えは大文字小文字・前後空白を区別しない。
+        # 口令（密保问题）。mode="new"=首次设置（问题+答案），
+        # mode="unlock"=恢复（只要答案）。答案不区分大小写与前后空白。
         dlg = tk.Toplevel(self.root)
         dlg.title(L("secret_title"))
         dlg.transient(self.root)
@@ -2965,9 +2965,9 @@ class AdvisorGUI:
                               dlg.destroy()))
 
     def _ask_provider_key(self, provider):
-        # 会話中に、まだキーを登録していないAIへ切り替えようとしたときの
-        # 案内ダイアログ。オンボーディング画面と同じ「大きなボタン→貼り付け
-        # →疎通確認」の流れをモーダルダイアログにしたもの。
+        # 会话中试图切换到尚未登记密钥的 AI 时的
+        # 提示对话框。把引导画面同样的「大按钮 → 粘贴
+        # → 连通性检查」流程做成模态对话框。
         display = "Gemini" if provider == "gemini" else "Anthropic (Claude)"
         url = ("https://aistudio.google.com/apikey" if provider == "gemini"
                else "https://console.anthropic.com/")
@@ -3030,7 +3030,7 @@ class AdvisorGUI:
         self._write({"t": "key", "value": key})
         dlg.destroy()
 
-    # ---------- 続きから(過去の会話) ----------
+    # ---------- 从上次继续（过去的对话） ----------
     def _show_history_dialog(self, items):
         if not items:
             messagebox.showinfo(L("resume_title"), L("no_saved_history"))
@@ -3051,7 +3051,7 @@ class AdvisorGUI:
             sel = lb.curselection()
             if sel:
                 idx = sel[0]
-                # ノートらしく「○ページ目/全△ページ」を後で先頭に出すため覚えておく
+                # 为了像笔记那样稍后在开头显示「第 ○ 页/共 △ 页」而先记下
                 self._resume_page = (idx + 1, len(items))
                 self._write({"t": "resume", "file": items[idx]["file"]})
             dlg.destroy()
@@ -3089,7 +3089,7 @@ class AdvisorGUI:
                     self._append(txt, "ai")
             elif role == "tool":
                 self._append("— " + txt + " —", "dim")
-            # toolresult はうるさいので再表示しない
+            # toolresult 太吵，不再显示
         self._append(L("resume_loaded"), "dim")
         self._show_pane("chat")
         self.note.see(tk.END)
@@ -3098,7 +3098,7 @@ class AdvisorGUI:
         self.busy = busy
         self.write_zone.config(state=tk.DISABLED if busy else tk.NORMAL)
         if not busy:
-            # 返信が終わったら入力欄へ戻す（毎回クリックさせない）
+            # 回复结束后把输入交回输入框（不必每次点击）
             self._focus_write_zone()
 
     def _write_show_marker(self):
@@ -3112,24 +3112,24 @@ class AdvisorGUI:
         self.write_zone.config(fg=(t["dim"] if self._write_ph else t["input_fg"]))
 
     def _write_click_clear(self, _event=None):
-        # クリックはIMEの変換に関係しないので、ここで消してしまって
-        # 問題ない(<Key> で消すとIMEの変換を邪魔するので使わない)。
+        # 点击与 IME 的转换无关，所以在这里清掉
+        # 没有问题（用 <Key> 清会干扰 IME 的转换，所以不用）。
         if self._write_ph:
             self.write_zone.delete("1.0", tk.END)
             self._write_ph = False
             self._write_apply_ph_color()
 
     def _write_on_modified(self, _event=None):
-        # <<Modified>> は自分の delete/insert(矢印の表示自体)でも飛んで
-        # くるので、毎回まずフラグを下ろす(でないと二度と発火しなくなる)。
+        # <<Modified>> 在自身 delete/insert（箭头显示本身）时也会
+        # 触发，所以每次都先把标志放下来（否则再也不会触发）。
         self.write_zone.edit_modified(False)
         if not self._write_ph:
             return
         cur = self.write_zone.get("1.0", "end-1c")
         if cur == WRITE_MARK:
-            return   # 矢印を表示しただけ(自分の変更)
-        # 実際に何か入力された。「矢印+打った文字」のはずなのでそれを
-        # 取り除く。
+            return   # 只是显示了箭头（自身改动）
+        # 确实输入了什么。应该是「箭头+敲入的文字」，所以把它
+        # 去掉。
         if cur.startswith(WRITE_MARK):
             typed = cur[len(WRITE_MARK):]
         elif WRITE_MARK in cur:
@@ -3148,7 +3148,7 @@ class AdvisorGUI:
             self._write_show_marker()
 
     def _on_return(self, event):
-        if event.state & 0x0001:  # Shift+Enter は改行
+        if event.state & 0x0001:  # Shift+Enter 换行
             return
         self._send_current()
         return "break"
@@ -3157,25 +3157,25 @@ class AdvisorGUI:
         if self.busy:
             return
         text = self.write_zone.get("1.0", tk.END).strip()
-        # 矢印(WRITE_MARK)が本文の先頭に残ったまま送信されてしまう
-        # 不具合があった(IMEの変換タイミングによっては_write_on_modified
-        # の除去処理が効かないことがある)。_write_phの状態に関わらず、
-        # 送信直前にここでも必ず取り除く(最後の砦)。
+        # 箭头（WRITE_MARK）留在正文开头就被发送出去的
+        # 故障曾有发生（取决于 IME 的转换时机，_write_on_modified
+        # 的去除处理有时不生效）。与 _write_ph 的状态无关，
+        # 发送前在这里也一定要去掉（最后的防线）。
         mark = WRITE_MARK.strip()
         if text.startswith(mark):
             text = text[len(mark):].strip()
         if not text:
             return
-        self._write_show_marker()            # 書き込み欄を矢印に戻す
+        self._write_show_marker()            # 把书写区恢复成箭头
         self._append(text, "you", anchor=True)
-        self.note.yview("q_anchor")          # 送った自分の発言を画面の一番上へ
+        self.note.yview("q_anchor")          # 把自己发出的发言放到画面最上方
         self._set_busy(True)
         self.status_var.set(L("querying_status"))
         self._write({"t": "user", "text": text})
 
-    # ---------- セッション（履歴の続き・名前・検索） ----------
+    # ---------- 会话（继续历史、命名、搜索） ----------
     def _session_cmd(self, text):
-        """`/history` などを 1 ターンとして送る（ローカルで完結するコマンド）。"""
+        """把 `/history` 等作为一个回合发送（本地完成的命令）。"""
         if not (self.proc and self.proc.poll() is None):
             return
         self._append(text, "you")
@@ -3209,7 +3209,7 @@ class AdvisorGUI:
         self._session_restart(["--continue=" + nm], L("session_continue_note"))
 
     def _session_restart(self, extra, note_fmt):
-        """バックエンドを止めて、指定の引数で起動し直す（＝会話を切り替える）。"""
+        """停止后端，用指定参数重新启动（＝切换对话）。"""
         label = extra[0].split("=", 1)[-1] if extra else ""
         try:
             self._write({"t": "quit"})
@@ -3225,7 +3225,7 @@ class AdvisorGUI:
         except Exception:
             pass
         self._extra_args = list(extra)
-        # 前の表示はそのまま残す（消すと「今までの話はどこ？」と感じる）。
+        # 之前的显示原样保留（清掉的话会让人觉得「之前聊的都去哪了」）。
         self._append(note_fmt % label, "dim")
         self._start_backend()
 

@@ -84,9 +84,9 @@ def main():
         print('跳过：没有 tkinter（%s）' % e)
         return 0
 
-    # GUI は ~/.claude-agent-env に鍵が入っているかで初回案内画面と本体を
-    # 分ける。テストでは一時 HOME に鍵を書いて本体側を出す（案内画面では
-    # ページャのボタンがまだ作られていない）。
+    # GUI 会按 ~/.claude-agent-env 里有没有密钥，分成首次引导画面与主界面。
+    # 测试时在临时 HOME 里写入密钥，让它走主界面（引导画面里
+    # 分页按钮还没被创建）。
     home = tempfile.mkdtemp(prefix='advisor-gui-home-')
     os.environ['HOME'] = home
     with open(os.path.join(home, '.claude-agent-env'), 'w', encoding='utf-8') as f:
@@ -111,11 +111,11 @@ def main():
     import advisor_gui as G
 
     cls = getattr(G, 'AdvisorGUI', None)
-    # バックエンドを起動しない（このテストが見たいのは画面の部品だけ。
-    # 起動まで含めると、鍵やモデルの状態次第で確認ダイアログに入り、
-    # 無人実行ではそこで止まる）。
+    # 不启动后端（这个测试只想看画面部件。
+    # 若连启动一起做，视密钥和模型状态会进到确认对话框，
+    # 无人值守时就会卡在那里）。
     if cls is not None:
-        # 本物は取っておく（[会话] のところで「--continue が後端に渡るか」を見たい）
+        # 把真货留存下来（[会话] 部分要确认「--continue 是否传给后端」）
         cls._real_start_backend = cls._start_backend
         cls._start_backend = lambda self: None
         cls._write_show_marker = lambda self: None
@@ -233,15 +233,15 @@ def main():
                      'models': [{'id': _default_model(), 'label': 'DS', 'provider': 'deepseek'}]})
         root.update()
         check(len(hit) >= 2, 'ready 之后也会给一次焦点（%d 次）' % len(hit))
-        # 起動直後は focus_force() までやる（macOS は focus_set だけだと
-        # 「窓は出ているのに打っても入らない」になる）。ここでは
-        # 「窓自体にフォーカスを取らせにいく」動作を確認する。
+        # 启动直后连 focus_force() 也要做（macOS 上只做 focus_set 会
+        # 出现「窗口出来了却敲不进去」）。这里检查
+        # 「让窗口本身去取焦点」这一动作。
         forced = []
         orig_force = app.root.focus_force
         app.root.focus_force = lambda: forced.append(1)
         app._focus_write_zone(force=True)
         app.root.focus_force = orig_force
-        check(len(forced) >= 1, '起動直後は窓ごとフォーカスを取る（focus_force）')
+        check(len(forced) >= 1, '启动直后要让整个窗口去取焦点（focus_force）')
         app.write_zone.focus_set = orig_focus
 
         print('[焦点看护] 焦点抢不到时要说出来，而不是默默打不了字')
