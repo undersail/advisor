@@ -71,7 +71,20 @@ my @REMOTE_TOOLS_READONLY = qw(read_file list_dir);
 my @REMOTE_TOOLS_WRITABLE = qw(read_file list_dir write_file run_shell remember write_skill);
 my $REMOTE_WRITE_MODE = '';            # '' = 未指定 → default（只读）
 my @REMOTE_ROOTS;                      # --allow-write 的目录
-my $CONFIRM_WAIT = 120;                # 远程确认最多等多久（秒），超时按拒绝
+# 远程确认等多久：必须比 agent 自己的超时**短**。
+# 旧值是固定的 120 秒，而 agent 60 秒就按拒绝收尾了 —— 多出来的那一分钟里，
+# 手机回的 y 会落到**下一次**确认上（等于没人同意却执行了）。
+sub agent_confirm_timeout {
+    my $v = defined $ENV{CLAUDE_CONFIRM_TIMEOUT} ? $ENV{CLAUDE_CONFIRM_TIMEOUT} : '';
+    return 60 unless $v =~ /^\d+$/;
+    return $v;
+}
+sub confirm_wait_default {
+    my $w = agent_confirm_timeout() - 5;
+    $w = 10 if $w < 10;
+    return $w;
+}
+my $CONFIRM_WAIT = confirm_wait_default();   # 远程确认最多等多久（秒），超时按拒绝
 my $L_CONFIRM_PLAIN = '(需要确认的操作)';
 
 sub write_mode_ok {
@@ -461,25 +474,44 @@ sub ensure_session {
 # 通道仍是「一行一次」：先吐一行 ask，再读一行 answer。
 # 超时按拒绝（与 agent 侧 fail-closed 一致），绝不放行。
 sub ask_remote {
-    my ($from, $prompt, $danger) = @_;
+    my ($from, $prompt, $danger, $cid) = @_;
+    $cid = '' unless defined $cid;
     print '{"from":"' . json_escape($from) . '","ask":"' . json_escape($prompt)
-        . '","danger":' . ($danger ? 1 : 0) . "}\n";
-    audit('confirm_asked', "from=$from", 'danger=' . $danger, 'wait=' . $CONFIRM_WAIT);
+        . '","danger":' . ($danger ? 1 : 0)
+        . ',"cid":"' . json_escape($cid) . '"'
+        . ',"wait":' . $CONFIRM_WAIT . "}\n";
+    audit('confirm_asked', "from=$from", 'danger=' . $danger,
+          'wait=' . $CONFIRM_WAIT, "cid=$cid");
     my $ans = 'n';
     my $timed_out = 0;
+    my $stale = 0;
     eval {
         local $SIG{ALRM} = sub { die "ask_timeout\n" };
         alarm $CONFIRM_WAIT if $CONFIRM_WAIT > 0;
-        my $line = <STDIN>;
-        if (defined $line) {
-            my $v = json_get($line, 'answer') // '';
+        while (1) {
+            my $line = <STDIN>;
+            last unless defined $line;
+            my $v  = json_get($line, 'answer') // '';
+            my $lc = json_get($line, 'cid') // '';
+            # ★ 上一道问题迟到的回答：不再当成这一道的答案
+            if ($cid ne '' && $lc ne $cid) { $stale++; next; }
             $ans = 'y' if ($v =~ /^(y|yes|1|true)$/i);
+            last;
         }
         alarm 0;
         1;
     } or do { alarm 0; $timed_out = 1 };
     audit('confirm_answered', "from=$from", 'answer=' . $ans,
-          ($timed_out ? 'timeout=1' : ''));
+          ($timed_out ? 'timeout=1' : ''), ($stale ? "stale=$stale" : ''));
+    if ($timed_out || $stale) {
+        # ★ 超时（或只有迟到答复）也要回一句结果：手机上不吭声，用户根本不知道
+        #   「到底执行了没有」。confirm_done 让长连接端清掉「等确认」状态。
+        print '{"from":"' . json_escape($from)
+            . '","note":"' . json_escape($timed_out
+                ? '（确认超时，这次操作没有执行）'
+                : '（只收到过迟到的答复，已忽略；这次操作没有执行）')
+            . '","confirm_done":1' . "}\n";
+    }
     return $ans;
 }
 
@@ -520,9 +552,10 @@ sub handle_message {
             if ($l =~ /"t"\s*:\s*"confirm"/) {
                 my $prompt = json_unescape(json_get($l, 'prompt') // $L_CONFIRM_PLAIN);
                 my $danger = ($l =~ /"danger"\s*:\s*true/) ? 1 : 0;
+                my $cid = json_get($l, 'cid') // '';
                 my $ans = 'n';
                 if (writable_mode()) {
-                    $ans = ask_remote($from, $prompt, $danger);
+                    $ans = ask_remote($from, $prompt, $danger, $cid);
                 }
                 else {
                     # 只读模式本不该出现确认（写/命令没广告出去）；来了就拒，别打扰手机
@@ -531,7 +564,8 @@ sub handle_message {
                 # ★ 回应键必须是 "reply"：agent 的 confirm() 只认这个。
                 #   以前这里写的是 "confirm_answer"，等于没人回答 —— 只读模式下看不出来，
                 #   一旦放开写就会一路等到超时（fail-closed 拒掉）。
-                print { $s->{in} } qq|{"t":"reply","value":"$ans"}\n|;
+                print { $s->{in} } qq|{"t":"reply","cid":"| . json_escape($cid)
+                    . qq|","value":"$ans"}\n|;
                 next;
             }
             if ($l =~ /"t"\s*:\s*"error"/) {

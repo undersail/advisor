@@ -63,15 +63,17 @@ while (my $l = <STDIN>) {
     last if $l =~ /"t"\s*:\s*"bye"/;
     next unless $l =~ /"t"\s*:\s*"user"/;
     print '{"t":"tool","name":"write_file"}', "\n";
-    print '{"t":"confirm","prompt":"allow write /tmp/a.txt ?","danger":false}', "\n";
+    print '{"t":"confirm","cid":"7-1","prompt":"allow write /tmp/a.txt ?","danger":false}', "\n";
     my $ans = 'none';
+    my $cid = 'none';
     while (my $l2 = <STDIN>) {
         if ($l2 =~ /"t"\s*:\s*"reply"/) {
             $ans = ($l2 =~ /"value"\s*:\s*"(\w+)"/) ? $1 : 'none';
+            $cid = ($l2 =~ /"cid"\s*:\s*"([^"]*)"/) ? $1 : 'none';
             last;
         }
     }
-    print '{"t":"text","text":"answer=' . $ans . '"}', "\n";
+    print '{"t":"text","text":"answer=' . $ans . ' cid=' . $cid . '"}', "\n";
     print '{"t":"turn_done"}', "\n";
 }
 '''
@@ -92,8 +94,11 @@ def make_home():
 
 
 def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
-          from_='u1', hist_pass=None):
-    """跑一轮：发一条消息，必要时回一个 y/n，收齐 ask 与 reply。"""
+          from_='u1', hist_pass=None, answer_cid=None, stale=(), extra_env=None):
+    """跑一轮：发一条消息，必要时回一个 y/n，收齐 ask 与 reply。
+
+    stale：先灌几条「上一道问题迟到的回答」（带旧 cid），用来验证会被丢弃。
+    """
     home = home or make_home()[0]
     agent = agent or os.path.join(home, 'fake_agent.pl')
     argv_file = os.path.join(home, 'argv.txt')
@@ -111,10 +116,12 @@ def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
         env['CLAUDE_NO_HISTORY'] = '1'
     else:
         env.pop('CLAUDE_NO_HISTORY', None)
+    if extra_env:
+        env.update(extra_env)
     p = subprocess.Popen(['perl', GW, '--stdin'] + args, stdin=subprocess.PIPE,
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          text=True, bufsize=1, env=env)
-    asks, replies = [], []
+    asks, replies, notes = [], [], []
     err = ''
     deadline = time.time() + wait
     try:
@@ -137,10 +144,20 @@ def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
                 continue
             if 'ask' in j:
                 asks.append(j)
+                # 先灌「上一道问题迟到的回答」，再给这一次的正确答案
+                for st in stale:
+                    p.stdin.write(json.dumps(st) + '\n')
+                    p.stdin.flush()
                 if answer is not None and not answered:
-                    p.stdin.write(json.dumps({'answer': answer}) + '\n')
+                    payload = {'answer': answer}
+                    if answer_cid is not None:
+                        payload['cid'] = answer_cid
+                    p.stdin.write(json.dumps(payload) + '\n')
                     p.stdin.flush()
                     answered = True
+                continue
+            if 'note' in j:
+                notes.append(j)
                 continue
             if 'reply' in j:
                 replies.append(j['reply'])
@@ -162,7 +179,7 @@ def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
         argv = open(argv_file, encoding='utf-8').read().split('\n')
     audit_path = os.path.join(home, '.claude-agent', 'audit.log')
     audit = open(audit_path, encoding='utf-8').read() if os.path.exists(audit_path) else ''
-    return {'asks': asks, 'replies': replies, 'argv': argv, 'rc': p.returncode,
+    return {'asks': asks, 'replies': replies, 'notes': notes, 'argv': argv, 'rc': p.returncode,
             'err': err, 'audit': audit, 'home': home}
 
 
@@ -241,6 +258,47 @@ def case_session_continue():
     check('可写档包含 write_skill', bool(rw_tools) and 'write_skill' in rw_tools[0], str(rw_tools))
 
 
+def case_confirm_cid():
+    print('[远程] 确认带 cid：迟到的答复不能放过下一次操作；超时要回结果')
+    print('::notice::[远程] 确认带 cid 与超时回执')
+
+    # ① ask 行里必须带 cid 与等待秒数（手机端才知道在回答哪一道题）
+    r = drive(['--mode=accept-edits'], '你好', answer='y', answer_cid='7-1', wait=10)
+    a0 = r['asks'][0] if r['asks'] else {}
+    check('ask 行里带 cid（回答要对上这一道题）', a0.get('cid') == '7-1', str(a0)[:160])
+    check('ask 行里带等待秒数（手机端能显示倒计时）',
+          isinstance(a0.get('wait'), int) and a0['wait'] > 0, str(a0)[:160])
+
+    # ② 回答要把 cid 原样带回 agent（否则 agent 会当成迟到答复丢掉）
+    check('回答回给 agent 时带同一个 cid', any('cid=7-1' in x for x in r['replies']),
+          str(r['replies'])[:200])
+
+    # ③ 上一道题迟到的「同意」不能当成本次答案
+    r2 = drive(['--mode=accept-edits'], '你好', answer='n', answer_cid='7-1', wait=10,
+               stale=[{'answer': 'y', 'cid': '1-9'}])
+    check('★ 旧 cid 的「同意」被丢弃（这次仍按 n 处理）',
+          any('answer=n' in x for x in r2['replies']), str(r2['replies'])[:200])
+    check('审计里记下了被丢弃的迟到答复', 'stale=' in r2['audit'], r2['audit'][-300:])
+
+    # ④ 超时：手机必须收到一句结果，并且要把「等确认」状态清掉
+    r3 = drive(['--mode=accept-edits', '--confirm-wait=2'], '你好', answer=None, wait=12)
+    check('超时后 agent 收到的是 n（fail-closed）',
+          any('answer=n' in x for x in r3['replies']), str(r3['replies'])[:200])
+    note_txt = ' '.join(str(n.get('note') or '') for n in r3['notes'])
+    check('★ 超时要给手机回一句结果（这次操作没有执行）',
+          '没有执行' in note_txt, note_txt[:200])
+    check('超时回执带 confirm_done（长连接端据此清掉等确认状态）',
+          any(n.get('confirm_done') for n in r3['notes']), str(r3['notes'])[:200])
+
+    # ⑤ 网关的等待必须比 agent 自己的确认超时短
+    r4 = drive(['--mode=accept-edits'], '你好', answer='y', answer_cid='7-1', wait=10,
+               extra_env={'CLAUDE_CONFIRM_TIMEOUT': '30'})
+    w = (r4['asks'][0] if r4['asks'] else {}).get('wait')
+    check('★ 网关等待 < agent 超时（否则多等的那段会把答复串到下一次确认）',
+          isinstance(w, int) and w < 30, 'wait=%r' % (w,))
+    check('网关等待有下限（不会小到没法回）', isinstance(w, int) and w >= 10, 'wait=%r' % (w,))
+
+
 def main():
     if not os.path.exists(GW):
         print('找不到 remote/gateway.pl')
@@ -277,7 +335,8 @@ def main():
           roots == ['--allow-write=/tmp/a.txt', '--allow-write=/tmp/b.txt'], str(roots))
 
     print('\u2463 可写档：确认转到手机 → 回 y 才放行')
-    r = drive(['--mode=accept-edits', '--allow-write=/tmp'], '帮我写 /tmp/a.txt', answer='y')
+    r = drive(['--mode=accept-edits', '--allow-write=/tmp'], '帮我写 /tmp/a.txt', answer='y',
+              answer_cid='7-1')
     check('向手机发出了一条确认', len(r['asks']) == 1, str(r['asks']))
     check('确认里带 agent 的原话', r['asks'] and '/tmp/a.txt' in r['asks'][0].get('ask', ''),
           str(r['asks'][:1]))
@@ -287,7 +346,8 @@ def main():
           'confirm_asked' in r['audit'] and 'confirm_answered' in r['audit'])
 
     print('\u2464 可写档：回 n 就是拒绝')
-    r = drive(['--mode=accept-edits', '--allow-write=/tmp'], '帮我写 /tmp/a.txt', answer='n')
+    r = drive(['--mode=accept-edits', '--allow-write=/tmp'], '帮我写 /tmp/a.txt', answer='n',
+              answer_cid='7-1')
     check('回 n 后 agent 收到 n', any('answer=n' in x for x in r['replies']), str(r['replies']))
 
     print('\u2465 没人回答 → 超时按拒绝（fail-closed）')
@@ -305,7 +365,7 @@ def main():
     check('并且说明原因', '只读' in r['err'], r['err'][:80])
 
     print('\u2467 档位只来自启动参数：会话审计里必须写明')
-    r = drive(['--mode=bypass'], 'x', answer='n')
+    r = drive(['--mode=bypass'], 'x', answer='n', answer_cid='7-1')
     check('审计里记了 mode=bypass', 'mode=bypass' in r['audit'])
     check('bypass 的工具集同样可写',
           any('write_file' in a for a in r['argv'] if a.startswith('--tools=')), str(r['argv']))
@@ -441,6 +501,7 @@ def main():
           '中文测试' in out and 'ä' not in out, out[-200:])
 
     case_session_continue()
+    case_confirm_cid()
 
     print('%d/%d 通过' % (PASS, PASS + FAIL))
     return 0

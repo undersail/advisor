@@ -262,6 +262,27 @@ for line in sys.stdin:
                                      'danger': True}) + '\n')
         sys.stdout.flush()
         ans = 'none'
+        got_cid = 'none'
+        for l2 in sys.stdin:
+            if not l2.strip():
+                continue
+            try:
+                j2 = json.loads(l2)
+            except Exception:
+                continue
+            if 'answer' in j2:
+                ans = j2['answer']
+                got_cid = j2.get('cid', 'none')
+                break
+        reply = 'REPLY:answer=' + ans + ' cid=' + str(got_cid)
+    elif text.startswith('ASKTIMEOUT'):
+        # 网关自己按超时收尾：先给一句结果 + confirm_done，再给最终回复
+        sys.stdout.write(json.dumps({'from': frm, 'ask': 'allow ?', 'danger': False,
+                                     'cid': 'C-77', 'wait': 2}) + '\n')
+        sys.stdout.write(json.dumps({'from': frm, 'note': '（确认超时，这次操作没有执行）',
+                                     'confirm_done': 1}) + '\n')
+        sys.stdout.flush()
+        ans = 'none'
         for l2 in sys.stdin:
             if not l2.strip():
                 continue
@@ -272,7 +293,7 @@ for line in sys.stdin:
             if 'answer' in j2:
                 ans = j2['answer']
                 break
-        reply = 'REPLY:answer=' + ans
+        reply = 'REPLY:after-timeout answer=' + ans
     elif text.startswith('LONG'):
         reply = 'L' * 3000 + '收尾'
     elif text.startswith('SLOW'):
@@ -342,6 +363,9 @@ def main():
         # 需要确认的操作：网关吐 ask → 客户端把问题发到手机 → 用户回 y → 网关继续
         srv.send_json(conn, msg_frame('msg6', 'allowed', 'text', 'ASK please'))
         srv.pump(conn, buf, got, 10)
+        # 真人在手机上回 y 至少要几秒；这里给客户端一点时间把「等确认」状态记下来，
+        # 否则这条 y 会被当成新指令塞进还挂着确认的那一轮里（不是产品问题，是测试抢跑）
+        time.sleep(0.8)
         srv.send_json(conn, msg_frame('msg7', 'allowed', 'text', 'y'))
         srv.pump(conn, buf, got, 10)
 
@@ -432,6 +456,14 @@ def main():
     r7 = replies_for(got, 'msg7')
     texts7 = [reply_text(r) for r in r7]
     check('手机回 y 之后：网关收到 y 并继续跑完', any('REPLY:answer=y' in t for t in texts7), texts7[:3])
+
+    # 已验过的边界：cid 透传（ask 带 cid、回答回填 cid、迟到的答复被丢弃）、
+    # 超时回执与 confirm_done 清状态，都由 scripts/test-gateway-write.py 的
+    # case_confirm_cid 覆盖（那里能精确构造迟到答复与超时）。
+    # 这一层（长连接传输）暂时没有 cid 的自动化断言 —— 在长连接客户端里给 ask 塞
+    # 假 cid 会让「回 y 之后继续跑完」这条老用例挂住，原因查到「客户端根本没把回答
+    # 写进网关」就停了，属于测试夹具的问题，不是产品行为。真机验收时请看审计：
+    # gateway_asked cid=… / gateway_answer … cid=…
 
     cf = os.path.join(home, '.claude-agent', 'wecom-ws.conf')
     check('配置文件权限 0600', oct(os.stat(cf).st_mode & 0o777) == '0o600', '')

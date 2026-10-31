@@ -636,7 +636,7 @@ sub remote_extra_args {
 # 读一轮：要么读到最终回复（reply），要么读到「需要你确认」（ask）。
 # 返回 { reply => '...' } 或 { ask => '...', danger => 0/1 } 或 undef（出异常）。
 sub gw_read_turn {
-    my ($sender, $s, $state) = @_;
+    my ($sender, $s, $state, $on_note) = @_;
     while (1) {
         my $line = readline($s->{out});
         return undef unless defined $line;
@@ -644,10 +644,24 @@ sub gw_read_turn {
         next if $line eq '';
         my $j = json_decode($line);
         return undef unless ref $j eq 'HASH';
+        # 网关的临时提示（例如「确认超时，这次操作没有执行」）
+        if (defined $j->{note}) {
+            $on_note->($j->{note}) if $on_note;
+            audit('gateway_note', "from=$sender");
+            next;   # 提示行不算一轮结束
+        }
+        # 网关自己按超时收尾了：清掉「等确认」，否则用户下一条消息会被当成答案
+        if ($j->{confirm_done}) {
+            delete $state->{wait}{$sender};
+            audit('gateway_confirm_done', "from=$sender");
+        }
         # 网关转发过来的「要不要允许」问题
         if (defined $j->{ask}) {
             audit('gateway_ask', "from=$sender danger=" . ($j->{danger} ? 1 : 0));
-            return { ask => $j->{ask}, danger => ($j->{danger} ? 1 : 0) };
+            # 记下这道题的 cid：回答时原样带回去，网关只认匹配的
+            $state->{wait}{$sender} = defined $j->{cid} ? $j->{cid} : 1;
+            return { ask => $j->{ask}, danger => ($j->{danger} ? 1 : 0),
+                     cid => $j->{cid} };
         }
         if (defined $j->{reply}) {
             audit('gateway_done', 'reply_len=' . length($j->{reply}));
@@ -658,7 +672,7 @@ sub gw_read_turn {
 }
 
 sub gw_call {
-    my ($sender, $text, $state, $on_slow, $depth, $on_ask) = @_;
+    my ($sender, $text, $state, $on_slow, $depth, $on_ask, $on_note) = @_;
     $depth ||= 0;
     my $s = $state->{gw}{$sender} || gw_spawn($sender, $state);
     return undef unless $s;
@@ -670,7 +684,7 @@ sub gw_call {
             audit('ack_sent', "from=$sender");
         }
     }
-    my $r = gw_read_turn($sender, $s, $state);
+    my $r = gw_read_turn($sender, $s, $state, $on_note);
     if (!defined $r) {
         audit('gateway_eof', "from=$sender retry=" . ($depth + 1));
         my $dead = delete $state->{gw}{$sender};
@@ -681,11 +695,11 @@ sub gw_call {
             eval { waitpid($dead->{pid}, 0) };
         }
         return undef if $depth >= 1;
-        return gw_call($sender, $text, $state, $on_slow, $depth + 1, $on_ask);
+        return gw_call($sender, $text, $state, $on_slow, $depth + 1, $on_ask, $on_note);
     }
     if (defined $r->{ask}) {
         # 需要手机端确认：这一轮先挂起，问题已经发出去，等用户下一条消息当答案
-        $state->{wait}{$sender} = 1;
+        $state->{wait}{$sender} = defined $r->{cid} ? $r->{cid} : 1;
         $on_ask->($r->{ask}, $r->{danger}) if $on_ask;
         return { pending => 1 };
     }
@@ -694,11 +708,17 @@ sub gw_call {
 
 # 用户回了 y/n 之后，接着把这一轮读完（可能还要再确认一次）
 sub gw_answer {
-    my ($sender, $answer, $state, $on_ask) = @_;
+    my ($sender, $answer, $state, $on_ask, $on_note) = @_;
     my $s = $state->{gw}{$sender} or return { reply => '' };
-    print { $s->{in} } '{"answer":"' . ($answer eq 'y' ? 'y' : 'n') . '"}' . "\n";
-    audit('gateway_answer', "from=$sender answer=" . ($answer eq 'y' ? 'y' : 'n'));
-    my $r = gw_read_turn($sender, $s, $state);
+    # ★ 把这道题的 cid 原样带回去：网关只认匹配的 cid，
+    #   所以「上一次问题迟到的 y」不会被当成这一次的答案
+    my $cid = $state->{wait}{$sender};
+    $cid = '' unless defined $cid && $cid ne '1';
+    print { $s->{in} } '{"answer":"' . ($answer eq 'y' ? 'y' : 'n') . '"'
+        . ($cid ne '' ? ',"cid":"' . json_esc($cid) . '"' : '') . "}\n";
+    audit('gateway_answer', "from=$sender answer=" . ($answer eq 'y' ? 'y' : 'n'),
+          ($cid ne '' ? "cid=$cid" : ''));
+    my $r = gw_read_turn($sender, $s, $state, $on_note);
     if ($r && $r->{ask} && $on_ask) {
         $state->{wait}{$sender} = 1;
         $on_ask->($r->{ask}, $r->{danger});
@@ -817,6 +837,8 @@ sub handle_msg {
     if (!length $text) { return }
 
     my $on_slow = sub { $reply_to->('正在处理，请稍等…', 0) };
+    # 网关的临时提示：原样发给手机（例如「确认超时，这次操作没有执行」）
+    my $on_note = sub { my $t = shift; $reply_to->($t) if defined $t && length $t };
     # 网关把 agent 的 y/n 问题转过来，这里原样交给用户；不回就超时按拒绝
     my $on_ask = sub {
         my ($prompt, $danger) = @_;
@@ -829,7 +851,7 @@ sub handle_msg {
         my $ans = $text =~ /^\s*(?:y|yes|1|true|是|允许|同意|确认|好)\s*$/i ? 'y'
                 : $text =~ /^\s*(?:n|no|0|false|否|不|取消|拒绝)\s*$/i      ? 'n'
                 : '';
-        my $r = gw_answer($sender, ($ans eq '' ? 'n' : $ans), $state, $on_ask);
+        my $r = gw_answer($sender, ($ans eq '' ? 'n' : $ans), $state, $on_ask, $on_note);
         if (ref $r eq 'HASH' && !$r->{pending}) {
             my $rep = $r->{reply} // '';
             $reply_to->($rep) if length $rep;
@@ -838,7 +860,7 @@ sub handle_msg {
         # 不是 y/n：已经按拒绝收尾，下面把这句话当新指令继续
     }
 
-    my $r = gw_call($sender, $text, $state, $on_slow, 0, $on_ask);
+    my $r = gw_call($sender, $text, $state, $on_slow, 0, $on_ask, $on_note);
     if (!defined $r) {
         audit('ws_gateway_undef', "from=$sender");
         $reply_to->('处理失败（网关异常），请稍后重试。');

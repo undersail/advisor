@@ -809,6 +809,11 @@ my %S = (
         en => "* This is a dangerous operation. Please read it carefully.\n",
         zh => "★ 这是危险操作，请仔细确认。\n",
     },
+    confirm_void_note    => {
+        ja => "（前の確認への遅れた返事 %d 件を無視しました）\n",
+        en => "(ignored %d late replies that belonged to an earlier confirmation)\n",
+        zh => "（有 %d 条答复属于上一道确认，已忽略）\n",
+    },
     danger_timeout_note  => {
         ja => "（%d 秒応答が無かったため拒否しました）\n",
         en => "(%d seconds with no answer, so it was refused)\n",
@@ -1294,6 +1299,7 @@ my @WRITE_ROOTS_RAW;      # --allow-write / CLAUDE_ALLOW_WRITE 的原始值
 my @WRITE_ROOTS;          # 解析后的追加可写目录
 my @WRITE_ROOTS_DENY;     # 明确加进来也不许写的位置
 my $CONFIRM_REASON = '';  # 上一次 confirm() 拒绝的理由
+my $CONFIRM_SEQ = 0;      # 每次确认一个 id（cid），迟到的答复一律不认
 my $PENDING_MODE = '';    # /mode bypass 的「等 yes」状态
                           #        （由 Python/tkinter 的 GUI 在后台驱动）
 
@@ -3366,9 +3372,12 @@ sub confirm {
     # GUI 模式：发出确认事件，等返回的 reply。
     # 只有危险操作才缩短等待（免得没人守着时卡死）。
     if ($GUI) {
-        gui_send({ t => 'confirm', prompt => $msg, danger => $danger });
+        my $cid = sprintf('%d-%d', $$, ++$CONFIRM_SEQ);
+        gui_send({ t => 'confirm', cid => $cid, prompt => $msg,
+                   danger => $danger, timeout => $wait });
         my $value;
         my $got = 0;
+        my $stale = 0;
         eval {
             local $SIG{ALRM} = sub { die "ALARM_CONFIRM\n" };
             alarm($wait) if $wait > 0;
@@ -3376,6 +3385,10 @@ sub confirm {
                 my $r = gui_read();
                 last unless defined $r;                  # GUI 已关闭
                 next unless $r->{t} && $r->{t} eq 'reply';
+                # ★ 只认这一回的 cid。没有 cid 或对不上 = 上一条问题迟到的答复，
+                #   丢掉 —— 否则「我明明没同意」的那次操作会被人后面点的一下放过去。
+                my $rc = defined $r->{cid} ? $r->{cid} : '';
+                if ($rc ne $cid) { $stale++; next; }
                 $value = $r->{value};
                 $got = 1;
                 last;
@@ -3384,7 +3397,10 @@ sub confirm {
         };
         alarm(0);
         if (!$got) {
+            # 让界面把「这道题已经作废」的弹窗关掉，别留着让人点
+            gui_send({ t => 'confirm_cancel', cid => $cid });
             $CONFIRM_REASON = ($@ && $@ =~ /ALARM_CONFIRM/) ? 'timeout' : 'nochannel';
+            emit_note(L('confirm_void_note', $stale)) if $stale;
             return 0;
         }
         unless (defined $value && $value =~ /^(y|yes|1|true)$/i) {

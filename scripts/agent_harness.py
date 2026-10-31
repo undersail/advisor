@@ -192,7 +192,8 @@ class Agent:
             events.append(obj)
             self.events.append(obj)
             if obj.get('t') == 'confirm' and answer is not None:
-                self.send({'t': 'reply', 'value': answer})
+                # 和真 GUI 一样：把这道题的 cid 带回去
+                self.send({'t': 'reply', 'cid': obj.get('cid', ''), 'value': answer})
             if obj.get('t') in ('turn_done', 'bye'):
                 break
         return events

@@ -221,7 +221,8 @@ class Agent:
             events.append(obj)
             self.events.append(obj)
             if obj.get('t') == 'confirm' and answer is not None:
-                self.send({'t': 'reply', 'value': answer})
+                # 必须带上这道题的 cid：agent 只认匹配的 cid（迟到的答复一律不认）
+                self.send({'t': 'reply', 'cid': obj.get('cid', ''), 'value': answer})
             if stop_on and stop_on(obj):
                 break
             if obj.get('t') in ('turn_done', 'bye'):
@@ -426,6 +427,42 @@ def case_bypass_timeout(tmp, base):
         tr = last_tool_results()
         check('timeout-case' not in tr, '命令没有真的执行', tr[:200])
         check('拒绝' in tr or '无人应答' in tr, '模型收到的结果里写明了拒绝原因', tr[:300])
+    finally:
+        a.stop()
+
+
+
+def case_confirm_cid_stale(tmp, base):
+    print('[确认] 只认本道题的 cid：迟到的 y 不能放行；超时把作废的弹窗撤掉')
+    print('::notice::[确认] cid 校验与超时撤销')
+    work = os.path.join(tmp, 'cid')
+    os.makedirs(work, exist_ok=True)
+    mark = os.path.join(work, 'keep.txt')
+    with open(mark, 'w') as f:
+        f.write('x')
+    a = Agent(tmp, 'bypass', base, {'CLAUDE_CONFIRM_TIMEOUT': '2'})
+    try:
+        SCRIPT.push_tool('run_shell', {'command': 'rm -f ' + mark})
+        SCRIPT.push_text('done')
+        a.send({'t': 'user', 'text': '把那个文件删掉'})
+        ev1 = a.collect(timeout=30, stop_on=lambda o: o.get('t') == 'confirm', answer=None)
+        conf = confirms(ev1)
+        check(len(conf) == 1, '危险命令问了确认', str(conf)[:120])
+        cid = (conf[0].get('cid') if conf else '') or ''
+        check(bool(cid), '确认事件带 cid（答复要对上这一道题）', str(conf[:1])[:160])
+
+        # 只来一条「上一道题的同意」：cid 对不上，必须被丢掉，然后按超时拒绝
+        a.send({'t': 'reply', 'cid': 'bogus-9', 'value': 'y'})
+        ev2 = a.collect(timeout=40)
+        # 文件还在 = 命令没跑（条件别写反：这里要的是「存在」）
+        check(os.path.exists(mark), '★ 迟到的「同意」没有让命令跑起来', mark)
+        bodies = texts(ev2)
+        check('忽略' in bodies, '明确说了有一条迟到的答复被忽略', bodies[:200])
+        tr = last_tool_results()
+        check('拒绝' in tr or '无人应答' in tr, '模型收到的结果写明了拒绝', tr[:200])
+        cancels = [e for e in ev2 if e.get('t') == 'confirm_cancel']
+        check(len(cancels) == 1 and (cancels[0].get('cid') or '') == cid,
+              '超时后发 confirm_cancel（界面据此撤掉作废的弹窗）', str(cancels)[:160])
     finally:
         a.stop()
 
@@ -650,6 +687,7 @@ def main():
         case_accept_edits(tmp, base)
         case_bypass(tmp, base)
         case_bypass_timeout(tmp, base)
+        case_confirm_cid_stale(tmp, base)
         case_write_scope(tmp, base)
         case_cmd_write_scope(tmp, base)
         case_shell_limits(tmp, base)

@@ -193,6 +193,31 @@ _S = {
         "en": "The AI wants to do the following:\n\n{prompt}\n\nAllow it?",
         "zh": "AI 即将执行以下操作：\n\n{prompt}\n\n允许吗？",
     },
+    "confirm_allow": {
+        "ja": "許可する",
+        "en": "Allow",
+        "zh": "同意执行",
+    },
+    "confirm_deny": {
+        "ja": "拒否する",
+        "en": "Deny",
+        "zh": "拒绝",
+    },
+    "confirm_countdown": {
+        "ja": "あと {sec} 秒で自動的に拒否します（Enter は拒否）",
+        "en": "Auto-deny in {sec}s (Enter = deny)",
+        "zh": "还有 {sec} 秒自动拒绝（回车 = 拒绝）",
+    },
+    "confirm_expired": {
+        "ja": "（時間切れのため拒否しました。この操作は実行されていません）",
+        "en": "(Timed out, so it was denied. Nothing was executed.)",
+        "zh": "（已超时并拒绝，这次操作没有执行）",
+    },
+    "confirm_stale": {
+        "ja": "（前の確認への遅れた返事を 1 件無視しました）",
+        "en": "(Ignored a late reply to an earlier confirmation.)",
+        "zh": "（忽略了一条上一道确认的迟到答复）",
+    },
     "passphrase_default": {
         "ja": "パスフレーズ",
         "en": "Passphrase",
@@ -2572,10 +2597,11 @@ class AdvisorGUI:
             self._fill_menu([{"id": k, "label": v} for k, v in
                              getattr(self, "_model_labels", {}).items()])
         elif t == "confirm":
-            ok = messagebox.askyesno(
-                L("confirm_title"),
-                L("confirm_body", prompt=obj.get("prompt", "")))
-            self._write({"t": "reply", "value": "y" if ok else "n"})
+            self._show_confirm(obj)
+        elif t == "confirm_cancel":
+            # 后端已经自己按超时/无人应答收尾 —— 把这道题的弹窗撤掉，
+            # 不然留一个「同意」按钮在那儿，点下去会落到下一个操作上
+            self._close_confirm(obj.get("cid"), expired=True)
         elif t == "need_passphrase":
             self._ask_passphrase(obj.get("prompt", L("passphrase_default")),
                                  recover=bool(obj.get("recover")))
@@ -2896,6 +2922,103 @@ class AdvisorGUI:
         _lab(dlg, L("remote_ok_hint"), fg=th["dim"], wraplength=520).pack(
             padx=18, pady=(0, 12), anchor="w")
         dlg.protocol("WM_DELETE_WINDOW", dlg.destroy)
+
+    def _show_confirm(self, obj):
+        """确认对话框：拒绝是默认按钮、带倒计时、可被 confirm_cancel 撤掉。
+
+        不用 messagebox.askyesno 的两个原因：
+          ① 它的默认按钮是「是」，回车就等于同意 —— 人没想清楚就按了回车；
+          ② 它阻塞在这条事件处理里，后端超时收尾后也没法关掉它，
+             留着的那一下「同意」会被下一个确认吃掉。
+        """
+        self._close_confirm(None, quiet=True)
+        cid = str(obj.get("cid") or "")
+        prompt = str(obj.get("prompt") or "")
+        try:
+            wait = int(obj.get("timeout") or 0)
+        except (TypeError, ValueError):
+            wait = 0
+        dlg = tk.Toplevel(self.root)
+        dlg.title(L("confirm_title"))
+        dlg.transient(self.root)
+        body = str(obj.get("prompt") or "")
+        tk.Label(dlg, text=L("confirm_title"), font=(self.font[0], self.font[1] + 1, "bold"),
+                 fg=self.c["fg"], bg=self.c["bg"]).pack(anchor="w", padx=14, pady=(12, 4))
+        txt = tk.Text(dlg, height=min(12, max(3, body.count("\n") + 2)), width=64,
+                      wrap="word", bg=self.c["input_bg"], fg=self.c["fg"],
+                      relief="flat", highlightthickness=1,
+                      highlightbackground=self.c["border"], font=self.font)
+        txt.insert("1.0", L("confirm_body", prompt=prompt))
+        txt.configure(state="disabled")
+        txt.pack(padx=14, pady=(0, 8), fill="both", expand=True)
+        tick_var = tk.StringVar(value="")
+        if wait > 0:
+            tk.Label(dlg, textvariable=tick_var, fg=self.c["dim"], bg=self.c["bg"],
+                     font=self.font).pack(anchor="w", padx=14)
+        btns = tk.Frame(dlg, bg=self.c["bg"])
+        btns.pack(fill="x", padx=14, pady=(6, 12))
+
+        def answer(val):
+            self._write({"t": "reply", "cid": cid, "value": val})
+            self._close_confirm(cid, quiet=True)
+
+        deny = tk.Button(btns, text=L("confirm_deny"), command=lambda: answer("n"))
+        deny.pack(side=tk.RIGHT, padx=(6, 0))
+        tk.Button(btns, text=L("confirm_allow"), command=lambda: answer("y")).pack(side=tk.RIGHT)
+        # 回车 = 拒绝（默认按钮），误按回车不会放行
+        dlg.bind("<Return>", lambda e: (answer("n"), "break")[1])
+        dlg.bind("<Escape>", lambda e: (answer("n"), "break")[1])
+        dlg.protocol("WM_DELETE_WINDOW", lambda: answer("n"))
+        deny.focus_set()
+        self._confirm = {"cid": cid, "dlg": dlg, "timer": None, "left": wait}
+        if wait > 0:
+            self._confirm_tick()
+        dlg.lift()
+
+    def _confirm_tick(self):
+        st = getattr(self, "_confirm", None)
+        if not st or not st.get("dlg"):
+            return
+        left = st.get("left") or 0
+        if left <= 0:
+            # 自己先到点了：按拒绝回，并把弹窗撤掉（后端可能同时也作废了这道题）
+            cid = st.get("cid") or ""
+            self._write({"t": "reply", "cid": cid, "value": "n"})
+            self._close_confirm(cid, expired=True)
+            return
+        try:
+            if not st["dlg"].winfo_exists():
+                return
+        except Exception:
+            return
+        st["left"] = left - 1
+        try:
+            for child in st["dlg"].winfo_children():
+                if isinstance(child, tk.Label) and child.cget("textvariable"):
+                    child.configure(text=L("confirm_countdown", sec=left))
+        except Exception:
+            pass
+        st["timer"] = self.root.after(1000, self._confirm_tick)
+
+    def _close_confirm(self, cid, expired=False, quiet=False):
+        st = getattr(self, "_confirm", None)
+        if not st:
+            return
+        if cid is not None and str(cid) != str(st.get("cid") or ""):
+            return                      # 不是这道题（迟到的作废通知），不理会
+        try:
+            if st.get("timer"):
+                self.root.after_cancel(st["timer"])
+        except Exception:
+            pass
+        try:
+            if st.get("dlg"):
+                st["dlg"].destroy()
+        except Exception:
+            pass
+        self._confirm = None
+        if expired and not quiet:
+            self._append(L("confirm_expired"), "dim")
 
     def _ask_passphrase(self, prompt, recover=False):
         # 没有确认框（只做一次）。防打错由「口令」保证。
