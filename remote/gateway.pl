@@ -75,7 +75,7 @@ my @REMOTE_ROOTS;                      # --allow-write 的目录
 # 旧值是固定的 120 秒，而 agent 60 秒就按拒绝收尾了 —— 多出来的那一分钟里，
 # 手机回的 y 会落到**下一次**确认上（等于没人同意却执行了）。
 # 远程（手机）给人的确认时间：本地 60 秒够，手机上「看到问题→想一下→打字」不够。
-my $REMOTE_CONFIRM_SECS = 180;
+my $REMOTE_CONFIRM_SECS = 120;
 sub agent_confirm_timeout {
     my $v = defined $ENV{CLAUDE_CONFIRM_TIMEOUT} ? $ENV{CLAUDE_CONFIRM_TIMEOUT} : '';
     return $v if $v =~ /^\d+$/;

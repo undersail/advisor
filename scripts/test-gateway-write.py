@@ -307,6 +307,12 @@ def case_confirm_cid():
     # 注：Perl 的 readline 会把管道内容预读进自己的缓冲区，IO::Select 看不到，
     # 所以这条旧答复实际是被「cid 对不上」挡下来的（两条防线任一生效即可）。
 
+    # ⑧ 远程默认给 120 秒（网关 115 秒收尾）：手机上看题+回话够用，又比 agent 早
+    r7 = drive(['--mode=accept-edits'], '你好', answer='y', answer_cid='7-1', wait=10,
+               extra_env={'CLAUDE_CONFIRM_TIMEOUT': ''})
+    w7 = (r7['asks'][0] if r7['asks'] else {}).get('wait')
+    check('远程默认等待 115 秒（agent 120 − 5）', w7 == 115, 'wait=%r' % (w7,))
+
     # ⑤ 网关的等待必须比 agent 自己的确认超时短
     r4 = drive(['--mode=accept-edits'], '你好', answer='y', answer_cid='7-1', wait=10,
                extra_env={'CLAUDE_CONFIRM_TIMEOUT': '30'})
