@@ -111,6 +111,9 @@ advisor --set-recovery          # 设置/修改恢复用的密保（同上）
 advisor --no-history            # 本次不保存（等价 CLAUDE_NO_HISTORY=1）
 ```
 
+上面这些**维护命令纯本地、不联网**（`--list-history` / `--make-plain-history` /
+`--change-passphrase` / `--set-recovery`），所以不要求配置任何 API key。
+
 - **默认是明文**：`~/.claude-agent/history/<时间戳>.json`，文件权限 `0600`、目录 `0700`。
   启动不问口令，也不会因为忘记口令而丢掉历史。
 - **想要加密**就用 `--encrypt-history` 启动：走口令流程，存成 `*.json.enc`，

@@ -433,7 +433,7 @@ grep -E "confirm_asked|confirm_drain|gateway_asked|gateway_answer|confirm_answer
 
 | 看到什么 | 说明 |
 |---|---|
-| `confirm_asked … cid=… wait=…` | 网关把问题发出去了，并写明等多久（默认 115 秒） |
+| `confirm_asked … cid=… wait=…` | 网关把问题发出去了，并写明等多久（默认 295 秒，跟着 agent 的 300 秒走） |
 | `gateway_asked` 之后**没有** `gateway_answer` | 手机的答复没进网关：可能是消息没送到、或客户端把它当成新指令了 |
 | `answer_early` / `early_answer_used` | 答复比客户端记下「等确认」还早到 —— 已自动攒起来用掉（v0.2.6 起） |
 | `confirm_answered … stale=1` | 答复带的 cid 对不上，被判成上一道题的迟到答复（丢弃） |
@@ -441,3 +441,23 @@ grep -E "confirm_asked|confirm_drain|gateway_asked|gateway_answer|confirm_answer
 
 真机验收：让它做一次需要确认的操作 → ①回 y 应执行 ②回 n 应拒绝 ③不回，到点后应收到
 「（确认超时，这次操作没有执行）」，并且审计里三行能对上。
+
+## v0.2.6 真机必测（四条）
+
+这四条都是「手机上看得到结果」的验收，不需要开终端：
+
+1. **跑完必须有话说**：让它跑一串命令但不许写总结（如「只执行，不要总结」）。预期：仍旧收到
+   一句话（「这一轮跑了 N 次工具调用，但没有产生总结文字」），而不是一片空白。审计有
+   `reply_empty_filled`。
+2. **会话起不来要说原因**：把 `remote.conf` 临时改坏（或 `CLAUDE_AGENT` 指向不存在的文件），
+   重启服务后发一条消息。预期：手机上直接看到「本机会话没起来…原因：<子进程原话>」，
+   不再是「原因写在 Mac 的日志里」。恢复配置后再发，应正常。
+3. **安装布局也能起**：用 `setup.sh` 装出的副本（`~/claude-build/`）启动远程服务 ——
+   历史故障是这里必然 `session_not_ready`（agent 路径只认仓库布局）。预期：正常起来；
+   审计里有 `agent_path=/Users/<用户名>/claude-build/claude-agent.pl`。
+4. **维护命令不要密钥**：临时把 `~/.claude-agent-env` 里的 key 行注释掉，跑
+   `advisor --list-history`。预期：正常列出历史，不再打印「请设置 ANTHROPIC_API_KEY」。
+
+确认时限（5 分钟）的完整验收：让它做一次需要确认的操作 → ①回 `y` 应执行 ②回 `n` 应拒绝
+③不回，5 分钟后应收到「确认超时，这次操作没有执行」，审计里 `confirm_answered … timeout=1`
+（网关侧 `wait=295`）。想调短便于测试：`remote.conf` 里写 `CONFIRM_SECS=30`。

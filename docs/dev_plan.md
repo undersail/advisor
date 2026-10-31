@@ -439,7 +439,7 @@ shell 的机器暴露给"任何能给这个账号发消息的人"。
 
 1. **三档都做**：`default` / `accept-edits` / `bypass`；`accept-edits` 只放宽写文件，命令照旧确认。
 2. **危险命令改为弹确认**（不硬拒）：三档通用；因此必须配「无人应答 fail-closed」——
-   60 秒超时即拒绝、无 tty 无 GUI 直接拒绝，绝不把「没人回答」当同意，也绝不挂死会话。
+   300 秒（5 分钟）超时即拒绝、无 tty 无 GUI 直接拒绝，绝不把「没人回答」当同意，也绝不挂死会话。
 3. **可写目录是会话级白名单、可多个**：`--allow-write`（可重复）/ `CLAUDE_ALLOW_WRITE`（冒号分隔）/
    `/allow-write` 会话内增删查；`write_file` 与命令写目标共用同一份列表；
    `~/.claude-agent`、`/etc`、`/usr` 等**即使显式加入也不放行**。
@@ -904,7 +904,7 @@ macOS 的 `cp` 默认连**扩展属性**一起拷，普通用户经常 EPERM。�
 
 ```
 本机会话没起来，这次没有执行。原因：Can't open perl script
-"/Users/Jack/claude-build/agent/claude-agent.pl": No such file or directory
+"/Users/<用户名>/claude-build/agent/claude-agent.pl": No such file or directory
 ```
 
 **根因**：`gateway.pl` 只算一种布局 —— `$SCRIPT_DIR/agent/claude-agent.pl`。而 `setup.sh`

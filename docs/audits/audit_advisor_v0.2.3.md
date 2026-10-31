@@ -342,7 +342,7 @@ unable to get local issuer certificate … HTTP/1.1 101 Switching Protocols`，�
 
 ### 6.5.7 回复体 msgtype 用错：真机 errcode=40008
 
-真机日志：`ws_sent to=Jack part=1/1 len=444` 之后紧跟
+真机日志：`ws_sent to=<用户名> part=1/1 len=444` 之后紧跟
 `ws_send_err req=… errcode=40008 errmsg=invalid message type` —— 消息发出去了、服务端拒收。
 
 原因：`aibot_respond_msg` 的 `body.msgtype` 只接受 `stream`（`{stream:{id,finish,content}}`）；
@@ -360,7 +360,7 @@ unable to get local issuer certificate … HTTP/1.1 101 Switching Protocols`，�
 
 ### 6.5.8 会话起不来时静默（真机 session_not_ready）
 
-真机日志：`ws_inbound from=Jack` → `gateway_spawn` → `session_not_ready from=Jack` →
+真机日志：`ws_inbound from=<用户名>` → `gateway_spawn` → `session_not_ready from=<用户名>` →
 `gateway_done reply_len=0`。连接、白名单、消息投递都正常，卡在「agent 没发出 `{"t":"ready"}`」。
 
 缺陷在可诊断性：`gateway.pl` 的 `!ready` 分支只记一句 `session_not_ready`，

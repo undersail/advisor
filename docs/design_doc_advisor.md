@@ -694,10 +694,17 @@ Tier A 的接口已经预留：`CLAUDE_CURL` / `CLAUDE_CACERT` 可指向自建 t
 | `CLAUDE_NO_HISTORY` | `1` = 不保存历史（不问口令） |
 | `CLAUDE_LANG` | `zh`（默认）/ `en` / `ja` 强制语言，否则自动检测系统语言 |
 | `CLAUDE_GEMINI_THINKING` | `high` 加深 Gemini 思考 |
-| `CLAUDE_MODE` | **计划中（§10）**：`default` / `accept-edits` / `bypass`；命令行 `--mode=` 等效 |
-| `CLAUDE_SHELL_TIMEOUT` | **计划中（§10）**：`run_shell` 超时秒数，默认 120，`0` = 不限 |
-| `CLAUDE_CONFIRM_TIMEOUT` | **计划中（§10）**：危险操作确认等待秒数，默认 60，超时即拒绝 |
-| `CLAUDE_ALLOW_WRITE` | **计划中（§10）**：额外可写目录，冒号分隔，可多个 |
+| `CLAUDE_MODE` | `default` / `accept-edits` / `bypass`（§10）；命令行 `--mode=` 优先 |
+| `CLAUDE_SHELL_TIMEOUT` | `run_shell` 超时秒数，默认 120，`0` = 不限 |
+| `CLAUDE_CONFIRM_TIMEOUT` | 危险操作确认等待秒数，**默认 300**，超时按拒绝处理（见文末「附：确认时限统一 300 秒」） |
+| `CLAUDE_ALLOW_WRITE` | 额外可写目录，冒号分隔，可多个（白名单只管 `accept-edits`） |
+| `CLAUDE_HTTP_RETRY` | 连接类/429/5xx 失败的重试次数，默认 2，`0` = 不重试（见文末「附：报错分层与退避重试」） |
+| `CLAUDE_ENCRYPT_HISTORY` | `1` = 历史加密（默认明文，§5） |
+| `CLAUDE_HISTORY_DIR` / `CLAUDE_HIST_PASS` | 覆盖历史目录 / 加密口令来源 |
+| `CLAUDE_AGENT` | 网关拉起哪个 agent；缺省按 `agent/` → 扁平 → `~/claude-build/` 候选顺序找（见文末「附：远程服务怎么找到 agent、用什么环境」） |
+| `CLAUDE_REMOTE_CONF` | 覆盖 `~/.claude-agent/remote.conf` |
+| `CLAUDE_DEBUG_LOG` / `CLAUDE_DEBUG_INPUT` | 诊断日志位置 / 记录原始输入（排查用，默认关） |
+| `WECOM_WS_BACKOFF_BASE` / `WECOM_WS_BACKOFF_MAX` | 长连接重连退避的起点与上限（秒） |
 
 `models.txt` 格式：`<model_id>|<日本語>|<English>|<中文>|<provider>|<base_url>|[flags]`，一行一条。只有前两列必需，第 3 列起可省（老的三列表仍可直接用）。
 CI 里有格式卡口，改格式必须同步改 CI。
@@ -936,7 +943,7 @@ CI 里有格式卡口，改格式必须同步改 CI。
 |---|---|
 | 终端有 tty | 复用现有 `confirm()` 的 y/n 循环，提示里标明「危险操作」 |
 | GUI 已连接 | 复用 `{t:'confirm'}`，弹窗标题区分危险操作 |
-| 无人应答 | 60 秒后拒绝，结果里写清原因（不重试、不降级为放行） |
+| 无人应答 | 300 秒（5 分钟）后拒绝，结果里写清原因（不重试、不降级为放行）；超时回执里说明可调 |
 | 无 tty 且无 GUI | 直接拒绝，不进等待循环 |
 | 用户拒绝 | 结果回给模型「已拒绝」，模型按既有提示词重述方案而不是重试同一命令 |
 
@@ -979,7 +986,7 @@ CI 里有格式卡口，改格式必须同步改 CI。
 |---|---|
 | M0 | `run_shell` 改为 fork + 独立进程组 + 输出落文件：超时 120s（`CLAUDE_SHELL_TIMEOUT`，0=不限），打断走 TERM → 0.5s → KILL **整组**（`npm` 的孙进程也停）；输出上限 64 KB，超出注明原大小；输出按 UTF-8 解码并替换非法字节（原来是裸字节，可能把 API 请求搞坏） |
 | M1 | `--mode=` / `CLAUDE_MODE`；**非法值 exit 2**（不静默回落）；系统提示词按模式三套；启动横幅打印模式与可写目录 |
-| M2 | 危险命令 15 条形态规则 + 交互式命令首 token 判定（按 `\|` `;` `&&` 分段，`cat x \| less` 也拦）；三档都确认；GUI/终端确认 60s 超时（`CLAUDE_CONFIRM_TIMEOUT`）→ 拒绝；无 tty 且无 GUI → 直接拒绝；`echo sudo` 这类无害形态也拦（宁可多问一次） |
+| M2 | 危险命令 15 条形态规则 + 交互式命令首 token 判定（按 `\|` `;` `&&` 分段，`cat x \| less` 也拦）；三档都确认；GUI/终端确认超时（`CLAUDE_CONFIRM_TIMEOUT`，v0.2.6 起 300 秒）→ 拒绝；无 tty 且无 GUI → 直接拒绝；`echo sudo` 这类无害形态也拦（宁可多问一次） |
 | M3 | 可写范围：`--allow-write`（可重复，也认 `--allow-write x`）/ `CLAUDE_ALLOW_WRITE`（冒号分隔）/ `/allow-write` 增·查·清；路径展开 `~` 后按真实路径判定；永久禁止目录优先于范围判定；每次扩范围写审计 |
 | M4 | `~/.claude-agent/approvals.log`（0600 只追加）+ `/approvals` 取最近 10 条；每次自动批准在消息流插一行 |
 | M5 | `/mode` 查改 + **切 bypass 需再输一次 `yes`**；持久化到 `~/.claude-agent-env`；GUI 页眉「模式 ▾」菜单 + 常驻徽标（bypass 用主题危险色），GUI 切 bypass 也先确认一次 |
@@ -1039,7 +1046,7 @@ CI 里有格式卡口，改格式必须同步改 CI。
 | 情形 | bypass 下 | accept-edits / default 下 |
 |---|---|---|
 | 命中**永久禁止**目录（`/etc`、`~/.claude-agent` 等） | **直接拒绝**（不问，因为问了也不允许） | 照旧确认（不额外拦） |
-| 在**可写范围外**、非永久禁止 | **升级为确认**（带 `strict`：60 秒无人应答即拒绝） | 本来就要确认 |
+| 在**可写范围外**、非永久禁止 | **升级为确认**（带 `strict`：300 秒无人应答即拒绝） | 本来就要确认 |
 | 在可写范围内 / 识别不到 | 照常自动执行 | 照常确认 |
 
 **为什么是「升级为确认」而不是直接拒**：识别是 best effort，直接拒会误伤
@@ -1136,3 +1143,101 @@ GUI 换成自制确认框（回车=拒绝、倒计时到点自动拒绝并撤窗
 网关等待改成 `agent 超时 − 5 秒`（下限 10s），ask 带 `cid`/`wait`、只认匹配 cid，
 **超时立刻给手机回一句「这次操作没有执行」并带 `confirm_done`**（长连接端据此清状态）。
 
+
+## 附：确认时限统一 300 秒（v0.2.6）
+
+原值 60/120/115 是拍出来的：手机上「几分钟后才看到提示」是常态，
+两分钟内等不到就系统性失败（Hermes 的注释原话是
+`60s failed closed before Telegram taps landed`）。现在**本地上下一律 300 秒**：
+本地 CLI/GUI 300、远程 agent 300、网关 **295**（永远早 5 秒收尾，避免两边抢答）。
+
+- 手机端终于有正门：`remote.conf` 的 **`CONFIRM_SECS`**（此前只有环境变量和启动参数，
+  等于手机侧没法调），命令行 `--confirm-wait` 优先，用了记审计 `confirm_secs_conf`
+- 提问与超时回执共用 `fmt_window()`，把 300 说成「5 分钟」；超时回执里写清
+  「等待上限 5 分钟，嫌短可以配 `CONFIRM_SECS`」
+- 不变的红线：超时**一律按拒绝**，且必须给用户一句结果（不许静默）
+
+## 附：跑完必须「有话说」（reply_len=0，v0.2.6）
+
+**现象**：手机上一条消息过去，任务其实跑完了（电视都开始缓冲了），回复却是空的，
+审计只有 `ws gateway_done reply_len=0`。
+
+**根因**：网关只把 `text`/`error` 当回复，`note` 一律忽略。三种典型走法都只产生 note
+或什么都不产生：命令只走 note（如 `/history`）、模型只回了思考、工具链跑完没写总结。
+
+**修法两边都堵**：
+- agent：每轮清零 `$TURN_TEXTS`/`$TURN_TOOLS`，`emit_text`/`emit_error` 计数；
+  一轮结束一条都没有 → 补一句「这一轮跑了 N 次工具调用，但没有产生总结文字」
+- 网关：reply 为空就按本轮工具数生成说明，并记审计 `reply_empty_filled`
+
+## 附：答复比「等确认」更早到（v0.2.6）
+
+手机的 `y` 在客户端还没记下「正在等确认」时就已经到了，旧实现里这条答复被当普通回合
+丢掉，于是「回了 y 却等来超时」。现在：`gw_call` 一转发就记 `inflight`，期间收到的
+纯 `y`/`n` 存进 `early_answer` 并回一句「收到，正在等这一步的确认结果…」，
+**不当场写进网关**（否则会给普通回合塞入不属于任何确认的答复）；真等到了就
+`early_answer_used` 直接用掉，全程记审计。
+
+## 附：请求体 content 永不为 null（422，v0.2.6）
+
+**现象**：长会话里报 `HTTP 422 … messages[430]: content should be a string or a list`。
+**根因**：`build_request_openai` 组装「带工具调用的 assistant 消息」时
+`$m->{content} = join("\n",@texts) if @texts;` —— 纯工具调用那一轮没有正文，
+content 恒为 undef，`MiniJSON::encode(undef)` 出 `"content":null`。
+OpenAI 容忍，DeepSeek（Rust serde）直接 422。**不是厂商抽风，是我们发的请求体不合规。**
+
+**两层修**（只改根因治不了 `--continue` 读回的旧会话里已存的 null）：
+① 根因处改成 `@texts ? join("\n",@texts) : ''`；
+② 出口再扫一遍，undef 与哈希对象都转成字符串，并记下标；
+③ 真不合规时回复里写「第 N 条消息：role=? content=? 带几个工具调用」，
+不再只说一句 422。
+
+## 附：报错分层与退避重试（v0.2.6）
+
+- **只有真连不上才叫连不上**：HTTP 状态码为空/`000` → `cannot_connect_api`
+  （厂商 · 地址 · 试了几次 + 三步排查：密钥 / 能否访问该域名 / 是否需要代理）；
+  401/422 等业务错误**原样透传**，绝不套连接模板
+- **重试只覆盖连接失败与 429/5xx**：间隔 2s、5s，最多 2 次（`CLAUDE_HTTP_RETRY`）；
+  400/401/402/404 一律不重试 —— 业务错误重试只浪费时间和钱
+- **错误文本绝不原样回吐**：系统提示要求翻成「哪里失败 + 为什么 + 下一个动作」，
+  禁止对用户说「重发」，同类失败连续 2 次必须停下汇报
+
+## 附：远程服务怎么找到 agent、用什么环境（v0.2.6）
+
+**真机故障**：手机发消息得到「本机会话没起来」，审计 `session_not_ready` 的尾巴是
+`Can't open perl script "…/claude-build/agent/claude-agent.pl": No such file or directory`。
+
+原因不是密钥也不是模型，而是**只认了一种目录布局**：网关把 agent 算成
+`$SCRIPT_DIR/agent/claude-agent.pl`（仓库布局），而 `setup.sh` 装出来的是**扁平**布局
+（`<build>/claude-agent.pl` + `<build>/remote/*.pl`）。
+
+修法三处一起做：
+1. `resolve_agent_path()` 按候选顺序找：`CLAUDE_AGENT` → 仓库布局 → 扁平布局 →
+   `~/claude-build/claude-agent.pl`；全找不到时把**找过的每个位置**都写进
+   `session_not_ready`，不再只说一句 No such file
+2. GUI 起远程服务时显式给出 `CLAUDE_AGENT`（就是 GUI 自己用的那份），不让网关猜布局
+3. 网关启动即记审计 `agent_path=…`，以后再出问题一眼看到用的是哪个文件
+
+**同一套环境**：GUI 起远程服务原来**不传 env**，只继承 GUI 进程的环境 —— 从 Finder
+启动的 GUI 没有 shell 里那些变量，于是远程链路上的 agent 和命令行启动时看到的不是
+同一份。现在抽 `service_env()`（`os.environ` + `~/.claude-agent-env` + `CLAUDE_CURL` /
+`CLAUDE_MODELS_FILE` 缺省），GUI 后端与远程服务共用这一个入口。
+
+**起不来必须说原因**：原来只回「原因已写在 Mac 的终端输出和审计日志里」——人在手机上，
+等于没给原因。现在把子进程 stderr 开头（长串凭据形态打成 `***`、截到 160 字）直接拼进
+回复，完整输出仍在审计里。
+
+## 附：本地维护命令不要密钥；备份不拷扩展属性（v0.2.6）
+
+**现象**：`perl claude-agent.pl --make-plain-history` 先打印「请设置 ANTHROPIC_API_KEY」，
+得先配个 key 才能转明文；设好 key 再跑，又刷一屏
+`cp: …: unable to copy extended attributes … Permission denied`。
+
+- **入口缺陷**：`--make-plain-history` / `--list-history` / `--change-passphrase` /
+  `--set-recovery` 全是纯本地维护命令，却在密钥检查之后才分发。现在这几个先分发、
+  不校验密钥（它们根本不联网）
+- **xattr**：macOS 的 `cp` 默认连扩展属性一起拷，普通用户对某些 xattr 没权限 → 逐文件
+  EPERM；旧实现「退出码非 0 就是备份失败」，于是内容明明都拷过去了还判失败。
+  现在 macOS 用 `cp -R -X`（不拷扩展属性），且**成败不看退出码**，逐个核对
+  「每个 `*.json.enc` 都在、且大小与源文件一致」
+- 语义不变：备份判失败 → **直接返回，一个文件都不删**（宁可不转，也不丢历史）
