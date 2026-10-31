@@ -50,9 +50,37 @@ $| = 1;
 binmode STDERR, ':encoding(UTF-8)';
 
 my $SCRIPT_DIR   = dirname(dirname(Cwd_abs($0)));
-my $AGENT        = (defined $ENV{CLAUDE_AGENT} && $ENV{CLAUDE_AGENT} ne "")
-    ? $ENV{CLAUDE_AGENT}                      # 仅测试用：换成假 agent
-    : "$SCRIPT_DIR/agent/claude-agent.pl";
+
+# agent 在哪，**不能只认仓库布局**：
+#   · 仓库里：   <repo>/remote/gateway.pl  → <repo>/agent/claude-agent.pl
+#   · setup.sh： ~/claude-build/remote/…   → ~/claude-build/claude-agent.pl（扁平！）
+# 只认前一种会让「从安装目录启动的远程服务」每次都 session_not_ready，
+# 报错还只是「Can't open perl script …/agent/claude-agent.pl: No such file」。
+sub resolve_agent_path {
+    my $env_agent = (defined $ENV{CLAUDE_AGENT} && $ENV{CLAUDE_AGENT} ne '')
+        ? $ENV{CLAUDE_AGENT} : '';
+    return $env_agent if $env_agent ne '' && -f $env_agent;
+    my @cand = (
+        "$SCRIPT_DIR/agent/claude-agent.pl",                    # 仓库布局
+        "$SCRIPT_DIR/claude-agent.pl",                          # setup.sh 的 ~/claude-build
+        ($ENV{HOME} || '') . "/claude-build/claude-agent.pl",    # 兜底：默认安装位置
+        ($ENV{HOME} || '') . "/claude-build/agent/claude-agent.pl",
+    );
+    for my $c (@cand) { return $c if $c ne '' && -f $c; }
+    return $cand[0];        # 一个都没有：保留原路径，让 perl 自己去报错
+}
+my $AGENT        = resolve_agent_path();
+# 启动时把「实际用哪个 agent」记一笔：以后再有找不到/找错的事，一眼能看出来。
+eval { audit('agent_path', "path=$AGENT") };
+my @AGENT_TRIED;         # 报错时把找过哪些位置全列出来
+{
+    my $env_agent = (defined $ENV{CLAUDE_AGENT} && $ENV{CLAUDE_AGENT} ne '')
+        ? $ENV{CLAUDE_AGENT} : '';
+    push @AGENT_TRIED, "env CLAUDE_AGENT=$env_agent" if $env_agent ne '';
+    push @AGENT_TRIED, "$SCRIPT_DIR/agent/claude-agent.pl", "$SCRIPT_DIR/claude-agent.pl",
+        ($ENV{HOME} || '') . "/claude-build/claude-agent.pl",
+        ($ENV{HOME} || '') . "/claude-build/agent/claude-agent.pl";
+}
 my $NOTIFY       = "$SCRIPT_DIR/remote/notify.pl";
 my $CONF_PATH    = (defined $ENV{CLAUDE_REMOTE_CONF} && $ENV{CLAUDE_REMOTE_CONF} ne '')
     ? $ENV{CLAUDE_REMOTE_CONF}
@@ -460,6 +488,9 @@ sub spawn_session {
         $tail =~ s/\r//g;
         $tail =~ s/\s+/ /g;
         $tail = substr($tail, 0, 400);
+        unless ($tail ne '') {
+            $tail = '找不到 agent 文件，找过：' . join(' / ', @AGENT_TRIED) unless -f $AGENT;
+        }
         audit('session_not_ready', "from=$from",
               ($tail ne '' ? "err=$tail" : 'err=-(子进程没输出任何东西)'));
         # 给手机端用的一份：去掉可能的凭据形态（长串字母数字/下划线/连字符）再截断。

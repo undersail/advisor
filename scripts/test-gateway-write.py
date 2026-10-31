@@ -16,6 +16,7 @@
 import json
 import os
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -187,6 +188,67 @@ def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
     audit = open(audit_path, encoding='utf-8').read() if os.path.exists(audit_path) else ''
     return {'asks': asks, 'replies': replies, 'notes': notes, 'argv': argv, 'rc': p.returncode,
             'err': err, 'audit': audit, 'home': home}
+
+
+def case_build_layout_agent():
+    """setup.sh 的安装布局（agent 是扁平的）也必须能找到它。
+
+    真机踩到：~/claude-build/remote/gateway.pl 去 ~/claude-build/agent/claude-agent.pl
+    找 agent，而 setup.sh 装的是 ~/claude-build/claude-agent.pl →
+    「Can't open perl script …: No such file or directory」→ session_not_ready。
+    """
+    print('[远程] 安装布局（agent 扁平）也能找到它')
+    print('::notice::[远程] 安装布局的 agent 路径')
+    root = tempfile.mkdtemp(prefix='gw-build-')
+    build = os.path.join(root, 'claude-build')
+    os.makedirs(os.path.join(build, 'remote'))
+    repo_remote = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'remote')
+    for f in os.listdir(repo_remote):
+        if f.endswith('.pl'):
+            shutil.copy(os.path.join(repo_remote, f), os.path.join(build, 'remote', f))
+    home = os.path.join(root, 'home')
+    os.makedirs(os.path.join(home, '.claude-agent'), exist_ok=True)
+    with open(os.path.join(home, '.claude-agent', 'remote.conf'), 'w', encoding='utf-8') as f:
+        f.write('ALLOW=u1\nNOTIFY=0\n')
+    with open(os.path.join(home, '.claude-agent-env'), 'w', encoding='utf-8') as f:
+        f.write('export CLAUDE_PROVIDER=deepseek\nexport DEEPSEEK_API_KEY=sk-fake-test\n')
+    fake = os.path.join(build, 'claude-agent.pl')      # 扁平位置，刻意不建 agent/
+    with open(fake, 'w', encoding='utf-8') as f:
+        f.write(FAKE_AGENT)
+    env = dict(os.environ)
+    env.update({'HOME': home, 'FAKE_ARGV_FILE': os.path.join(home, 'argv.txt'),
+                'FAKE_ENV_FILE': os.path.join(home, 'env.txt'), 'CLAUDE_NO_HISTORY': '1'})
+    env.pop('CLAUDE_AGENT', None)
+    p = subprocess.Popen(['perl', os.path.join(build, 'remote', 'gateway.pl'), '--stdin'],
+                         stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE, text=True, bufsize=1, env=env)
+    reply = ''
+    try:
+        p.stdin.write(json.dumps({'from': 'u1', 'text': '你好'}) + '\n')
+        p.stdin.flush()
+        deadline = time.time() + 25
+        while time.time() < deadline:
+            r, _, _ = select.select([p.stdout], [], [], max(0.1, deadline - time.time()))
+            if not r:
+                break
+            line = p.stdout.readline()
+            if not line:
+                break
+            try:
+                j = json.loads(line.strip())
+            except Exception:
+                continue
+            if 'reply' in j:
+                reply = j['reply']
+                break
+    finally:
+        for fn_ in (p.stdin.close, p.kill):
+            try:
+                fn_()
+            except Exception:
+                pass
+    check('扁平布局下会话正常起来（不是 session_not_ready）',
+          reply != '' and '没起来' not in reply, reply[:200])
 
 
 def case_session_continue():
@@ -563,6 +625,7 @@ def main():
 
     case_session_continue()
     case_confirm_cid()
+    case_build_layout_agent()
     case_confirm_secs_conf()
     case_empty_reply()
 

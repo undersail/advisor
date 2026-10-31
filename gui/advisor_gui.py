@@ -1174,6 +1174,14 @@ def service_env():
         pass
     env.setdefault("CLAUDE_CURL", "curl")
     env.setdefault("CLAUDE_MODELS_FILE", os.path.expanduser("~/claude-build/models.txt"))
+    # 远程服务该用哪一个 agent：直接告诉它，别让它自己猜布局。
+    # （仓库里是 <repo>/agent/claude-agent.pl，setup.sh 装的是 ~/claude-build/claude-agent.pl）
+    for cand in (os.path.expanduser("~/claude-build/claude-agent.pl"),
+                 os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "..", "agent", "claude-agent.pl")):
+        if os.path.isfile(cand):
+            env.setdefault("CLAUDE_AGENT", os.path.abspath(cand))
+            break
     return env
 
 

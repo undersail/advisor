@@ -897,3 +897,27 @@ macOS 的 `cp` 默认连**扩展属性**一起拷，普通用户经常 EPERM。�
 
 **待办（需要用户侧证据）**：那次 `session_not_ready` 的具体原因仍未知 —— 审计行里有
 `err=` 尾巴。修完之后只要复现一次，手机端就会直接显示原因。
+
+## 32. 从安装目录启动的远程服务找不到 agent（真机根因，v0.2.6）
+
+**用户贴回的审计原文**：
+
+```
+本机会话没起来，这次没有执行。原因：Can't open perl script
+"/Users/Jack/claude-build/agent/claude-agent.pl": No such file or directory
+```
+
+**根因**：`gateway.pl` 只算一种布局 —— `$SCRIPT_DIR/agent/claude-agent.pl`。而 `setup.sh`
+装出来的是**扁平**的 `~/claude-build/claude-agent.pl`（`setup.sh:491`），`remote/*.pl` 才在
+`~/claude-build/remote/`。于是从仓库启动没问题，从安装目录启动必然 `session_not_ready`。
+
+**修法（三处，缺一处还会复发）**：
+1. `gateway.pl` 新增 `resolve_agent_path()`：`CLAUDE_AGENT` → 仓库布局 → 扁平布局 →
+   `~/claude-build/…` 兜底；一个都没有时保留原路径，并在 `session_not_ready` 里**列出找过的
+   全部位置**。
+2. `gui/advisor_gui.py` 的 `service_env()` 直接给 `CLAUDE_AGENT`（用户在 GUI 里用的就是
+   这个文件），不让远程服务自己猜。
+3. 网关启动时记审计 `agent_path=…` —— 下次一眼能看出用的是哪一个。
+
+**卡口自验**：把 `gateway.pl` 换回修复前的版本，同一场景（扁平布局）确实复现用户的报错；
+换回修复版后通过。`test-gateway-write` 77→78。
