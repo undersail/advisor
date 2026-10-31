@@ -1604,7 +1604,7 @@ sub provider_from_command {
     return ($t && $PROVIDERS{$t}) ? $t : '';
 }
 
-# 未登録のプロバイダ名はここで弾く(各関数が個別に判定しない)。
+# 未登记的厂商名在这里拦掉（各函数不各自判断）。
 sub provider_spec {
     my ($name) = @_;
     return $PROVIDERS{$name}
@@ -1612,11 +1612,11 @@ sub provider_spec {
 }
 
 
-# モデルIDから担当プロバイダを引く(接頭辞が一致する最初のもの)。
-# どれにも一致しなければ anthropic に倒す — 既存の受け皿を変えないため。
-# モデルIDから担当プロバイダを引く(接頭辞が一致する最初のもの)。
-# models.txt にプロバイダ列があればそちらが優先される(switch_to_model 参照)。
-# どれにも一致しなければ anthropic に倒す — 既存の受け皿を変えないため。
+# 由模型 ID 反查负责的厂商（第一个前缀匹配的）。
+# 都不匹配就落到 anthropic —— 为了不改动既有的兜底。
+# 由模型 ID 反查负责的厂商（第一个前缀匹配的）。
+# 如果 models.txt 有厂商列，以那一列为准（见 switch_to_model）。
+# 都不匹配就落到 anthropic —— 为了不改动既有的兜底。
 sub provider_for_model {
     my ($id) = @_;
     return 'anthropic' unless defined $id && $id ne '';
@@ -1636,20 +1636,20 @@ sub configure_provider {
     $ENV{$env_key} or die L('need_key', $env_key);
     $API_KEY = $ENV{$env_key};
 
-    # CLAUDE_MODEL はプロバイダをまたぐと食い違うので、その provider の
-    # 接頭辞で始まるときだけ採用し、そうでなければ既定モデルにする。
+    # CLAUDE_MODEL 跨厂商会不一致，所以只有在它以该厂商的
+    # 前缀开头时才采用，否则用默认模型。
     my $env_model = $ENV{CLAUDE_MODEL} || '';
     my $pfx       = $spec->{model_prefix} || '';
     $MODEL = ($pfx ne '' && $env_model =~ /^\Q$pfx\E/)
         ? $env_model
         : provider_info($provider, 'default_model');
 
-    # 投げ先URLの決め方は3通り:
+    # 请求地址的确定方式有三种：
     #   url           固定(anthropic)
-    #   url_template  モデルIDを埋める(gemini)
-    #   base_url      OpenAI互換。モデルごとの base_url が models.txt に
-    #                 あればそれを、無ければプロバイダ既定を使う。
-    #                 CLAUDE_BASE_URL で丸ごと差し替えられる(自前のプロキシ等)。
+    #   url_template  把模型 ID 填进去（gemini）
+    #   base_url      OpenAI 兼容。models.txt 里有每个模型的 base_url
+    #                 就用它，没有就用厂商默认值。
+    #                 可用 CLAUDE_BASE_URL 整个替换（自建代理等）。
     if (defined $spec->{url}) {
         $API_URL = $spec->{url};
     }
@@ -1667,19 +1667,19 @@ sub configure_provider {
         $API_URL = $base . '/chat/completions';
     }
 
-    # ツール非対応モデルは tools を送らない(送ると 400 になる実装がある)。
+    # 不支持工具的模型不发 tools（有的实现发了就返回 400）。
     $NOTOOLS = ($MODEL_META{$MODEL} && $MODEL_META{$MODEL}{notools}) ? 1 : 0;
 
     $ANTHROPIC_VERSION = $spec->{api_version};
     $PROVIDER = $provider;
 }
 
-# 選べるAIの一覧 ([id, 説明], ...)。ラッパーが CLAUDE_MODELS_FILE で場所を教える。
-# models.txt は id|日本語の説明|English description の3列(後方互換で2列でも可)。
-# 選べるAIの一覧 ([id, 説明], ...)。ラッパーが CLAUDE_MODELS_FILE で場所を教える。
-# models.txt の列: id|日本語|English|中文|provider|base_url|flags
-#   後方互換: 説明文の列が無くても、provider 以降が無くても動く
-#   flags は空白/カンマ区切り。現在は notools のみ。
+# 可选 AI 的列表（[id, 说明], ...）。包装脚本用 CLAUDE_MODELS_FILE 告知位置。
+# models.txt 是 id|日文说明|English description 三列（向后兼容也接受两列）。
+# 可选 AI 的列表（[id, 说明], ...）。包装脚本用 CLAUDE_MODELS_FILE 告知位置。
+# models.txt 的列：id|日文说明|English|中文|provider|base_url|flags
+#   向后兼容：说明文字列可以没有，provider 及之后也可以没有
+#   flags 用空格/逗号分隔。目前只有 notools。
 my @MODEL_CHOICES;
 if ($ENV{CLAUDE_MODELS_FILE} && open(my $mf, '<:encoding(UTF-8)', $ENV{CLAUDE_MODELS_FILE})) {
     while (my $l = <$mf>) {
@@ -1691,7 +1691,7 @@ if ($ENV{CLAUDE_MODELS_FILE} && open(my $mf, '<:encoding(UTF-8)', $ENV{CLAUDE_MO
         $id =~ s/^\s+|\s+$//g;
         next if $id eq '';
 
-        # 表示言語に合わせて説明文の列を選ぶ(空なら ja → id の順に落とす)。
+        # 按显示语言选说明文字列（空则按 ja → id 的顺序退）
         my $desc;
         if ($LANGCODE eq 'zh') {
             $desc = $desc_zh;
@@ -1721,8 +1721,8 @@ if ($ENV{CLAUDE_MODELS_FILE} && open(my $mf, '<:encoding(UTF-8)', $ENV{CLAUDE_MO
     close $mf;
 }
 
-# ~/.claude-agent-env の1行を差し替える(無ければ追記)。会話中の切り替えを
-# 次回起動にも引き継ぐため。
+# 替换 ~/.claude-agent-env 的一行（没有就追加）。让对话中的切换
+# 也能带到下次启动。
 sub persist_env {
     my ($var, $val) = @_;
     return unless $ENV_FILE_PATH;
@@ -1741,25 +1741,25 @@ sub persist_env {
     }
 }
 
-# 会話中にプロバイダ(Claude/Gemini)を切り替える。キーが無ければその場で
-# 入力してもらい、任意で保存する。成功したら 1、中止/失敗なら 0。
+# 对话中切换厂商（Claude/Gemini）。没有密钥就当场
+# 让用户输入，可选保存。成功返回 1，中止/失败返回 0。
 sub switch_provider {
     my ($target) = @_;
     eval { configure_provider($target) };
-    return 1 unless $@;   # キーが揃っていてそのまま切り替えOK
+    return 1 unless $@;   # 密钥齐全，可以直接切换
 
-    # キー名も登録表から引く(以前はここでプロバイダ名を直書きしていた)
+    # 密钥变量名也从注册表取（以前这里写死了厂商名）
     my $spec = eval { provider_spec($target) };
     return 0 unless $spec;
     my $key_name = provider_info($target, 'key_env');
 
-    # GUIモードでは、GUI側にキー取得ページの案内・入力・疎通確認まで
-    # 任せ、検証済みのキーを {"t":"key","value":...} で受け取る
-    # (need_passphraseと同じ「投げて待つ」パターン)。
+    # GUI 模式下，密钥获取页面引导、输入、连通性验证都交给
+    # GUI 侧，这里接收验证过的密钥（{"t":"key","value":...}）
+    # （和 need_passphrase 一样的「发出事件再等回复」模式）。
     if ($GUI) {
-        # 首回起動の案内画面（キー未設定時）は GUI 側の初期設定で扱う。
-        # ここは「会話中に別の厂商へ切り替えようとした」场合なので、
-        # 入力は求めず、設定方法だけ伝える。
+        # 首次启动的引导画面（密钥未设置时）由 GUI 侧的初始设置处理。
+        # 这里是「想在对话中切到别的厂商」的情况，
+        # 所以不索取输入，只告知设置方法。
         emit_error(L('key_config_needed', provider_label($target), $key_name,
                      $target, $ENV_FILE_PATH));
         return 0;
@@ -1781,8 +1781,8 @@ sub looks_like_key_error {
     return 0;
 }
 
-# モデル選択は二段階。1段目でメーカー、2段目でそのメーカーのモデル。
-# 12件が一次元に並ぶと目的のものを探せないので、providers.txt の並び順で束ねる。
+# 模型选择分两步。第一步选厂商，第二步选该厂商的模型。
+# 12 条排成一维会找不到想要的，所以按 providers.txt 的顺序分组。
 my $MENU_STAGE = '';      # '' | 'vendor' | 'model:<provider>'
 my %MENU_VENDORS;         # 番号 => provider
 my %MENU_MODELS;          # 番号 => model_id
@@ -1792,7 +1792,7 @@ sub _models_of {
     return grep { defined $_->[2] && $_->[2] eq $p } @MODEL_CHOICES;
 }
 
-# 1段目: メーカー一覧
+# 第一步：厂商列表
 sub show_model_menu {
     unless (@MODEL_CHOICES) {
         print L('model_list_unavail');
@@ -1815,7 +1815,7 @@ sub show_model_menu {
     $MENU_STAGE = 'vendor';
 }
 
-# 2段目: そのメーカーのモデル一覧
+# 第二步：该厂商的模型列表
 sub show_vendor_models {
     my ($p) = @_;
     my @ms = _models_of($p);
@@ -1841,12 +1841,12 @@ sub show_vendor_models {
     $MENU_STAGE = "model:$p";
 }
 
-# 指定したモデルIDに切り替える。必要ならプロバイダも一緒に切り替え、
-# 次回起動に引き継ぐため ~/.claude-agent-env にも書く。
+# 切到指定的模型 ID。需要时连厂商一起切换，
+# 并写进 ~/.claude-agent-env 以便下次启动沿用。
 sub switch_to_model {
     my ($id) = @_;
-    # models.txt に provider 列があればそれを優先する。無ければモデルIDの
-    # 接頭辞から推測(既存の受け皿を変えない)。
+    # models.txt 有 provider 列就以它为准。没有就从模型 ID 的
+    # 前缀推测（不改动既有的兜底）。
     my $declared = ($MODEL_META{$id} && $MODEL_META{$id}{provider}) ? $MODEL_META{$id}{provider} : '';
     my $target_provider = $declared ne '' ? $declared : provider_for_model($id);
 
@@ -1858,12 +1858,12 @@ sub switch_to_model {
         $ok = switch_provider($target_provider);
     }
     else {
-        eval { configure_provider($PROVIDER) };  # $MODEL と投げ先URLを作り直す
+        eval { configure_provider($PROVIDER) };  # 重新生成 $MODEL 和请求地址
         if ($@) { print $@; $ok = 0; }
     }
 
     unless ($ok) {
-        # 切り替え失敗。元のモデルに戻す。
+        # 切换失败。退回原来的模型。
         if (defined $prev_model) { $ENV{CLAUDE_MODEL} = $prev_model } else { delete $ENV{CLAUDE_MODEL} }
         eval { configure_provider($PROVIDER) };
         return;
@@ -1878,15 +1878,15 @@ sub switch_to_model {
 configure_provider($ENV{CLAUDE_PROVIDER} || 'anthropic');
 
 # ------------------------------------------------------------------
-# 出力の抽象化。端末モードでは今まで通り print、GUI モード($GUI)では
-# 1行1件の JSON を STDOUT に書く。会話ループや run_tool はどちらか
-# 意識しない。GUI 側 (Python/tkinter) がこの JSON を読んで画面を作る。
+# 输出抽象。终端模式下照旧 print，GUI 模式（$GUI）下
+# 往 STDOUT 写一行一条 JSON。会话循环和 run_tool 都不需要
+# 关心用的是哪种。GUI 侧（Python/tkinter）读这些 JSON 画界面。
 # ------------------------------------------------------------------
 sub gui_send {
     my ($obj) = @_;
     print MiniJSON::encode($obj), "\n";
 }
-# GUI からの1行(JSON)を読んでデコード。EOF は undef、それ以外は必ずハッシュ参照。
+# 从 GUI 读一行（JSON）并解码。EOF 返回 undef，其余一定返回哈希引用。
 sub gui_read {
     my $line = <STDIN>;
     return undef unless defined $line;
@@ -1895,7 +1895,7 @@ sub gui_read {
     my $obj  = eval { MiniJSON::decode($text) };
     return (ref $obj eq 'HASH') ? $obj : {};
 }
-# 指定した t の入力が来るまで読み飛ばして返す。EOF なら undef。
+# 一直读到指定 t 的输入为止，跳过其它并返回。EOF 返回 undef。
 sub gui_read_typed {
     my ($want) = @_;
     while (1) {
@@ -1926,31 +1926,31 @@ sub emit_error {
     if ($GUI) { gui_send({ t => 'error', text => $text }); }
     else      { print "\n$text"; }
 }
-sub emit_note {   # 補助的なお知らせ(切り替え完了など)
+sub emit_note {   # 辅助提示（切换完成之类）
     my ($text) = @_;
     if ($GUI) { gui_send({ t => 'note', text => $text }); }
     else      { print "\n$text\n"; }
 }
 
-# --- 会話履歴(暗号化してローカル保存) ---
-# ランダムなマスター鍵で履歴ファイルを暗号化し、そのマスター鍵自体を
-# パスフレーズ(と、任意で「合言葉」)で包んで保存する。どちらか一方で
-# マスター鍵を取り出せるので、パスフレーズを忘れても合言葉で復旧できる。
+# --- 会话历史（加密后本地保存） ---
+# 用随机主密钥加密历史文件，再把主密钥本身用
+# 口令（以及可选的「密保问题」）包起来保存。任一种都能
+# 取回主密钥，所以忘掉口令也能用密保问题恢复。
 my $HISTORY_ENABLED = $ENV{CLAUDE_NO_HISTORY} ? 0 : 1;
-# 履歴ディレクトリは環境変数で差し替えられる。ディレクトリが変われば鍵
-# ファイルも別になり、結果として「別のパスフレーズで守られた別の履歴」になる。
-# 本体は誰がなぜ差し替えたのかを知らない（ローカルの複数プロファイルでも、
-# 遠隔用の別領域でも、同じ仕組みで足りる）。
+# 历史目录可以用环境变量替换。目录变了，密钥
+# 文件也就不同，结果就是「另一套口令保护的另一个历史」。
+# 本体不知道是谁、为什么替换（本地多配置也好，
+# 远程专用目录也好，同一套机制就够）。
 my $HISTORY_DIR     = (defined $ENV{CLAUDE_HISTORY_DIR} && $ENV{CLAUDE_HISTORY_DIR} ne '')
                       ? $ENV{CLAUDE_HISTORY_DIR}
                       : "$ENV{HOME}/.claude-agent/history";
-my $KEY_FILE        = "$HISTORY_DIR/key.enc";           # マスター鍵をパスフレーズで包んだもの
-my $KEY_RECOVERY    = "$HISTORY_DIR/key.recovery.enc";  # 同じマスター鍵を合言葉の答えで包んだもの(任意)
-my $KEY_RECOVERY_Q  = "$HISTORY_DIR/key.recovery.q";    # 合言葉の質問文(平文)
-my $HISTORY_CHECK   = "$HISTORY_DIR/.check";            # 旧形式。存在すればマスター鍵方式へ移行する
+my $KEY_FILE        = "$HISTORY_DIR/key.enc";           # 用口令包起来的主密钥
+my $KEY_RECOVERY    = "$HISTORY_DIR/key.recovery.enc";  # 同一个主密钥用密保答案包起来的版本（可选）
+my $KEY_RECOVERY_Q  = "$HISTORY_DIR/key.recovery.q";    # 密保问题（明文）
+my $HISTORY_CHECK   = "$HISTORY_DIR/.check";            # 旧格式。存在就迁移到主密钥方式
 my $OPENSSL         = $ENV{CLAUDE_OPENSSL} || 'openssl';
 my $STARTED         = _timestamp();
-my $SESSION_FILE;                                       # この会話の保存先(unlock後に決定)
+my $SESSION_FILE;                                       # 本场对话的保存位置（unlock 之后决定）
 
 my $SYSTEM_PROMPT = <<'EOS';
 You are a lightweight coding assistant running in the terminal of an
@@ -1978,8 +1978,8 @@ is available. For extra libraries use `python3 -m pip install --user
 <pkg>`. Prefer the standard library when it's enough.
 EOS
 
-# 確認の説明はモードで変わる。bypass では「毎回聞かれる」と書いてあると
-# モデルが「まず聞きますね」と無駄に断って進まなくなる。
+# 确认说明随模式而变。bypass 下如果写着「每次都会问」，
+# 模型会先道一句「我先问一下」白耽误时间、进展不下去。
 my %MODE_NOTE = (
     'default' => <<'EON',
 write_file and run_shell each ask the user for a y/n confirmation before
@@ -2021,7 +2021,7 @@ sub system_prompt {
     my $p = $SYSTEM_PROMPT;
     $p =~ s/__MODE_CONFIRM_NOTE__/$note/;
 
-    # 長期記憶（純ローカルファイル。中身はユーザーのもの、指示ではない）
+    # 长期记忆（纯本地文件。内容是用户的东西，不是指令）
     my ($mem, $mem_total, $mem_cut) = read_memory();
     if ($mem ne '') {
         $p .= "\n# Long-term memory about this user\n"
@@ -2037,8 +2037,8 @@ sub system_prompt {
         $p .= "---\n$mem\n---\n";
     }
 
-    # 技能は「名前 + 一行説明」だけ入れる。全文は要るときに read_file で読ませる
-    # （prompt を太らせない = 古い Mac でも安く速い）。
+    # 技能只放「名字 + 一行说明」。全文需要时再让它用 read_file 读
+    # （别把 prompt 撑胖 = 老 Mac 上也便宜又快）。
     my @sk = skills_list();
     if (@sk) {
         $p .= "\n# Skills available on this machine\n"
@@ -2055,8 +2055,8 @@ sub system_prompt {
 }
 
 # ------------------------------------------------------------------
-# 最小限のJSONエンコーダ/デコーダ (依存ゼロ、Claude APIのメッセージ
-# 構造に必要な範囲をカバーする再帰下降パーサー)
+# 最小 JSON 编码器/解码器（零依赖，覆盖 Claude API 消息
+# 结构所需范围的递归下降解析器）
 # ------------------------------------------------------------------
 package MiniJSON;
 
@@ -2090,7 +2090,7 @@ sub encode_string {
     return '"' . $s . '"';
 }
 
-# decode: 文字列 -> Perlデータ構造。posを進めながら解析する。
+# decode: 字符串 -> Perl 数据结构。一边推进 pos 一边解析。
 sub decode {
     my ($text) = @_;
     my $pos = 0;
@@ -2194,16 +2194,16 @@ sub _decode_string {
 package main;
 
 # ------------------------------------------------------------------
-# curl 呼び出し
+# curl 调用
 # ------------------------------------------------------------------
-# プロバイダごとのHTTPヘッダ。APIキーはここで組み立て、call_api には
-# ヘッダ文字列の配列として渡す(call_api自体はどっちのAIか知らない)。
+# 各厂商的 HTTP 头。API 密钥在这里组装，传给 call_api 的
+# 是头字符串数组（call_api 本身不知道是哪家 AI）。
 sub build_headers {
     my $spec = provider_spec($PROVIDER);
     my $auth = $spec->{auth} || 'x-api-key';
 
-    # APIキーはここで組み立て、call_api にはヘッダ文字列の配列として渡す
-    # (call_api 自体はどのAIか知らない)。
+    # API 密钥在这里组装，传给 call_api 的是头字符串数组
+    # （call_api 本身不知道是哪家 AI）。
     if ($auth eq 'goog') {
         return [ "x-goog-api-key: $API_KEY", "content-type: application/json" ];
     }
@@ -2228,8 +2228,8 @@ sub call_api {
     print $fh $body_json;
     close $fh;
 
-    # APIキーを ps 出力に晒さないよう、コマンドライン引数ではなく
-    # curlの設定ファイル(-K)経由でヘッダを渡す
+    # 为了不把 API 密钥暴露在 ps 输出里，不走命令行参数，
+    # 而是通过 curl 的配置文件（-K）传头
     open(my $cf, '>', $tmp_config) or die "cannot write $tmp_config: $!\n";
     chmod 0600, $tmp_config;
     print $cf qq(url = "$url"\n);
@@ -2240,20 +2240,20 @@ sub call_api {
     }
     print $cf qq(data-binary = "\@$tmp_req"\n);
     print $cf qq(output = "$tmp_resp"\n);
-    # http_codeに加え、各段階の所要時間もログに残す。「応答がものすごく
-    # 遅い」という報告が2026-09-25にあったが、同じリクエストを直接curlで
-    # 叩くと1〜3秒台で返ってきて再現しなかった(GUI・curlの呼び出し方式
-    # どちらにも原因は無かった)。IPv6のhappy-eyeballs遅延など、たまに
-    # しか起きないネットワーク側の要因が疑わしいので、次に起きた時すぐ
-    # 原因の段階(名前解決/接続/TLS/応答待ち)が分かるようにしておく。
+    # 除了 http_code，各阶段耗时也记进日志。有报告说「响应特别
+    # 慢」（2026-09-25），但用 curl 直接打同样的请求
+    # 1〜3 秒就回来了，复现不了（GUI、curl 调用方式
+    # 两边都没找到原因）。怀疑是 IPv6 happy-eyeballs 延迟之类、
+    # 偶发的网络侧因素，所以下次再出现时能立刻
+    # 看出卡在哪个阶段（域名解析/连接/TLS/等响应）。
     print $cf qq(write-out = "%{http_code} dns=%{time_namelookup}s connect=%{time_connect}s tls=%{time_appconnect}s wait=%{time_starttransfer}s total=%{time_total}s"\n);
-    # 回線がつまっても永遠に待たないよう上限を設ける。超えたら curl が
-    # エラー終了し、下で HTTP 000 として扱われる(固まらない)。
+    # 设上限，免得线路拥堵时无限等。超时后 curl
+    # 报错退出，下面就按 HTTP 000 处理（不会卡死）。
     print $cf qq(connect-timeout = 20\n);
     print $cf qq(max-time = 180\n);
-    # IPv6のhappy-eyeballs(v6を試して失敗/タイムアウトしてからv4に
-    # フォールバックする)は環境によって数十秒の遅延要因になりうる。
-    # このAPIはIPv4でも問題なく届くので、最初からIPv4を使う。
+    # IPv6 的 happy-eyeballs（先试 v6，失败/超时再
+    # 回退到 v4）在某些环境下会造成几十秒延迟。
+    # 这个 API 走 IPv4 也没问题，所以直接用 IPv4。
     print $cf qq(ipv4\n);
     print $cf qq(silent\n);
     print $cf qq(show-error\n);
@@ -2261,9 +2261,9 @@ sub call_api {
 
     dbg("REQ $PROVIDER $MODEL -> $url  (" . length($body_json) . " bytes)");
 
-    # 応答待ちのあいだ画面が固まって見えないよう一言出す。
-    # カーソル制御のエスケープは一切使わない(古い Terminal.app が
-    # 文字描画で落ちるため。消さずに1行残すだけにする)。
+    # 等响应期间别让人觉得屏幕卡死，先给一句话。
+    # 完全不用光标控制的转义序列（老 Terminal.app
+    # 会在字符绘制时崩。只留一行，不做清除）。
     emit_status(L('thinking_status'));
     my $curl_out = `@{[quote($CURL)]} -K @{[quote($tmp_config)]}`;
     $curl_out = '' unless defined $curl_out;
@@ -2273,10 +2273,10 @@ sub call_api {
     emit_status("") if $GUI;
     unlink $tmp_req, $tmp_config;
 
-    # レスポンスは生バイトで読んでからまとめてデコードする。
-    # :encoding(UTF-8) 層でそのまま読むと、マルチバイト文字がバッファ境界で
-    # 割れたときに "utf8 does not map to Unicode" で落ちることがある
-    # (ppc_claude_cli で踏んだのと同じ罠。日本語を多く含む長い応答で出やすい)。
+    # 响应按生字节读进来再统一解码。
+    # 直接用 :encoding(UTF-8) 层读的话，多字节字符在缓冲区边界被
+    # 切开时会以 "utf8 does not map to Unicode" 挂掉
+    # （和 ppc_claude_cli 踩的同一个坑。含大量日文的长响应里容易出现）。
     my $resp_body = '';
     if (open(my $rf, '<:raw', $tmp_resp)) {
         local $/;
@@ -2297,7 +2297,7 @@ sub call_api {
             die L('key_invalid', provider_label($PROVIDER),
                   $http_code, provider_info($PROVIDER, 'key_env'));
         }
-        # 本文が長いと画面が流れてしまうので、頭だけ見せる。
+        # 正文太长会把屏幕刷走，只显示开头。
         my $brief = $resp_body;
         $brief =~ s/\s+/ /g;
         $brief = substr($brief, 0, 300) . ' …' if length($brief) > 300;
@@ -2318,13 +2318,13 @@ sub quote {
 }
 
 # ------------------------------------------------------------------
-# プロバイダごとのリクエスト構築・レスポンス解析
+# 各厂商的请求构造与响应解析
 #
-# 会話履歴(@messages)は常に Anthropic の content blocks 形式
+# 会话历史（@messages）始终以 Anthropic 的 content blocks 形式
 # (role => user/assistant, content => 文字列 or [{type=>text/tool_use/
-# tool_result, ...}]) を内部形式として持つ。Gemini 利用時は API を呼ぶ
-# 直前だけ contents/parts 形式に変換し、応答が来たらすぐ内部形式へ戻す。
-# こうすることで会話ループや run_tool はプロバイダを一切気にしなくてよい。
+# tool_result, ...}]) 作为内部格式。用 Gemini 时只在调用 API
+# 之前转换成 contents/parts 形式，响应一到就马上转回内部格式。
+# 这样会话循环和 run_tool 完全不用管是哪家厂商。
 # ------------------------------------------------------------------
 sub build_request {
     my ($messages, $tools, $system) = @_;
@@ -2361,13 +2361,13 @@ sub build_request_gemini {
                 }
                 elsif ($block->{type} eq 'tool_use') {
                     my $part = { functionCall => { name => $block->{name}, args => $block->{input} } };
-                    # Gemini 3系は functionCall を送り返す時、受け取った時と同じ
-                    # thoughtSignature を付け直さないと400になる。
+                    # Gemini 3 系回传 functionCall 时，必须带上和收到时
+                    # 相同的 thoughtSignature，否则返回 400。
                     $part->{thoughtSignature} = $block->{thought_signature} if defined $block->{thought_signature};
                     push @parts, $part;
                 }
                 elsif ($block->{type} eq 'tool_result') {
-                    # Gemini は tool_use_id ではなく名前で結果を紐付ける
+                    # Gemini 不用 tool_use_id，而是按名字对应结果
                     push @parts, {
                         functionResponse => {
                             name     => $block->{name},
@@ -2395,10 +2395,10 @@ sub build_request_gemini {
     };
 }
 
-# Gemini 3系は thinkingLevel 省略時の既定が "HIGH" で、単純な質問でも最初の
-# 1文字まで数十秒かかることがある。非力なマシンでの対話用途では速さ優先で
-# LOW を既定にし、CLAUDE_GEMINI_THINKING=high で元に戻せるようにする。
-# Gemini 2.5系は thinkingBudget(0〜24576、-1で動的)なのでモデル名で分岐。
+# Gemini 3 系省略 thinkingLevel 时默认是 "HIGH"，连简单的问题也要
+# 几十秒才出第一个字。在性能有限的机器上做对话，优先速度，
+# 所以默认 LOW，可用 CLAUDE_GEMINI_THINKING=high 改回来。
+# Gemini 2.5 系用的是 thinkingBudget（0〜24576，-1 表示动态），所以按模型名分支。
 sub _gemini_thinking_config {
     my $want_high = lc($ENV{CLAUDE_GEMINI_THINKING} || 'low') eq 'high';
     if ($MODEL =~ /^gemini-3/) {
@@ -2433,12 +2433,12 @@ sub parse_response_gemini {
         if (defined $part->{text}) {
             my $block = { type => 'text', text => $part->{text} };
             $block->{thought_signature} = $part->{thoughtSignature} if defined $part->{thoughtSignature};
-            # thinkingConfig を有効にしている(_gemini_thinking_config)ため、
-            # partsには「考え中」のthought部分と実際の回答部分が別々に
-            # 混ざって返ってくることがある。thought:trueの部分は表示せず
-            # 会話履歴にだけ残す(thoughtSignatureの継続に必要)。ここで
-            # 落とさず全部'text'として返していたのが原因で、GUI側で2本の
-            # 流し込みが同時に走り、文字が交互に混ざって見えていた。
+            # 因为启用了 thinkingConfig（_gemini_thinking_config），
+            # parts 里「思考中」的 thought 部分和真正的回答部分会
+            # 混在一起返回。thought:true 的部分不显示，
+            # 只留在会话历史里（thoughtSignature 的延续需要它）。这里
+            # 没丢掉、全按 'text' 返回，导致 GUI 侧两路流式
+            # 同时跑，文字交错着显示。
             $block->{thought} = 1 if $part->{thought};
             push @blocks, $block;
         }
@@ -2446,7 +2446,7 @@ sub parse_response_gemini {
             $gemini_call_seq++;
             my $block = {
                 type  => 'tool_use',
-                id    => "gemini-call-$gemini_call_seq",   # Gemini の functionCall には id が無いので代用
+                id    => "gemini-call-$gemini_call_seq",   # Gemini 的 functionCall 没有 id，用这个代替
                 name  => $part->{functionCall}{name},
                 input => $part->{functionCall}{args} || {},
             };
@@ -2460,12 +2460,12 @@ sub parse_response_gemini {
 # ------------------------------------------------------------------
 # OpenAI 互換 API (OpenAI / DeepSeek / 通義千問 / Kimi / 智谱)
 #
-# 内部形式(Anthropic の content blocks)との違い:
-#   · system はメッセージ配列の先頭に role=system で1件入れる
-#   · tool_use は assistant.tool_calls[]、引数は JSON「文字列」
-#   · tool_result は role=tool の独立メッセージで tool_call_id で紐付ける
-#     (Anthropic のように user メッセージ配列へ入れ子にできない)
-#   · tools は {type=>'function', function=>{...}} で1段包む
+# 与内部格式（Anthropic 的 content blocks）的差异：
+#   · system 作为 role=system 放在消息数组开头，一条
+#   · tool_use 是 assistant.tool_calls[]，参数是 JSON「字符串」
+#   · tool_result 是 role=tool 的独立消息，用 tool_call_id 关联
+#     （不能像 Anthropic 那样嵌进 user 消息数组里）
+#   · tools 用 {type=>'function', function=>{...}} 多包一层
 # ------------------------------------------------------------------
 sub build_request_openai {
     my ($messages, $tools, $system) = @_;
@@ -2485,7 +2485,7 @@ sub build_request_openai {
         for my $block (@{ $msg->{content} }) {
             my $t = $block->{type} || '';
             if ($t eq 'text') {
-                next if $block->{thought};   # 思考ログは送り返さない
+                next if $block->{thought};   # 思考日志不回传
                 push @texts, $block->{text};
             }
             elsif ($t eq 'tool_use') {
@@ -2500,7 +2500,7 @@ sub build_request_openai {
             }
             elsif ($t eq 'tool_result') {
                 my $c = $block->{content};
-                $c = MiniJSON::encode($c) if ref $c;   # 文字列以外はJSONにして渡す
+                $c = MiniJSON::encode($c) if ref $c;   # 字符串以外先 JSON 化再传
                 push @results, {
                     role         => 'tool',
                     tool_call_id => $block->{tool_use_id},
@@ -2553,11 +2553,11 @@ sub parse_response_openai {
     my $msg    = $choice->{message} || {};
     my @blocks;
 
-    # reasoning_content(DeepSeek-R1 等の思考ログ)は履歴に入れない。
-    # 送り返すと API 側が 400 を返す実装があるため、意図的に捨てる。
+    # reasoning_content（DeepSeek-R1 等的思考日志）不进历史。
+    # 有的实现回传后会返回 400，所以故意丢掉。
     my $content = $msg->{content};
     if (ref $content eq 'ARRAY') {
-        # 一部ベンダーは content を parts 配列で返す
+        # 有些厂商把 content 放在 parts 数组里返回
         my @t = map { $_->{text} }
                 grep { ref $_ eq 'HASH' && defined $_->{text} } @$content;
         $content = join("\n", @t);
@@ -2591,14 +2591,14 @@ sub parse_response_openai {
 
 
 # ------------------------------------------------------------------
-# 会話履歴の暗号化保存
+# 会话历史的加密保存
 #
-# High Sierra 標準の Perl には暗号機能がなく、CPAN依存も入れたくないので
-# openssl コマンドにシェルアウトしてAES-256-CBCで暗号化する。パスフレーズは
-# 環境変数 CLAUDE_HIST_PASS 経由で渡し、ps出力やargv、ディスクには出さない。
-# High Sierra の LibreSSL は -pbkdf2 非対応のため鍵導出はやや弱め(MD5ベース)
-# だが、平文でそのまま置くよりははるかにマシ、という位置づけ。-md md5 を
-# 明示して、新しめのOpenSSLとの間でも同じ鍵導出になるようにしている。
+# High Sierra 自带的 Perl 没有加密功能，也不想引入 CPAN 依赖，
+# 所以调 openssl 命令做 AES-256-CBC 加密。口令通过
+# 环境变量 CLAUDE_HIST_PASS 传，不出现在 ps 输出、argv 和磁盘上。
+# High Sierra 的 LibreSSL 不支持 -pbkdf2，密钥派生偏弱（基于 MD5），
+# 但比明文放着好得多 —— 就是这个定位。显式指定 -md md5，
+# 让新一些的 OpenSSL 也用同样的密钥派生。
 # ------------------------------------------------------------------
 sub _timestamp {
     my @t = localtime();
@@ -2606,8 +2606,8 @@ sub _timestamp {
         $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0]);
 }
 
-# 一時ファイルを 0600 で作って書き込む(平文がディスクに出るのはここだけ、
-# 直後に必ず unlink する)
+# 用 0600 建临时文件再写（明文落盘只在这里，
+# 写完立刻 unlink）
 sub _write_private {
     my ($path, $data) = @_;
     open(my $fh, '>:encoding(UTF-8)', $path) or die L('cannot_make_tmp', $!);
@@ -2616,9 +2616,9 @@ sub _write_private {
     close $fh;
 }
 
-# openssl のstderr(新しめのOpenSSLが出す "deprecated key derivation" 警告や
-# パスフレーズ違いの "bad decrypt" など。いずれもこちらで戻り値を見て処理する)
-# を飲み込んで実行する
+# 把 openssl 的 stderr（新版 OpenSSL 的 "deprecated key derivation" 警告、
+# 口令不对时的 "bad decrypt" 等。都靠这边的返回值判断处理）
+# 吞掉再执行
 sub _run_quiet {
     my @cmd = @_;
     open(my $olderr, '>&', \*STDERR) or return system(@cmd);
@@ -2639,14 +2639,14 @@ sub hist_encrypt {
     return $rc == 0;
 }
 
-sub hist_plain_encrypted {   # そのファイルは暗号化されているか
+sub hist_plain_encrypted {   # 这个文件是否已加密
     my ($path) = @_;
-    # ★ 以前は /\ .json\.enc$ / だけを見ていたため、**包んだマスター鍵**
-    #   （key.enc / key.recovery.enc）と旧形式 .check が「平文」と判定され、
-    #   openssl を通さずに UTF-8 テキストとして読んでいた。結果、正しい
-    #   パスフレーズでも必ず失敗し、しかもファイル全体が化けた文字列として
-    #   読み込まれて「does not map to Unicode」の警告が大量に出ていた。
-    #   拡張子 .enc と旧 .check はすべて暗号文として扱う。
+    # ★ 以前只看 /\.json\.enc$/，于是**被包起来的主密钥**
+    #   （key.enc / key.recovery.enc）和旧格式 .check 被判定为「明文」，
+    #   不经过 openssl 就当 UTF-8 文本读了。结果口令再正确
+    #   也必定失败，而且整个文件被当成乱码字符串读进来，
+    #   刷出一堆「does not map to Unicode」警告。
+    #   扩展名 .enc 和旧的 .check 一律当密文处理。
     return 1 if $path =~ /\.enc$/;
     return 1 if $path =~ m{/\.check$};
     return 0;
@@ -2654,7 +2654,7 @@ sub hist_plain_encrypted {   # そのファイルは暗号化されているか
 
 sub hist_decrypt {
     my ($in_path) = @_;
-    # 平文の履歴はそのまま読む（パスフレーズ不要）
+    # 明文历史直接读（不需要口令）
     unless (hist_plain_encrypted($in_path)) {
         open(my $fh, '<:encoding(UTF-8)', $in_path) or return undef;
         local $/;
@@ -2675,13 +2675,13 @@ sub hist_decrypt {
     return $data;
 }
 
-# パスフレーズを画面に表示せずに1行読む
+# 不显示在屏幕上读一行口令
 {
     my $secret_hint_shown = 0;
     sub read_secret {
         my ($prompt) = @_;
 
-        # GUI モード: パスフレーズ要求イベントを送り、返答を待つ。
+        # GUI 模式：发出口令请求事件，等回复。
         if ($GUI) {
             (my $label = $prompt) =~ s/[:：]\s*$//;
             $label =~ s/^\s+//;
@@ -2694,8 +2694,8 @@ sub hist_decrypt {
             }
         }
 
-        # 「入力しても何も出ない」を知らないと固まったように見えるので、
-        # このセッションで最初のパスフレーズ入力のときだけ一言添える。
+        # 不知道「输入了也什么都不显示」就会以为卡死，所以
+        # 只在本场会话第一次输口令时加一句说明。
         unless ($secret_hint_shown) {
             print L('hidden_input_hint');
             $secret_hint_shown = 1;
@@ -2711,8 +2711,8 @@ sub hist_decrypt {
     }
 }
 
-# 秘密(パスフレーズ or 合言葉の答え)を指定して包む/開ける。
-# CLAUDE_HIST_PASS を一時的に差し替えて hist_encrypt/hist_decrypt を呼ぶ。
+# 用指定的秘密（口令或密保答案）包起来/打开。
+# 临时替换 CLAUDE_HIST_PASS 后调用 hist_encrypt/hist_decrypt。
 sub _wrap_with {
     my ($secret, $plaintext, $out_path) = @_;
     local $ENV{CLAUDE_HIST_PASS} = $secret;
@@ -2724,7 +2724,7 @@ sub _unwrap_with {
     return hist_decrypt($in_path);
 }
 
-# ランダムなマスター鍵(64桁hex)を生成する
+# 生成随机主密钥（64 位 hex）
 sub _gen_master {
     my $hex = `@{[quote($OPENSSL)]} rand -hex 32 2>/dev/null`;
     $hex = '' unless defined $hex;
@@ -2732,7 +2732,7 @@ sub _gen_master {
     return ($hex =~ /^[0-9a-f]{64}$/) ? $hex : undef;
 }
 
-# 包まれたマスター鍵を秘密で開ける。取り出せたらhex文字列、ダメならundef。
+# 用秘密打开包好的主密钥。成功返回 hex 串，失败返回 undef。
 sub _open_master {
     my ($secret, $wrap_path) = @_;
     my $got = _unwrap_with($secret, $wrap_path);
@@ -2741,7 +2741,7 @@ sub _open_master {
     return undef;
 }
 
-# マスター鍵を秘密で包んで保存する
+# 用秘密把主密钥包起来保存
 sub _save_master {
     my ($secret, $master, $wrap_path) = @_;
     my $ok = _wrap_with($secret, "MASTER:$master\n", $wrap_path);
@@ -2749,8 +2749,8 @@ sub _save_master {
     return $ok;
 }
 
-# 合言葉の答えを正規化する(大文字小文字と前後・連続空白を無視。
-# 「Toyota Corolla」と「 toyota  corolla 」を同じ扱いにする)
+# 规范化密保答案（忽略大小写、前后与连续空白。
+# 「Toyota Corolla」和「 toyota  corolla 」视为相同）
 sub _norm_answer {
     my ($a) = @_;
     $a = lc $a;
@@ -2760,7 +2760,7 @@ sub _norm_answer {
     return $a;
 }
 
-# 合言葉(復旧用の秘密の質問)を設定/再設定する。$master は既に手元にある前提。
+# 设置/重设密保问题（找回口令用）。前提是 $master 已在手上。
 sub set_recovery {
     my ($master) = @_;
     print L('ask_secret_question');
@@ -2783,7 +2783,7 @@ sub set_recovery {
     return 1;
 }
 
-# 新しいパスフレーズを2回入力させてマスター鍵を包み直す
+# 让用户输两遍新口令，重新包一遍主密钥
 sub reset_passphrase {
     my ($master) = @_;
     my $p1 = read_secret(L('new_passphrase_1'));
@@ -2797,8 +2797,8 @@ sub reset_passphrase {
     return 0;
 }
 
-# 合言葉で復旧する。成功したらマスター鍵hexを返す(ついでにパスフレーズの
-# 再設定を促す)。中止/失敗の抜け道は「空Enter」。
+# 用密保问题恢复。成功返回主密钥 hex（顺便提示
+# 重设口令）。中止/失败的出口是「空 Enter」。
 sub recover_with_phrase {
     my $q = '';
     if (open(my $qf, '<:encoding(UTF-8)', $KEY_RECOVERY_Q)) {
@@ -2822,8 +2822,8 @@ sub recover_with_phrase {
     }
 }
 
-# 旧形式(.check 直接暗号化 + 履歴ファイルもパスフレーズ直接暗号化)から
-# マスター鍵方式へ移行する。成功したらマスター鍵hexを返す。
+# 从旧格式（直接加密 .check + 历史文件也直接用口令加密）迁移
+# 到主密钥方式。成功返回主密钥 hex。
 sub migrate_check_file {
     print L('hist_migrate_intro');
     while (1) {
@@ -2835,7 +2835,7 @@ sub migrate_check_file {
             if ($got eq 'high_sierra_claude') {
                 my $master = _gen_master();
                 return undef unless defined $master;
-                # 既存の履歴ファイルを パスフレーズ→マスター鍵 で再暗号化
+                # 把已有的历史文件从 口令→主密钥 重新加密
                 for my $f (history_files()) {
                     my $plain = _unwrap_with($pass, "$HISTORY_DIR/$f");
                     _wrap_with($master, $plain, "$HISTORY_DIR/$f") if defined $plain;
@@ -2853,13 +2853,13 @@ sub migrate_check_file {
     }
 }
 
-# 履歴のロックを解除し、$ENV{CLAUDE_HIST_PASS} にマスター鍵をセットして
-# 1 を返す。初回は新規設定、以降はパスフレーズ(または合言葉)で解錠する。
-# 中止/失敗なら 0(履歴なしで続行)。
-# 既存の暗号化履歴を平文へ切り替える。
-# 一回だけパスフレーズ（または CLAUDE_HIST_PASS）を受け取り、全部復号してから
-# key.enc を消す —— 途中で失敗したら **何も消さない**（読めない履歴を作らない）。
-# 先に必ずバックアップを取る（cp -R。macOS 標準）。
+# 解锁历史，把主密钥设进 $ENV{CLAUDE_HIST_PASS} 并
+# 返回 1。首次是新建设置，之后用口令（或密保答案）解锁。
+# 中止/失败返回 0（不带历史继续）。
+# 把已有的加密历史切成明文。
+# 只收一次口令（或 CLAUDE_HIST_PASS），全部解密之后再
+# 删 key.enc —— 中途失败**什么都不删**（不造读不了的历史）。
+# 事前一定先备份（cp -R。macOS 自带）。
 sub make_plain_history {
     my @enc = grep { /\.json\.enc$/ } history_files();
     my $key_path = -f $KEY_FILE ? $KEY_FILE : (-f $HISTORY_CHECK ? $HISTORY_CHECK : '');
@@ -2886,7 +2886,7 @@ sub make_plain_history {
         return 1;
     }
 
-    # バックアップ（復号前の状態をそのまま残す）
+    # 备份（把解密前的状态原样留下）
     require File::Basename;
     my $parent = File::Basename::dirname($HISTORY_DIR);
     my $base   = File::Basename::basename($HISTORY_DIR);
@@ -2898,7 +2898,7 @@ sub make_plain_history {
     }
     chmod 0700, $backup;
 
-    # 復号して *.json を書く。1つでも失敗したら中断（消さない）。
+    # 解密并写出 *.json。有一个失败就中断（不删）。
     my (@ok, @ng);
     for my $f (@enc) {
         my $plain = _unwrap_with($master, "$HISTORY_DIR/$f");
@@ -2913,7 +2913,7 @@ sub make_plain_history {
         return 1;
     }
 
-    # ここから先は消す。復号済みの *.json があるのでデータは失われない。
+    # 到这里才开始删。已经有解好的 *.json，数据不会丢。
     for my $f (@enc) { unlink "$HISTORY_DIR/$f"; }
     for my $k ($KEY_FILE, $HISTORY_CHECK, $KEY_RECOVERY, $KEY_RECOVERY_Q) {
         unlink $k if -f $k;
@@ -2928,13 +2928,13 @@ sub unlock_history {
         mkdir($d, 0700) unless -d $d;
     }
 
-    # ★ 平文モード（既定）。ただし「既に暗号化履歴がある」なら平文にはしない
-    #   —— ユーザーが暗号化して守っていたものを、黙って平文に落とすのは事故。
+    # ★ 明文模式（默认）。但「已经存在加密历史」就不转明文
+    #   —— 用户加密保护着的东西，偷偷改成明文就是事故。
     unless ($ENCRYPT_HISTORY) {
-        # 「暗号化履歴があるか」の判定は **主鍵の痕跡**（key.enc / 旧 .check）で見る。
-        # *.json.enc だけあって key.enc が無い場合は復号できない孤児ファイルなので、
-        # それを理由にパスフレーズを訊くと、平文運用に切り替えたユーザーが
-        # 理由も分からず鍵を求められる（実際にテストで踏んだ）。
+        # 「有没有加密历史」按**主密钥的痕迹**判断（key.enc / 旧的 .check）。
+        # 只有 *.json.enc 而没有 key.enc 的是解不开的孤儿文件，
+        # 拿它当理由去问口令，会让已经切到明文的人
+        # 莫名其妙被要求输密钥（测试里真踩过）。
         my $legacy = (-f $KEY_FILE || -f $HISTORY_CHECK) ? 1 : 0;
         unless ($legacy) {
             $HIST_PLAIN = 1;
@@ -2943,8 +2943,8 @@ sub unlock_history {
         }
     }
 
-    # GUI モード: パスフレーズは1回入力(確認欄なし)。代わりに「合言葉」を
-    # 必須にして、忘れたときの復旧口を必ず用意する。旧形式移行は端末側で。
+    # GUI 模式：口令只输一次（没有确认栏）。改用「密保问题」
+    # 必填，保证忘掉时一定有恢复口。旧格式迁移在终端侧做。
     if ($GUI) {
         return 0 if -f $HISTORY_CHECK && ! -f $KEY_FILE;
 
@@ -2957,12 +2957,12 @@ sub unlock_history {
                 my $r = gui_read_typed('passphrase');
                 return 0 unless defined $r;
 
-                if ($has_recovery && $r->{recover}) {       # 合言葉で復旧
+                if ($has_recovery && $r->{recover}) {       # 用密保问题恢复
                     my $q = '';
                     if (open(my $qf, '<:encoding(UTF-8)', $KEY_RECOVERY_Q)) {
                         local $/; $q = <$qf>; close $qf;
                         $q = '' unless defined $q;
-                        $q =~ s/\s+\z//;          # local $/ 中は chomp が効かない
+                        $q =~ s/\s+\z//;          # local $/ 之下 chomp 不起作用
                     }
                     gui_send({ t => 'need_recovery', mode => 'unlock', question => ($q // '') });
                     my $ra = gui_read_typed('recovery');
@@ -2970,7 +2970,7 @@ sub unlock_history {
                     my $ans = defined $ra->{answer} ? $ra->{answer} : '';
                     my $m = ($ans ne '') ? _open_master(_norm_answer($ans), $KEY_RECOVERY) : undef;
                     unless (defined $m) { emit_error(L('wrong_answer')); next; }
-                    # 新しいパスフレーズに付け替える
+                    # 换成新口令
                     gui_send({ t => 'need_passphrase',
                                prompt => L('new_history_prompt') });
                     my $np = gui_read_typed('passphrase');
@@ -2982,7 +2982,7 @@ sub unlock_history {
                 }
 
                 my $pass = defined $r->{value} ? $r->{value} : '';
-                return 0 if $pass eq '';                    # 空=履歴なしで起動
+                return 0 if $pass eq '';                    # 空=不带历史启动
                 my $master = _open_master($pass, $KEY_FILE);
                 if (defined $master) { $ENV{CLAUDE_HIST_PASS} = $master; return 1; }
                 emit_error(L('wrong_passphrase'));
@@ -3000,8 +3000,8 @@ sub unlock_history {
         return 0 unless defined $master;
         return 0 unless _save_master($p, $master, $KEY_FILE);
 
-        # 合言葉(必須)。設定されなければ暗号化履歴は残さない
-        # (パスフレーズを忘れたときに全損するのを避けるため)。
+        # 密保问题（必填）。没设置就不留加密历史
+        # （免得忘了口令时全损）。
         gui_send({ t => 'need_recovery', mode => 'new' });
         my $rr = gui_read_typed('recovery');
         my $q = ($rr && defined $rr->{question}) ? $rr->{question} : '';
@@ -3017,31 +3017,31 @@ sub unlock_history {
         return 1;
     }
 
-    # 旧形式の移行
+    # 旧格式迁移
     if (-f $HISTORY_CHECK && ! -f $KEY_FILE) {
         my $master = migrate_check_file();
         if (defined $master) { $ENV{CLAUDE_HIST_PASS} = $master; return 1; }
         return 0;
     }
 
-    # 2回目以降: パスフレーズ or 合言葉で解錠
+    # 第二次以后：用口令 或 密保答案解锁
     if (-f $KEY_FILE) {
         my $has_recovery = (-f $KEY_RECOVERY && -f $KEY_RECOVERY_Q) ? 1 : 0;
-        # 回数制限なし。履歴なしで進めたいときは空Enterで抜ける。
+        # 不限次数。不想带历史继续就空 Enter 退出。
         while (1) {
             my $prompt = $has_recovery
                 ? L('hist_pass_no_recovery')
                 : L('hist_pass_no_recovery2');
-            # CLAUDE_HIST_PASS が渡されていれば、それを口令として試す
-            # （自動化・リモート・--make-plain-history と同じ経路）。
-            # 違っていれば今まで通り対話で訊き直すので、失敗しても詰まらない。
+            # 如果传了 CLAUDE_HIST_PASS，就拿它当口令试
+            # （自动化、远程、--make-plain-history 走同一条路）。
+            # 不对就照旧交互重问，所以失败也不会卡住。
             my $from_env = (defined $ENV{CLAUDE_HIST_PASS} && $ENV{CLAUDE_HIST_PASS} ne '')
                 ? $ENV{CLAUDE_HIST_PASS} : undef;
             my $pass = defined $from_env ? $from_env : read_secret($prompt);
             if (defined $from_env) {
                 my $m0 = _open_master($from_env, $KEY_FILE);
                 if (defined $m0) { $ENV{CLAUDE_HIST_PASS} = $m0; return 1; }
-                # 環境変数が違っていた → 変数を捨てて対話に切り替える
+                # 环境变量不对 → 丢掉变量，切回交互
                 delete $ENV{CLAUDE_HIST_PASS};
                 print L('wrong_passphrase');
                 $pass = read_secret($prompt);
@@ -3091,7 +3091,7 @@ sub unlock_history {
     return 1;
 }
 
-# 現在の会話を暗号化して $SESSION_FILE に保存する
+# 把当前会话加密保存到 $SESSION_FILE
 sub save_history {
     my ($messages_ref) = @_;
     return unless $SESSION_FILE;
@@ -3103,7 +3103,7 @@ sub save_history {
     $rec{name} = $SESSION_NAME if defined $SESSION_NAME && $SESSION_NAME ne '';
     my $json = MiniJSON::encode(\%rec);
     if ($HIST_PLAIN) {
-        # 平文でも 0600。ディレクトリは 0700（unlock_history で作る）。
+        # 明文也是 0600。目录 0700（unlock_history 里建）。
         _write_private($SESSION_FILE, $json);
         chmod 0600, $SESSION_FILE;
         return;
@@ -3112,8 +3112,8 @@ sub save_history {
     chmod 0600, $SESSION_FILE;
 }
 
-# 保存済みの会話を 1 行ずつ組み立てる（--list-history と /history で共用）。
-# 戻り値: (行の配列, 復号できなかった件数)
+# 逐行组装已保存的会话（--list-history 和 /history 共用）。
+# 返回值：(行的数组, 解不开的条数)
 sub history_lines {
     my @lines;
     my $undecryptable = 0;
@@ -3136,8 +3136,8 @@ sub history_lines {
     return (\@lines, $undecryptable);
 }
 
-# 保存済みの会話を全文検索する（--search と /search で共用）。
-# 戻り値: (表示行の配列, ヒットした会話数, 復号できなかった件数)
+# 在已保存的会话里全文搜索（--search 和 /search 共用）。
+# 返回值：(显示行数组, 命中会话数, 解不开的条数)
 sub search_history_lines {
     my ($word) = @_;
     my @out;
@@ -3155,7 +3155,7 @@ sub search_history_lines {
             next if $c eq '';
             my $pos = index(lc $c, $needle);
             next if $pos < 0;
-            # 命中位置の前後を文字単位で切り出す（バイトで切ると中国語が壊れる）
+            # 按字符切出命中位置前后（按字节切会切坏中文）
             my $from = $pos - 40 > 0 ? $pos - 40 : 0;
             my $frag = substr($c, $from, length($word) + 80);
             $frag = '…' . $frag if $from > 0;
@@ -3173,30 +3173,30 @@ sub search_history_lines {
     return (\@out, $hits, $skipped);
 }
 
-# 保存済みの会話ファイル(新しい順。ファイル名先頭がタイムスタンプ)
+# 已保存的会话文件（新的在前。文件名开头是时间戳）
 sub history_files {
     opendir(my $dh, $HISTORY_DIR) or return ();
-    # 平文（*.json）と暗号化（*.json.enc）が混在しうる（形式を切り替えた直後）。
-    # ファイル名の先頭がタイムスタンプなので、降順ソートで新しい順になる。
+    # 明文（*.json）和加密（*.json.enc）可能混在一起（刚切换格式之后）。
+    # 文件名开头是时间戳，所以降序排序就是新的在前。
     my @f = grep { /\.json(\.enc)?$/ } readdir($dh);
     closedir $dh;
     return sort { $b cmp $a } @f;
 }
 
-# 会話データから最初のユーザー発言を1行取り出す(一覧表示用)
+# 从会话数据里取出第一条用户发言（列表显示用）
 sub first_user_line {
     my ($data) = @_;
     for my $m (@{ $data->{messages} || [] }) {
         next unless $m->{role} && $m->{role} eq 'user';
         my $c = $m->{content};
-        next if ref $c;   # tool_result などの構造化contentはスキップ
+        next if ref $c;   # tool_result 之类结构化 content 跳过
         $c =~ s/\s+/ /g;
         return length($c) > 60 ? substr($c, 0, 60) . '…' : $c;
     }
     return L('no_message');
 }
 
-# 内部形式の会話を GUI で再描画するための {role, text} 配列に平す。
+# 把内部格式的会话摊平成 {role, text} 数组，供 GUI 重绘。
 #   role: you / ai / tool / toolresult
 sub flatten_history {
     my ($msgs) = @_;
