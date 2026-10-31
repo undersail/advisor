@@ -443,9 +443,13 @@ def main():
     r = drive([], '你好', wait=25.0, home=_h, agent=bad)
     check('起不来时手机能收到一句话（不再「发了没反应」）',
           bool(r['replies']) and '没起来' in r['replies'][0], str(r['replies']))
-    check('给用户的话里点明去哪看原因',
-          bool(r['replies']) and ('审计' in r['replies'][0] or '终端' in r['replies'][0]),
+    check('给用户的话里点明完整输出在哪',
+          bool(r['replies']) and ('audit.log' in r['replies'][0]
+                                  or 'session_not_ready' in r['replies'][0]),
           str(r['replies']))
+    check('★ 手机端也看得到原因（不用去翻 Mac 日志）',
+          bool(r['replies']) and '模型名 xyz 不存在' in r['replies'][0],
+          str(r['replies'])[:200])
     check('审计 session_not_ready 带上子进程的真实报错',
           'session_not_ready' in r['audit'] and '模型名 xyz 不存在' in r['audit'],
           r['audit'][-300:])

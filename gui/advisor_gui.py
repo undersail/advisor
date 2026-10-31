@@ -902,7 +902,8 @@ def start_remote_service(script, mode="default", allow=""):
         os.makedirs(os.path.dirname(WECOM_WS_LOG_PATH), exist_ok=True)
         logf = open(WECOM_WS_LOG_PATH, "ab")
         p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=logf,
-                             stderr=logf, start_new_session=True, cwd=os.path.dirname(script))
+                             stderr=logf, start_new_session=True,
+                             cwd=os.path.dirname(script), env=service_env())
         # 起来后等一小会儿：真起来会写出 pid 文件，被拒（已有实例）会立刻退出
         for _ in range(20):
             time.sleep(0.1)
@@ -1158,6 +1159,24 @@ def ensure_backend_files():
         return False
 
 
+def service_env():
+    """给**远程服务**用的环境：与 GUI 自己的后端、命令行包装脚本保持同一套。
+
+    两处不一致踩过：命令行启动时 `~/bin/advisor` 会 export CLAUDE_CURL /
+    CLAUDE_MODELS_FILE；GUI 起远程服务时原来什么都没传（只继承 GUI 进程的环境），
+    于是同一个 agent 在两条起动路径上拿到的环境不一样 —— 手机端就表现为
+    「本机会话没起来」。这里统一到同一份。
+    """
+    env = dict(os.environ)
+    try:
+        env.update(read_env_file())
+    except Exception:
+        pass
+    env.setdefault("CLAUDE_CURL", "curl")
+    env.setdefault("CLAUDE_MODELS_FILE", os.path.expanduser("~/claude-build/models.txt"))
+    return env
+
+
 def build_backend_command_and_env():
     # 若存在 ~/bin/advisor（setup.sh 生成的包装脚本）就用它。
     # 若不存在（未执行 setup.sh），直接启动随包附带的 agent。
@@ -1166,9 +1185,7 @@ def build_backend_command_and_env():
         return [wrapper, "gui"], None
     if not ensure_backend_files():
         return None, None
-    env = dict(os.environ)
-    env.update(read_env_file())
-    env.setdefault("CLAUDE_CURL", "curl")
+    env = service_env()
     env["CLAUDE_MODELS_FILE"] = os.path.expanduser("~/claude-build/models.txt")
     agent = os.path.expanduser("~/claude-build/claude-agent.pl")
     return ["perl", agent, "--gui"], env

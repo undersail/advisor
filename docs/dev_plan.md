@@ -873,3 +873,27 @@ macOS 的 `cp` 默认连**扩展属性**一起拷，普通用户经常 EPERM。�
 
 **测试**：`test-history-storage` 38→41（没有 key 时 `--list-history` / `--make-plain-history`
 都不被「请设置」挡住；钥匙不对时说的是「历史打不开」而不是 key）。
+
+## 31. GUI 起远程服务时环境与命令行不统一；起不来的原因不给手机看（v0.2.6）
+
+**用户报**：GUI 启动远程服务后，手机对话得到「本机会话没起来…原因已写在 Mac 的终端输出
+和审计日志里（session_not_ready 那行）」，并问「GUI 和命令行启动方式是不是还不归一？」
+
+**核实：是，确实有一处没归一。**
+- 命令行：`~/bin/advisor` 包装脚本会 `export CLAUDE_CURL` / `CLAUDE_MODELS_FILE`
+  （`setup.sh:771-773`）；GUI 自己的后端也照这套设了（`build_backend_command_and_env`）。
+- 但 `start_remote_service()` 起 `wecom-ws.pl --serve` 时**没有传 env**，只继承 GUI 进程的
+  环境 —— 从 Finder 双击启动的 GUI 没有 shell 里那些变量，于是远程链路上的 agent 与
+  命令行启动时拿到的环境不是同一份。
+
+**改动**：
+1. 新增 `service_env()`（GUI/后端/远程服务共用一个入口：`os.environ` + `~/.claude-agent-env`
+   + `CLAUDE_CURL`/`CLAUDE_MODELS_FILE` 兜底），`start_remote_service()` 用 `env=service_env()`。
+2. **起不来的原因给手机看**：`session_not_ready` 时把子进程 stderr 的开头（脱敏：长串
+   字母数字/下划线/连字符打成 `***`，截断 160 字）拼进回复，不再只说「去看 Mac 的日志」。
+
+**测试**：`test-gui-remote` 46→50（`service_env()` 带两个键；`Popen` 真的收到 `env=`）；
+`test-gateway-write` 76→77（假 agent 报错时手机端能看到「模型名 xyz 不存在」）。
+
+**待办（需要用户侧证据）**：那次 `session_not_ready` 的具体原因仍未知 —— 审计行里有
+`err=` 尾巴。修完之后只要复现一次，手机端就会直接显示原因。

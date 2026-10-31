@@ -95,6 +95,7 @@ sub confirm_wait_default {
 }
 my $CONFIRM_WAIT = confirm_wait_default();   # 远程确认最多等多久（秒），超时按拒绝
 my $CONFIRM_WAIT_EXPLICIT = 0;               # 命令行显式给了就别被 conf 覆盖
+my $LAST_SPAWN_ERR = '';   # 最近一次「本机会话没起来」的原因（给手机端看，已脱敏）
 my @STDIN_PUSH;      # 反问前顺手读到的「非答复行」（新指令等）要留到下轮再处理
 
 # 统一入口：先吃预读缓存，再读 STDIN。反问前后都走它，
@@ -461,6 +462,10 @@ sub spawn_session {
         $tail = substr($tail, 0, 400);
         audit('session_not_ready', "from=$from",
               ($tail ne '' ? "err=$tail" : 'err=-(子进程没输出任何东西)'));
+        # 给手机端用的一份：去掉可能的凭据形态（长串字母数字/下划线/连字符）再截断。
+        my $safe = $tail;
+        $safe =~ s/[A-Za-z0-9_\-]{20,}/***/g;
+        $LAST_SPAWN_ERR = substr($safe, 0, 160);
         print STDERR "本机会话没起来（$from）：$tail\n" if $tail ne '';
         return undef;
     }
@@ -560,10 +565,13 @@ sub handle_message {
     my ($from, $text, $conf) = @_;
     my $s = ensure_session($from, $conf);
     unless ($s) {
-        # 起不来也要回一句：否则用户只看到「发了没反应」，无从判断
-        return '本机会话没起来，这次没有执行。原因已写在 Mac 的终端输出和审计日志里'
-             . '（session_not_ready 那行）。常见原因：模型密钥失效 / 模型名不对 / '
-             . '本机 ~/.claude-agent-env 没配好。';
+        # 起不来也要回一句：否则用户只看到「发了没反应」，无从判断。
+        # ★ 人就在手机上，让他去翻 Mac 的终端等于没给原因 —— 把子进程 stderr 的
+        #   开头（脱敏、截断）直接带回来。看完整内容再去 audit.log。
+        my $why = $LAST_SPAWN_ERR ne '' ? '原因：' . $LAST_SPAWN_ERR . '。' : '';
+        return '本机会话没起来，这次没有执行。' . $why
+             . '（完整输出在 Mac 的 ~/.claude-agent/audit.log 里 session_not_ready 那行；'
+             . '常见原因：模型密钥失效 / 模型名不对 / 本机 ~/.claude-agent-env 没配好）';
     }
 
     print { $s->{in} } qq|{"t":"user","text":"| . json_escape($text) . qq|"}\n|;

@@ -116,6 +116,37 @@ def main():
     check('能找到 remote/wecom-ws.pl', bool(gui.find_wecom_ws_script()),
           gui.find_wecom_ws_script())
 
+    # ---- 远程服务的环境必须与命令行启动同一套 ----
+    # 踩过：命令行 `~/bin/advisor` 会 export CLAUDE_CURL / CLAUDE_MODELS_FILE，
+    # GUI 起远程服务时什么都没传 → 同一个 agent 两条起动路径拿到不同环境。
+    env = gui.service_env()
+    check('远程服务带上了 CLAUDE_CURL', 'CLAUDE_CURL' in env and env['CLAUDE_CURL'] != '',
+          str(env.get('CLAUDE_CURL')))
+    check('远程服务带上了 CLAUDE_MODELS_FILE',
+          'CLAUDE_MODELS_FILE' in env and env['CLAUDE_MODELS_FILE'] != '',
+          str(env.get('CLAUDE_MODELS_FILE')))
+    # 真的传给了子进程（不是只算出来放着）
+    import subprocess as _sp
+    captured = {}
+    real_popen = _sp.Popen
+
+    class _FakePopen:
+        def __init__(self, *a, **kw):
+            captured.update(kw)
+            self.returncode = None
+        def poll(self):
+            return None
+
+    _sp.Popen = _FakePopen
+    try:
+        gui.start_remote_service(gui.find_wecom_ws_script() or '/tmp/x.pl', 'default', '')
+    finally:
+        _sp.Popen = real_popen
+    check('起服务时 env= 真的传下去了', isinstance(captured.get('env'), dict),
+          str(type(captured.get('env'))))
+    check('传下去的环境里有密钥文件里的厂商', 'CLAUDE_MODELS_FILE' in (captured.get('env') or {}),
+          str(sorted((captured.get('env') or {}).keys())[:8]))
+
     # 预置「用户自己的」其它配置：GUI 不许把它们弄丢
     with open(remote_path, 'w', encoding='utf-8') as f:
         f.write('# 用户自己写的\nNOTIFY=1\nLANG=zh\nALLOW=olduser\nHIST_PASS=keepme\n')
