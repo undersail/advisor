@@ -2552,13 +2552,28 @@ sub build_request_openai {
         push @out, @results;
         if (@calls) {
             my $m = { role => 'assistant', tool_calls => \@calls };
-            $m->{content} = join("\n", @texts) if @texts;
+            # ★ content 必须是字符串：只有工具调用、没有文本时也要给 ''，
+            #   不能留 undef（MiniJSON 会编成 null，DeepSeek 这类服务直接
+            #   422 invalid_request_error「content should be a string or a list」）。
+            $m->{content} = @texts ? join("\n", @texts) : '';
             push @out, $m;
         }
         elsif (@texts) {
             push @out, { role => $role, content => join("\n", @texts) };
         }
     }
+
+    # 发出去之前统一兜一层：content 必须有值且是字符串/数组。
+    # 老会话文件、手工改过的历史、第三方导入都可能留下 content:null。
+    my $null_fixed = 0;
+    for my $m (@out) {
+        next unless ref $m eq 'HASH';
+        next if defined $m->{content};
+        $m->{content} = '';
+        $null_fixed++;
+    }
+    warn "::notice::修正了 $null_fixed 条 content=null 的消息（否则厂商会 422）\n"
+        if $null_fixed && ($ENV{CLAUDE_DEBUG} || '') ne '';
 
     my $req = { model => $MODEL, messages => \@out };
     $req->{max_tokens} = $MAX_TOKENS;

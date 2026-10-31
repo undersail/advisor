@@ -712,3 +712,24 @@ description 与参数说明写的是日文。模型会照工具文档的语言�
 | 修法 | ① 带 cid 的答复必须对上；**不带 cid 的照收**（跨题串台交给「问之前清陈旧答复」+ 长连接端的 wait 清除）② 远程口径独立：agent 与网关都用 120s（网关 115s 收尾），手机消息里写明「请在 N 秒内回复」 |
 | 测试 | `test-gateway-write` 68→70（不带 cid 也认、提问前就到的旧答复被丢弃）；真 agent + 真网关 e2e 复核：带 cid 执行 / 不带 cid 执行 / 不回不执行 |
 | 已知小坑 | Perl 的 `readline` 会把管道内容预读进自己的缓冲区，`IO::Select` 看不到，所以「问之前清陈旧答复」这条防线对预读内容不生效；此时靠 cid 不匹配兜住（两条防线任一生效即可） |
+
+## 24. HTTP 422「content should be a string or a list」（v0.2.6）
+
+**现象**：长会话里突然报
+`API 错误（HTTP 422）：Failed to deserialize the JSON body … messages[271]: content should be a string or a list`。
+
+**根因**：`build_request_openai` 组装带工具调用的 assistant 消息时，只有「有文本」才赋
+`content`；**只调工具、没有文本**时它一直是 `undef` → `MiniJSON::encode` 编成 `null`。
+OpenAI 接受 `content:null`，但 DeepSeek 这类服务（Rust serde，报错文案就是它）不接受，
+直接 422。长会话才炸，是因为前面那些工具调用恰好都带了文本；`messages[271]` 是这条会话里
+第一个「纯工具调用」的位置。
+
+**修法**：
+- 根因处：`$m->{content} = @texts ? join("\n", @texts) : '';`（永远给字符串）
+- 兜一层：`build_request_openai` 出口处扫一遍，任何 `content` 为 undef 的消息补成 `''`
+  —— 老会话文件、手工改过的历史、第三方导入都可能带 `null`；带 `CLAUDE_DEBUG=1` 时会
+  打一行 notice 说明补了几条。
+
+**测试**：`scripts/test-modes.py` 新增 `case_content_never_null`（只给工具调用不给文本，
+断言请求体里没有 `"content":null`、且带 `tool_calls` 的 assistant 消息 `content` 是字符串）。
+`test-modes` 73→75。

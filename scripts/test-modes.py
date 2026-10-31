@@ -301,6 +301,37 @@ def confirms(events):
 
 
 # ------------------------------------------------------------------ 用例
+
+def case_content_never_null(tmp, base):
+    """只有工具调用、没有文本时，发出去的 content 必须是 ""，不能是 null。
+
+    真实故障：DeepSeek 返回 HTTP 422
+    「messages[271]: content should be a string or a list」——就是我们发了 content:null。
+    """
+    print('[请求体] 工具调用消息的 content 不能是 null')
+    print('::notice::[请求体] content 必须是字符串')
+    a = Agent(tmp, 'accept-edits', base)
+    try:
+        SCRIPT.push_tool('list_dir', {'path': '.'})       # 只给工具调用，不给文本
+        SCRIPT.push_text()
+        a.turn('看看当前目录')
+        body = SCRIPT.requests[-1] if SCRIPT.requests else ''
+        check('发出去的请求里没有 content:null', '"content":null' not in body.replace(' ', ''),
+              body[:200])
+        # 找到那条带 tool_calls 的 assistant 消息，它的 content 必须是空字符串
+        try:
+            req = json.loads(body)
+        except ValueError:
+            req = {}
+        bad = []
+        for m in req.get('messages') or []:
+            if m.get('tool_calls') and not isinstance(m.get('content'), str):
+                bad.append(m.get('content'))
+        check('带 tool_calls 的 assistant 消息 content 是字符串', not bad, str(bad)[:200])
+    finally:
+        a.stop()
+
+
 def case_default_asks(tmp, base):
     print('[default] 写文件与命令都要确认')
     print('::notice::[default] 写文件与命令都要确认')
@@ -687,6 +718,7 @@ def main():
         case_accept_edits(tmp, base)
         case_bypass(tmp, base)
         case_bypass_timeout(tmp, base)
+        case_content_never_null(tmp, base)
         case_confirm_cid_stale(tmp, base)
         case_write_scope(tmp, base)
         case_cmd_write_scope(tmp, base)
