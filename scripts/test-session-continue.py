@@ -52,6 +52,42 @@ def read_msgs(path):
         return json.load(fh).get('messages', [])
 
 
+
+def case_rpc_named_resume(tmp, base):
+    """远程那种用法：同一个名字 + --continue，重启进程后必须接着上次。
+
+    网关给每个发送者一个稳定键（remote:<md5 前12位>），服务重启后重新 spawn
+    agent 时带的就是这两个参数 —— 这条路必须真能接上，不然手机每重启一次服务断片。
+    """
+    print('[远程口径] 同名 + --continue：进程重启后要接上')
+    home = os.path.join(tmp, 'home-rpc')
+    os.makedirs(home)
+    hist = os.path.join(home, 'hist')
+    key = 'remote:abcdef123456'
+    # 注意 harness 默认 CLAUDE_NO_HISTORY=1，这里必须显式打开
+    env = {'CLAUDE_HISTORY_DIR': hist, 'CLAUDE_NO_HISTORY': '0'}
+
+    SCRIPT.reset()
+    SCRIPT.push_text('第一次的回答')
+    a = H.Agent(home, base, extra_args=['--name=' + key, '--continue=' + key], extra_env=env)
+    a.turn('第一句')
+    a.stop()
+    files = sorted(os.listdir(hist)) if os.path.isdir(hist) else []
+    H.check(len(files) == 1, '第一轮写出了历史文件', files)
+
+    SCRIPT.reset()
+    SCRIPT.push_text('第二轮的回答')
+    b = H.Agent(home, base, extra_args=['--name=' + key, '--continue=' + key], extra_env=env)
+    ev = b.turn('第二句')
+    # 「载入了上次的会话」是握手阶段发的 note，在 b.events 里（不在本回合事件里）
+    body = ''.join(H.texts(b.events)) + ''.join(H.texts(ev))
+    H.check('载入' in body or 'continue' in body.lower() or '接着' in body,
+            '第二轮启动时明确说「载入了上次的会话」', body[:200])
+    # 请求体里应当带着上一轮的那句话（真接上，不是只打了个招呼）
+    joined = '\n'.join(SCRIPT.requests[-1:])
+    H.check('第一句' in joined, '第二轮请求里带着上一轮的内容（真接上）', joined[:300])
+    b.stop()
+
 def main():
     if not os.path.exists(H.AGENT):
         H.check(False, 'agent 存在', H.AGENT)
@@ -63,6 +99,8 @@ def main():
         home = os.path.join(work, 'home')
         os.makedirs(home)
         hist = os.path.join(home, '.claude-agent', 'history')
+
+        case_rpc_named_resume(work, base)
 
         # ---- A) 第一场：普通会话，之后 --continue 接着它
         a = H.Agent(home, base, extra_env={'CLAUDE_NO_HISTORY': '0'})

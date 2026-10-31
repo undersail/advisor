@@ -1076,6 +1076,40 @@ my %S = (
         en => "Converted %d conversation(s) in %s.\nBackup: %s\n"
               . "You will not be asked for a passphrase again.\n",
         zh => "已把 %d 个会话转成明文（%s）。\n备份：%s\n以后启动不再询问口令。\n"},
+    confirm_write_skill  => {
+        ja => "技能「%s」を書き込みます（%s）。\n次回からこの技能が一覧に出ます。よろしいですか？",
+        en => "Write the skill \"%s\" to %s?\nIt will show up in the skill list from the next session.",
+        zh => "要写入技能「%s」吗（%s）？\n下次启动起，它会出现在技能列表里。"},
+    confirm_write_skill_over => {
+        ja => "技能「%s」は既にあります（%s）。\n上書きしますか？",
+        en => "The skill \"%s\" already exists (%s).\nOverwrite it?",
+        zh => "技能「%s」已经存在（%s），要覆盖吗？"},
+    skill_write_cancelled => {
+        ja => "技能の書き込みを取りやめました（何も変更していません）。\n",
+        en => "Skill not written; nothing was changed.\n",
+        zh => "已取消写入技能，什么都没有改动。\n"},
+    skill_name_bad => {
+        ja => "技能名が不正です（1〜32 文字、/ と .. と制御文字は不可、先頭は . 以外）。\n",
+        en => "Bad skill name: 1-32 chars, no slashes, no '..', no control chars, must not start with '.'.\n",
+        zh => "技能名不合法（1~32 字，不能含 / 与 .. 与控制字符，不能以 . 开头）。\n"},
+    skill_desc_bad => {
+        ja => "説明が不正です（1〜80 文字）。\n",
+        en => "Bad description: 1-80 chars.\n",
+        zh => "描述不合法（1~80 字）。\n"},
+    skill_body_bad => {
+        ja => "本文が空です。\n", en => "Body is empty.\n", zh => "正文是空的。\n"},
+    skill_body_too_big => {
+        ja => "本文が大きすぎます（上限 %d バイト）。\n",
+        en => "Body too large (limit %d bytes).\n",
+        zh => "正文太大（上限 %d 字节）。\n"},
+    skill_cannot_write => {
+        ja => "技能を書き込めません（%s: %s）。\n",
+        en => "Cannot write the skill (%s: %s).\n",
+        zh => "技能写不进去（%s：%s）。\n"},
+    skill_saved => {
+        ja => "技能を保存しました: %s\n（次の起動から一覧に出ます）\n",
+        en => "Skill saved: %s\n(It appears in the skill list from the next start.)\n",
+        zh => "技能已保存：%s\n（下次启动起会出现在列表里）\n"},
     hist_plain_mode      => {
         en => "History is saved as plain text (mode 0600) in %s. Use --encrypt-history if you want it protected by a passphrase.\n",
         zh => "历史以明文保存在 %s（权限 0600）。想要口令加密，用 --encrypt-history 启动。\n",
@@ -3272,6 +3306,20 @@ my @TOOLS = (
         },
     },
     {
+        name => 'write_skill',
+        description => 'Save (or overwrite) one reusable procedure as a skill, so it can be '
+                     . 'reloaded in later sessions. The user is asked to confirm before writing.',
+        input_schema => {
+            type => 'object',
+            properties => {
+                name        => { type => 'string', description => 'short skill name (<= 32 chars, no slashes)' },
+                description => { type => 'string', description => 'one line (<= 80 chars): when to use it' },
+                body        => { type => 'string', description => 'the procedure itself, markdown (<= 20000 bytes)' },
+            },
+            required => ['name', 'description', 'body'],
+        },
+    },
+    {
         name => 'remember',
         description => 'Save one durable fact about the user into their long-term memory '
                      . '(the user is asked to confirm before anything is written)',
@@ -4235,6 +4283,53 @@ sub skill_entry {
 }
 
 # 遍历 skills/。`<名字>/SKILL.md` 和 `<名字>.md` 都接受。
+# 技能写入的校验（不落盘）：返回 (错误文案, 路径, 内容)。
+# 先把「不能写」的情况全部判掉，再让调用方去问人 —— 不能问完才发现不合法。
+sub skill_prepare {
+    my ($name, $desc, $body) = @_;
+    $name = '' unless defined $name;
+    $desc = '' unless defined $desc;
+    $body = '' unless defined $body;
+
+    $name =~ s/^\s+//; $name =~ s/\s+$//;
+    $desc =~ s/\s+/ /g; $desc =~ s/^\s+//; $desc =~ s/\s+$//;
+
+    return (L('skill_name_bad'), undef, undef)
+        if $name eq '' || length($name) > 32 || $name =~ m{[/\\]} || $name =~ /\.\./
+           || $name =~ /^[.\s]/ || $name =~ /[\x00-\x1f]/;
+    return (L('skill_desc_bad'), undef, undef) if $desc eq '' || length($desc) > 80;
+    return (L('skill_body_bad'), undef, undef) if $body =~ /^\s*$/;
+    return (L('skill_body_too_big', 20000), undef, undef) if length($body) > 20000;
+
+    # 正文里若自带 frontmatter 就用它的，否则由我们补一份（技能列表只读 description）
+    my $text = $body;
+    unless ($text =~ /^---\s*\r?\n/) {
+        $text = "---\nname: $name\ndescription: $desc\n---\n\n" . $body;
+        $text .= "\n" unless $text =~ /\n$/;
+    }
+    my $dir  = skills_dir();
+    my $path = "$dir/$name/SKILL.md";
+    return ('', $path, $text);
+}
+
+sub skill_commit {
+    my ($path, $text) = @_;
+    my $dir = $path;
+    $dir =~ s{/[^/]+$}{};
+    unless (-d $dir) {
+        my $top = skills_dir();
+        mkdir $top or return (0, L('skill_cannot_write', $top, $!)) unless -d $top;
+        chmod 0700, $top;
+        mkdir $dir or return (0, L('skill_cannot_write', $dir, $!)) unless -d $dir;
+        chmod 0700, $dir;
+    }
+    open(my $fh, '>:encoding(UTF-8)', $path) or return (0, L('skill_cannot_write', $path, $!));
+    print $fh $text;
+    close $fh;
+    chmod 0600, $path;
+    return (1, L('skill_saved', $path));
+}
+
 sub skills_list {
     my $dir = skills_dir();
     my @out;
@@ -4389,6 +4484,26 @@ sub run_tool {
         }
     }
 
+    if ($name eq 'write_skill') {
+        # 技能一旦写下去，以后每一轮都会被注入名字+描述，等于长期改变行为，
+        # 所以和记性一样：**任何模式都要人确认**（bypass 也不例外）。
+        my $sk_name = (ref $input eq 'HASH' && defined $input->{name}) ? $input->{name} : '';
+        my $sk_desc = (ref $input eq 'HASH' && defined $input->{description}) ? $input->{description} : '';
+        my $sk_body = (ref $input eq 'HASH' && defined $input->{body}) ? $input->{body} : '';
+        my ($bad, $sk_path, $sk_text) = skill_prepare($sk_name, $sk_desc, $sk_body);
+        return $bad if defined $bad && $bad ne '';
+        my $exists = (-f $sk_path) ? 1 : 0;
+        my $prompt = $exists
+            ? L('confirm_write_skill_over', $sk_name, $sk_path)
+            : L('confirm_write_skill', $sk_name, $sk_path);
+        unless (confirm($prompt, { strict => 1 })) {
+            approvals_log('write_skill', $sk_name, 'refused');
+            return L('skill_write_cancelled');
+        }
+        my ($ok2, $msg2) = skill_commit($sk_path, $sk_text);
+        approvals_log('write_skill', $sk_name, $ok2 ? 'saved' : 'refused');
+        return $msg2;
+    }
     if ($name eq 'remember') {
         # 长期记忆在任何模式下都一定问人（bypass 也不例外）。
         # 记忆写下去之后一直生效，跳过确认会留下长期事故。
@@ -4568,7 +4683,7 @@ if ($LIST_HISTORY) {
 
 # --- --continue: 不显示菜单直接继续（指定名字就接那场） ---
 if ($CONTINUE && !$RESUME) {
-    unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
+    unless ($HISTORY_ENABLED) { emit_error(L('history_unavailable')); exit 1; }
     my ($pick, $pick_data);
     for my $f (history_files()) {
         my $raw = hist_decrypt("$HISTORY_DIR/$f");
@@ -4587,13 +4702,13 @@ if ($CONTINUE && !$RESUME) {
         $SESSION_FILE = "$HISTORY_DIR/$pick";
         $SESSION_NAME = $pick_data->{name}
             if $SESSION_NAME eq '' && defined $pick_data->{name};
-        print L('continue_loaded',
+        emit_note(L('continue_loaded',
                 (defined $pick_data->{name} ? '[' . $pick_data->{name} . '] ' : ''),
-                scalar(@messages));
+                scalar(@messages)));
     }
     else {
-        print L('continue_none',
-                ($CONTINUE_NAME ne '' ? "（$CONTINUE_NAME）" : ''));
+        emit_note(L('continue_none',
+                ($CONTINUE_NAME ne '' ? "（$CONTINUE_NAME）" : '')));
     }
 }
 

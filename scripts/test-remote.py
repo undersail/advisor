@@ -205,16 +205,28 @@ def main():
         home2 = make_home(model_port, hook_port, allow='ou_alice')
         run_gateway(home2, '{"from":"ou_alice","text":"hi"}\n')
         hist_remote = os.path.join(home2, '.claude-agent', 'history-remote')
-        check('没配 HIST_PASS 时不写远程历史',
-              not (os.path.isdir(hist_remote) and os.listdir(hist_remote)),
-              hist_remote)
+        # 口径变更（v0.2.6）：没配 HIST_PASS **也**写历史（明文 0600/0700）。
+        # 原来的「不配就不写」等于「手机每条消息都是新对话、服务一重启就断片」。
+        files2 = sorted(os.listdir(hist_remote)) if os.path.isdir(hist_remote) else []
+        check('没配 HIST_PASS 也写远程历史（默认明文，否则重启就断片）',
+              len(files2) > 0, hist_remote)
+        if files2:
+            hp = os.path.join(hist_remote, files2[0])
+            check('远程历史文件是 0600', oct(stat.S_IMODE(os.stat(hp).st_mode)) == '0o600',
+                  oct(stat.S_IMODE(os.stat(hp).st_mode)))
+            check('远程历史目录是 0700',
+                  oct(stat.S_IMODE(os.stat(hist_remote).st_mode)) == '0o700',
+                  oct(stat.S_IMODE(os.stat(hist_remote).st_mode)))
+            check('没配口令时写的是明文 *.json（不是空文件）',
+                  files2[0].endswith('.json') and os.path.getsize(hp) > 2,
+                  '%s %d' % (files2[0], os.path.getsize(hp)))
 
         home3 = make_home(model_port, hook_port, allow='ou_alice',
                           hist_pass='remote-pass-123', recovery='宠物名字|旺财')
         run_gateway(home3, '{"from":"ou_alice","text":"hi"}\n')
         remote_dir = os.path.join(home3, '.claude-agent', 'history-remote')
         local_dir = os.path.join(home3, '.claude-agent', 'history')
-        check('配了 HIST_PASS + HIST_RECOVERY 才启用远程历史，且写在独立目录',
+        check('配了 HIST_PASS + HIST_RECOVERY 时用口令加密，且写在独立目录',
               os.path.isdir(remote_dir) and len(os.listdir(remote_dir)) > 0,
               os.listdir(remote_dir) if os.path.isdir(remote_dir) else '(没建)')
         check('远程历史没有污染本地历史目录', not os.path.isdir(local_dir), local_dir)

@@ -32,6 +32,23 @@ def write(path, body):
         f.write(body)
 
 
+
+def last_tool_result(script):
+    """取最近一次请求里 tool 消息的内容（工具结果回给模型，不是用户可见文案）。"""
+    import json as _json
+    if not script.requests:
+        return ''
+    try:
+        req = _json.loads(script.requests[-1])
+    except ValueError:
+        return ''
+    out = []
+    for m in req.get('messages') or []:
+        if m.get('role') in ('tool', 'function'):
+            c = m.get('content')
+            out.append(c if isinstance(c, str) else _json.dumps(c, ensure_ascii=False))
+    return '\n'.join(out)
+
 def main():
     if not os.path.exists(H.AGENT):
         H.check(False, 'agent 存在', H.AGENT)
@@ -120,6 +137,66 @@ def main():
         H.check('不能修改配置' in txt or 'config' in txt.lower(),
                 '受限会话里 /skills 被拒', txt[:200])
         a.stop()
+
+        # ---- H) write_skill：提议 → 人确认 → 才落盘（bypass 也要问）
+        print('[write_skill] 提议 → 确认 → 落盘；越界/超限直接拒；bypass 也要问')
+        a = H.Agent(home, base, extra_env=env)
+        H.check(a.hello is not None, 'write_skill 会话正常握手')
+        target = os.path.join(sk, 'build-app', 'SKILL.md')
+
+        # 1) 拒绝确认 → 不落盘，并说明已取消
+        SCRIPT.reset(); SCRIPT.push_tool('write_skill', {
+            'name': 'build-app', 'description': '打包成 .app 的步骤',
+            'body': '1. 跑 py2app\n2. 签名\n'}); SCRIPT.push_text('ok')
+        ev = a.tool_turn('write_skill', {}, answer='n')
+        H.check(not os.path.exists(target), '按 n 后没有写出文件', target)
+        H.check('已取消' in last_tool_result(SCRIPT), '拒绝时明确说「已取消」',
+                last_tool_result(SCRIPT)[:200])
+
+        # 2) 同意 → 落盘，权限 0600 / 目录 0700，frontmatter 里带 description
+        SCRIPT.reset(); SCRIPT.push_tool('write_skill', {
+            'name': 'build-app', 'description': '打包成 .app 的步骤',
+            'body': '1. 跑 py2app\n2. 签名\n'}); SCRIPT.push_text('ok')
+        ev = a.tool_turn('write_skill', {}, answer='y')
+        H.check(os.path.isfile(target), '确认后写出了 SKILL.md', target)
+        if os.path.isfile(target):
+            body = open(target, encoding='utf-8').read()
+            H.check('description: 打包成 .app 的步骤' in body,
+                    'frontmatter 里带 description（下次才会出现在技能列表）', body[:200])
+            H.check(oct(os.stat(target).st_mode & 0o777) == '0o600',
+                    '技能文件是 0600', oct(os.stat(target).st_mode & 0o777))
+            H.check(oct(os.stat(os.path.dirname(target)).st_mode & 0o777) == '0o700',
+                    '技能目录是 0700', oct(os.stat(os.path.dirname(target)).st_mode & 0o777))
+
+        # 3) 越界名字 / 超限内容：直接拒，且**不弹确认**
+        for bad_name in ('../evil', 'a/b', '.hidden', ''):
+            SCRIPT.reset(); SCRIPT.push_tool('write_skill', {
+                'name': bad_name, 'description': 'x', 'body': 'y'}); SCRIPT.push_text('ok')
+            ev = a.tool_turn('write_skill', {})
+            H.check(not H.confirms(ev), '非法名字 %r 不弹确认（先拒，不浪费人的点击）' % bad_name,
+                    str(H.confirms(ev))[:120])
+            H.check('技能名不合法' in last_tool_result(SCRIPT), '非法名字 %r 给出原因' % bad_name,
+                    last_tool_result(SCRIPT)[:160])
+        H.check(not os.path.exists(os.path.join(home, 'evil')), '越界名字没有写到技能目录外')
+        for args, label in (
+                ({'name': 'ok-name', 'description': 'x' * 81, 'body': 'y'}, '描述超过 80 字'),
+                ({'name': 'ok-name', 'description': 'ok', 'body': ''}, '正文为空'),
+                ({'name': 'ok-name', 'description': 'ok', 'body': 'y' * 20001}, '正文超过 20000 字节')):
+            SCRIPT.reset(); SCRIPT.push_tool('write_skill', args); SCRIPT.push_text('ok')
+            ev = a.tool_turn('write_skill', {})
+            H.check(not H.confirms(ev), '%s 直接拒（不弹确认）' % label, str(H.confirms(ev))[:120])
+        a.stop()
+
+        # 4) bypass 模式下仍然要人确认（技能写下去长期生效）
+        b = H.Agent(home, base, extra_args=['--mode=bypass'], extra_env=env)
+        SCRIPT.reset(); SCRIPT.push_tool('write_skill', {
+            'name': 'bypass-skill', 'description': '看看 bypass 要不要问', 'body': 'x'})
+        SCRIPT.push_text('ok')
+        ev = b.tool_turn('write_skill', {}, answer='n')
+        H.check(bool(H.confirms(ev)), 'bypass 模式下 write_skill 仍然弹确认', str(H.confirms(ev))[:160])
+        H.check(not os.path.exists(os.path.join(sk, 'bypass-skill', 'SKILL.md')),
+                'bypass 下按 n 也没写出去')
+        b.stop()
 
         # ---- G) 描述里没有 frontmatter 也没有标题 → 取第一行非空文本
         write(os.path.join(sk, 'plain', 'SKILL.md'), '就是一句话的说明\n第二行\n')

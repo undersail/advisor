@@ -65,7 +65,10 @@ my $REMOTE_HIST  = "$ENV{HOME}/.claude-agent/history-remote";
 #   --allow-write=<dir>  → 可写目录白名单（可重复或逗号分隔）
 #   想加工具仍然要改这里的代码并 review；配置文件和聊天消息都不是入口。
 my @REMOTE_TOOLS_READONLY = qw(read_file list_dir);
-my @REMOTE_TOOLS_WRITABLE = qw(read_file list_dir write_file run_shell);
+# remember / write_skill 也在这一档：它们写的是 ~/.claude-agent 下的
+# 记忆文件与技能文件（那里的窄门），且**永远要人确认**（strict），
+# 所以放进可写档不会变成「手机能偷偷改配置」。
+my @REMOTE_TOOLS_WRITABLE = qw(read_file list_dir write_file run_shell remember write_skill);
 my $REMOTE_WRITE_MODE = '';            # '' = 未指定 → default（只读）
 my @REMOTE_ROOTS;                      # --allow-write 的目录
 my $CONFIRM_WAIT = 120;                # 远程确认最多等多久（秒），超时按拒绝
@@ -327,19 +330,23 @@ sub spawn_session {
     my $aenv = read_agent_env($envfile);
 
     my %env = (%ENV, %$aenv);
+    # ★ 挡住「父进程环境泄漏」：启动远程服务的那个 shell 里若 export 了历史开关，
+    #   子 agent 会照单全收，表现就是「远程突然不存历史了」。
+    #   档位/可写范围不在这里清 —— 见下面「一律显式传 --mode」那段：argv 永远压过
+    #   环境变量，那才是唯一权威来源（解耦卡口也要求档位只走启动参数）。
+    for my $leak (qw(CLAUDE_NO_HISTORY CLAUDE_ENCRYPT_HISTORY)) {
+        delete $env{$leak};
+    }
     $env{CLAUDE_HISTORY_DIR} = $REMOTE_HIST;
     # 远程过来的是中文平台（企微/飞书）。老 Mac 上的 Agent 会去看 AppleLocale，
     # 在日本语系统的机器上就会用日文回中文提问 —— 所以这里显式定语言。
     $env{CLAUDE_LANG} = (defined $conf->{LANG} && $conf->{LANG} =~ /^(zh|ja|en)/)
         ? lc($1) : 'zh';
-    my $hist_on = 0;
+    # 远程历史：**默认开**（与本机一致，明文 0600/0700）。配了 HIST_PASS 就
+    # 用口令加密；没配也不再关掉历史 —— 关掉意味着「手机每条消息都是新对话、
+    # 服务一重启就断片」，那才是真正不能用。
     if (defined $conf->{HIST_PASS} && $conf->{HIST_PASS} =~ /\S/) {
         $env{CLAUDE_HIST_PASS} = $conf->{HIST_PASS};
-        $hist_on = 1;
-    }
-    else {
-        # 远程历史口令没配就不写历史 —— 半吊子的加密不如没有。
-        $env{CLAUDE_NO_HISTORY} = '1';
     }
 
     my $errh = gensym;
@@ -349,16 +356,18 @@ sub spawn_session {
         # --no-config：远程会话只对话。厂商/模型/模式/可写范围/密钥一律在本机配好，
         # 这里连命令入口都不给（密钥更不该经第三方聊天平台转一圈）。
         my @extra;
-        push @extra, '--mode=' . $REMOTE_WRITE_MODE if $REMOTE_WRITE_MODE ne '';
+        # 一律显式传：不传的话，父 shell 里的环境变量就会顶上来（远程可能被
+        # 悄悄变成可写）。argv 是唯一权威来源。
+        push @extra, '--mode=' . ($REMOTE_WRITE_MODE ne '' ? $REMOTE_WRITE_MODE : 'default');
         push @extra, ('--allow-write=' . $_) for @REMOTE_ROOTS;
         # 每个发送者都从上次的续点开始。服务重启后同一个人的对话也不会中断
         # （相当于 Hermes 里的「每个通道回到同一个会话」）。
         # 没有名字时子进程会自己开新会话，所以这里不必检查存在性。
-        if ($hist_on) {
-            my $key = 'remote:' . remote_session_key($from);
-            push @extra, "--name=$key", "--continue=$key";
-            audit('session_resume', "key=$key");
-        }
+        # 无条件带上：没有历史文件时 agent 会自己开新会话（已测），
+        # 有就接着上次 —— 服务重启、断线重连都靠这一行。
+        my $key = 'remote:' . remote_session_key($from);
+        push @extra, "--name=$key", "--continue=$key";
+        audit('session_resume', "key=$key");
         open3($in, $out, $errh, 'perl', $AGENT, '--rpc', '--no-config',
               '--tools=' . join(',', effective_tools()), @extra);
     };

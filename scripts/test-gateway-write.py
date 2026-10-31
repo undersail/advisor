@@ -51,6 +51,13 @@ if (defined $ENV{FAKE_ARGV_FILE} && $ENV{FAKE_ARGV_FILE} ne '') {
     print $f join("\n", @ARGV);
     close $f;
 }
+if (defined $ENV{FAKE_ENV_FILE} && $ENV{FAKE_ENV_FILE} ne '') {
+    open(my $g, '>', $ENV{FAKE_ENV_FILE}) or die $!;
+    print $g 'NO_HISTORY=' . (defined $ENV{CLAUDE_NO_HISTORY} ? $ENV{CLAUDE_NO_HISTORY} : '') . "\n";
+    print $g 'HISTORY_DIR=' . (defined $ENV{CLAUDE_HISTORY_DIR} ? $ENV{CLAUDE_HISTORY_DIR} : '') . "\n";
+    print $g 'HIST_PASS=' . (defined $ENV{CLAUDE_HIST_PASS} ? 'set' : '') . "\n";
+    close $g;
+}
 print '{"t":"ready"}', "\n";
 while (my $l = <STDIN>) {
     last if $l =~ /"t"\s*:\s*"bye"/;
@@ -97,7 +104,9 @@ def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
         with open(os.path.join(conf_dir, 'remote.conf'), 'w', encoding='utf-8') as f:
             f.write('HIST_PASS = %s\nALLOW = u1,wxid_alice,wxid_bob\n' % hist_pass)
     env = dict(os.environ)
-    env.update({'HOME': home, 'CLAUDE_AGENT': agent, 'FAKE_ARGV_FILE': argv_file})
+    env_file = os.path.join(home, 'env.txt')
+    env.update({'HOME': home, 'CLAUDE_AGENT': agent, 'FAKE_ARGV_FILE': argv_file,
+                'FAKE_ENV_FILE': env_file})
     if hist_pass is None:
         env['CLAUDE_NO_HISTORY'] = '1'
     else:
@@ -190,11 +199,46 @@ def case_session_continue():
     check('session_resume 的键里没有原始发送者 ID',
           bool(resume) and all('wxid_bob' not in l for l in resume), str(resume))
 
-    # 没配远程历史口令 → 不传 --continue（没历史可接）
+    # 没配远程历史口令 → **仍然**接续（历史改为默认开、明文 0600；关掉历史等于
+    # 「手机每条消息都是新对话、服务一重启就断片」）
     home2 = make_home()[0]
+    # 只写白名单、不写 HIST_PASS —— 这才是「没配远程口令」的真实配置。
+    # （以前这里什么都不写，发送者直接被白名单丢掉，断言其实是空转的。）
+    conf2 = os.path.join(home2, '.claude-agent')
+    os.makedirs(conf2, exist_ok=True)
+    with open(os.path.join(conf2, 'remote.conf'), 'w', encoding='utf-8') as f:
+        f.write('ALLOW = u1,wxid_alice\n')
     r4 = drive([], '没配口令', home=home2, from_='wxid_alice')
-    check('没配远程历史口令时不传 --continue',
-          not [a for a in r4['argv'] if a.startswith('--continue=')], str(r4['argv']))
+    check('没配口令也传 --continue（重启服务后仍能接着聊）',
+          len([a for a in r4['argv'] if a.startswith('--continue=')]) == 1, str(r4['argv']))
+    # 注意 drive() 为了测试方便在父进程 export 了 CLAUDE_NO_HISTORY=1 ——
+    # 网关必须把它挡掉，否则「启动远程服务的那个 shell 里有什么，远程就变成什么」。
+    env_dump = open(os.path.join(home2, 'env.txt'), encoding='utf-8').read()
+    check('父进程的 CLAUDE_NO_HISTORY 不会泄漏进远程会话',
+          'NO_HISTORY=\n' in env_dump or 'NO_HISTORY=' in env_dump and 'NO_HISTORY=1' not in env_dump,
+          env_dump)
+    check('远程历史目录仍然是自己的那一份', 'HISTORY_DIR=' in env_dump and 'remote' in env_dump, env_dump)
+
+    # 记忆与技能：只有可写档才给工具，只读档一律不给
+    print('[远程] remember / write_skill 只在可写档，且永远要人确认')
+    print('::notice::[远程] remember / write_skill 只在可写档')
+    def allowed_home():
+        h = make_home()[0]
+        d = os.path.join(h, '.claude-agent')
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'remote.conf'), 'w', encoding='utf-8') as f:
+            f.write('ALLOW = u1,wxid_alice\n')
+        return h
+
+    r5 = drive([], '只读档看看工具集', home=allowed_home(), from_='wxid_alice')
+    ro_tools = [a for a in r5['argv'] if a.startswith('--tools=')]
+    check('只读档不含 remember', bool(ro_tools) and 'remember' not in ro_tools[0], str(ro_tools))
+    check('只读档不含 write_skill', bool(ro_tools) and 'write_skill' not in ro_tools[0], str(ro_tools))
+    r6 = drive(['--mode=accept-edits'], '可写档看看工具集',
+               home=allowed_home(), from_='wxid_alice')
+    rw_tools = [a for a in r6['argv'] if a.startswith('--tools=')]
+    check('可写档包含 remember', bool(rw_tools) and 'remember' in rw_tools[0], str(rw_tools))
+    check('可写档包含 write_skill', bool(rw_tools) and 'write_skill' in rw_tools[0], str(rw_tools))
 
 
 def main():
@@ -207,8 +251,13 @@ def main():
     tools = [a for a in r['argv'] if a.startswith('--tools=')]
     check('默认档位下工具集只有 read_file,list_dir',
           tools == ['--tools=read_file,list_dir'], str(tools))
-    check('默认档位不传 --mode（不是偷偷给个默认值）',
-          not [a for a in r['argv'] if a.startswith('--mode')], str(r['argv']))
+    # 口径变更（v0.2.6）：默认档位也**显式**传 --mode=default。
+    # 不是「偷偷给个默认值」，而是把「默认=只读」钉在命令行上：
+    #   ① agent 的取值顺序是 argv > 环境变量 > 内置默认，只靠内置默认的话，
+    #      启动服务的那个 shell 里若 export 了 CLAUDE_MODE=bypass，远程会被悄悄放开；
+    #   ② 解耦卡口要求「档位只许走启动参数」，显式传正是那条路。
+    check('默认档位显式传 --mode=default（argv 是唯一权威来源）',
+          [a for a in r['argv'] if a.startswith('--mode=')] == ['--mode=default'], str(r['argv']))
 
     print('\u2461 只读档：确认不打扰手机，直接拒')
     r = drive([], '写个文件')
