@@ -308,7 +308,7 @@ perl remote/wecom-ws.pl --serve --mode=accept-edits --allow-write=~/proj
 回复 y 允许 / n 拒绝（不回则超时按拒绝处理）
 ```
 
-回 `y` 放行、回 `n` 拒绝、不回 120 秒后按拒绝（`--confirm-wait=秒` 可调）。
+回 `y` 放行、回 `n` 拒绝、不回 5 分钟后按拒绝（`--confirm-wait=秒` 可调；`~/.claude-agent/remote.conf` 里 `CONFIRM_SECS` 是正门）。
 
 **只能跑一个**：重复启动会被立刻拒绝（退出码 3），并告诉你已有实例的 pid 与档位 ——
 两个实例会把同一条消息处理两遍。状态文件：`~/.claude-agent/wecom-ws.pid`

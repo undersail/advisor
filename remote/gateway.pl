@@ -19,6 +19,8 @@
 #   ALLOW = ou_xxx, userid_yyy     白名单。**不配就是谁也不许**（fail-closed）
 #   NOTIFY = 1                     处理完把结果推到档①通知（默认 1）
 #   HIST_PASS = ...                远程历史口令
+#   CONFIRM_SECS = 300             确认等待秒数（默认 300 = 5 分钟，与 Hermes 一致）
+#                                  网关永远比这个值早 5 秒收尾
 #   HIST_RECOVERY = 问题|答案        远程历史的密保问题（两者都配才会真的写历史）
 #   AGENT_ENV_FILE = /path         agent 的模型/密钥来源，默认 ~/.claude-agent-env
 #   LANG = zh                      agent 的回复语言（zh/en/ja，默认 zh）
@@ -74,11 +76,16 @@ my @REMOTE_ROOTS;                      # --allow-write 的目录
 # 远程确认等多久：必须比 agent 自己的超时**短**。
 # 旧值是固定的 120 秒，而 agent 60 秒就按拒绝收尾了 —— 多出来的那一分钟里，
 # 手机回的 y 会落到**下一次**确认上（等于没人同意却执行了）。
-# 远程（手机）给人的确认时间：本地 60 秒够，手机上「看到问题→想一下→打字」不够。
-my $REMOTE_CONFIRM_SECS = 120;
+# 确认等待：本机 / 远程统一 300 秒（5 分钟），与 Hermes 的 approvals.timeout 默认值一致。
+# 曾经本地 60、远程 120 —— 手机上「看到问题→想一下→打字」经常不够，白等一场。
+# 网关永远比 agent **早 5 秒**收尾（见 confirm_wait_default），这样超时回执先出去。
+my $REMOTE_CONFIRM_SECS = 300;
+my $CONF_CONFIRM_SECS = '';     # remote.conf 的 CONFIRM_SECS（给手机端改时限的正门）
 sub agent_confirm_timeout {
     my $v = defined $ENV{CLAUDE_CONFIRM_TIMEOUT} ? $ENV{CLAUDE_CONFIRM_TIMEOUT} : '';
     return $v if $v =~ /^\d+$/;
+    return $CONF_CONFIRM_SECS
+        if defined $CONF_CONFIRM_SECS && $CONF_CONFIRM_SECS =~ /^\d+$/;
     return $REMOTE_CONFIRM_SECS;
 }
 sub confirm_wait_default {
@@ -87,6 +94,7 @@ sub confirm_wait_default {
     return $w;
 }
 my $CONFIRM_WAIT = confirm_wait_default();   # 远程确认最多等多久（秒），超时按拒绝
+my $CONFIRM_WAIT_EXPLICIT = 0;               # 命令行显式给了就别被 conf 覆盖
 my @STDIN_PUSH;      # 反问前顺手读到的「非答复行」（新指令等）要留到下轮再处理
 
 # 统一入口：先吃预读缓存，再读 STDIN。反问前后都走它，
@@ -538,7 +546,9 @@ sub ask_remote {
         #   「到底执行了没有」。confirm_done 让长连接端清掉「等确认」状态。
         print '{"from":"' . json_escape($from)
             . '","note":"' . json_escape($timed_out
-                ? '（确认超时，这次操作没有执行）'
+                ? ('（确认超时，这次操作没有执行。等待上限 '
+                   . fmt_window($CONFIRM_WAIT + 5)
+                   . '，嫌短可以在 ~/.claude-agent/remote.conf 里配 CONFIRM_SECS）')
                 : '（只收到过迟到的答复，已忽略；这次操作没有执行）')
             . '","confirm_done":1' . "}\n";
     }
@@ -668,7 +678,7 @@ while (my $a = shift @ARGV) {
     elsif ($a eq '--mode')         { $REMOTE_WRITE_MODE = lc(shift @ARGV // ''); }
     elsif ($a =~ /^--allow-write=(.*)$/) { push @REMOTE_ROOTS, grep { length } split /,/, arg_text($1); }
     elsif ($a eq '--allow-write')  { push @REMOTE_ROOTS, grep { length } split /,/, arg_text(shift @ARGV); }
-    elsif ($a =~ /^--confirm-wait=(\d+)$/) { $CONFIRM_WAIT = $1; }
+    elsif ($a =~ /^--confirm-wait=(\d+)$/) { $CONFIRM_WAIT = $1; $CONFIRM_WAIT_EXPLICIT = 1; }
     elsif ($a eq '--help' || $a eq '-h') {
         print "用法: gateway.pl --stdin | --once --from ID --text \"...\"\n"
           . "      [--mode=default|accept-edits|bypass] [--allow-write=DIR[,DIR]] [--confirm-wait=秒]\n";
@@ -681,6 +691,21 @@ while (my $a = shift @ARGV) {
 }
 
 my $conf  = read_conf();
+# remote.conf 的 CONFIRM_SECS 是给手机端改时限的正门（命令行 --confirm-wait 优先）。
+if (!$CONFIRM_WAIT_EXPLICIT && defined $conf->{CONFIRM_SECS} && $conf->{CONFIRM_SECS} =~ /^\d+$/) {
+    $CONF_CONFIRM_SECS = $conf->{CONFIRM_SECS};
+    $CONFIRM_WAIT = confirm_wait_default();
+    audit('confirm_secs_conf', "secs=$CONF_CONFIRM_SECS", "wait=$CONFIRM_WAIT");
+}
+
+# 时限的人话：300 → 「5 分钟」，90 → 「90 秒」。各处文案共用一个说法。
+sub fmt_window {
+    my ($secs) = @_;
+    $secs = int($secs || 0);
+    return '0 秒' if $secs <= 0;
+    return ($secs / 60) . ' 分钟' if $secs % 60 == 0;
+    return "$secs 秒";
+}
 my $allow = allow_set($conf);
 my $notify_on = (exists $conf->{NOTIFY} && $conf->{NOTIFY} =~ /^0$/) ? 0 : 1;
 

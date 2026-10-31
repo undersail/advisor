@@ -854,8 +854,13 @@ sub handle_msg {
         my ($prompt, $danger, $wait) = @_;
         my $head = $danger ? '⚠ 危险操作，需要你在手机上确认：' : '需要你确认：';
         # 把时限说清楚：不回会按拒绝处理，别让人以为「回了就一定来得及」
-        my $tail = (defined $wait && $wait =~ /^\d+$/)
-            ? "\n\n回复 y 允许 / n 拒绝（请在 ${wait} 秒内回复，超时按拒绝处理）"
+        # 时限按人能一眼看懂的写法给：300 → 「5 分钟」。
+        my $win = '';
+        if (defined $wait && $wait =~ /^\d+$/) {
+            $win = ($wait % 60 == 0) ? ($wait / 60) . ' 分钟' : "${wait} 秒";
+        }
+        my $tail = ($win ne '')
+            ? "\n\n回复 y 允许 / n 拒绝（请在 ${win}内回复，超时按拒绝处理）"
             : "\n\n回复 y 允许 / n 拒绝（不回则超时按拒绝处理）";
         $reply_to->($head . $prompt . $tail);
     };
@@ -1127,7 +1132,7 @@ wecom-ws.pl $VERSION — 企业微信智能机器人长连接（API 模式 · �
 远程权限（只在启动时定，手机端改不了）：
   --mode=default|accept-edits|bypass   默认 default=只读
   --allow-write=/路径,/另一个路径      可写目录（只对 accept-edits / bypass 有意义）
-  --confirm-wait=120                   手机端确认最多等多久，超时按拒绝
+  --confirm-wait=295                   手机端确认最多等多久（默认 agent 300 − 5），超时按拒绝
 
 配置：$CONF_PATH
 白名单、审计、只读工具集都由 gateway.pl 负责（与本文件共用一份 remote.conf）。

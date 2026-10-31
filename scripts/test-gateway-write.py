@@ -97,7 +97,7 @@ def make_home():
 
 def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
           from_='u1', hist_pass=None, answer_cid=None, stale=(), extra_env=None,
-          pre_answer=None):
+          pre_answer=None, conf_extra=''):
     """跑一轮：发一条消息，必要时回一个 y/n，收齐 ask 与 reply。
 
     stale：先灌几条「上一道问题迟到的回答」（带旧 cid），用来验证会被丢弃。
@@ -110,7 +110,7 @@ def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
         conf_dir = os.path.join(home, '.claude-agent')
         os.makedirs(conf_dir, exist_ok=True)
         with open(os.path.join(conf_dir, 'remote.conf'), 'w', encoding='utf-8') as f:
-            f.write('HIST_PASS = %s\nALLOW = u1,wxid_alice,wxid_bob\n' % hist_pass)
+            f.write('HIST_PASS = %s\nALLOW = u1,wxid_alice,wxid_bob\n%s' % (hist_pass, conf_extra))
     env = dict(os.environ)
     env_file = os.path.join(home, 'env.txt')
     env.update({'HOME': home, 'CLAUDE_AGENT': agent, 'FAKE_ARGV_FILE': argv_file,
@@ -276,6 +276,24 @@ def case_empty_reply():
     check('审计里记了 reply_empty_filled', 'reply_empty_filled' in r['audit'], r['audit'][-200:])
 
 
+def case_confirm_secs_conf():
+    """手机端改确认时限的正门：remote.conf 的 CONFIRM_SECS（命令行 --confirm-wait 优先）。"""
+    print('[远程] CONFIRM_SECS 改时限：conf 生效、命令行优先')
+    print('::notice::[远程] CONFIRM_SECS 生效')
+    r = drive(['--mode=accept-edits'], '重启一下服务', answer='y', answer_cid='9-1',
+              wait=12, hist_pass='', conf_extra='CONFIRM_SECS = 600\n')
+    asks = r['asks']
+    check('conf 里的 600 → 网关等 595（早 5 秒收尾）',
+          bool(asks) and asks[0].get('wait') == 595,
+          'asks=%r' % (asks[:1],))
+    # 命令行显式给了就以命令行为准
+    r2 = drive(['--mode=accept-edits', '--confirm-wait=77'], '再重启一次', answer='y',
+               answer_cid='9-2', wait=12, hist_pass='', conf_extra='CONFIRM_SECS = 600\n')
+    asks2 = r2['asks']
+    check('命令行 --confirm-wait 压过 conf', bool(asks2) and asks2[0].get('wait') == 77,
+          'asks=%r' % (asks2[:1],))
+
+
 def case_confirm_cid():
     print('[远程] 确认带 cid：迟到的答复不能放过下一次操作；超时要回结果')
     print('::notice::[远程] 确认带 cid 与超时回执')
@@ -292,7 +310,7 @@ def case_confirm_cid():
           str(r['replies'])[:200])
 
     # ③ 上一道题迟到的「同意」不能当成本次答案
-    r2 = drive(['--mode=accept-edits'], '你好', answer='n', answer_cid='7-1', wait=10,
+    r2 = drive(['--mode=accept-edits'], '你好', answer='n', answer_cid='7-1', wait=15,
                stale=[{'answer': 'y', 'cid': '1-9'}])
     check('★ 旧 cid 的「同意」被丢弃（这次仍按 n 处理）',
           any('answer=n' in x for x in r2['replies']), str(r2['replies'])[:200])
@@ -321,11 +339,13 @@ def case_confirm_cid():
     # 注：Perl 的 readline 会把管道内容预读进自己的缓冲区，IO::Select 看不到，
     # 所以这条旧答复实际是被「cid 对不上」挡下来的（两条防线任一生效即可）。
 
-    # ⑧ 远程默认给 120 秒（网关 115 秒收尾）：手机上看题+回话够用，又比 agent 早
+    # ⑧ 本机/远程统一 300 秒（网关 295 秒收尾，永远比 agent 早 5 秒）：
+    #    与 Hermes 的 approvals.timeout 默认值一致 —— 手机上「看到问题→想一下→打字」
+    #    经常超过两分钟，白等一场。
     r7 = drive(['--mode=accept-edits'], '你好', answer='y', answer_cid='7-1', wait=10,
                extra_env={'CLAUDE_CONFIRM_TIMEOUT': ''})
     w7 = (r7['asks'][0] if r7['asks'] else {}).get('wait')
-    check('远程默认等待 115 秒（agent 120 − 5）', w7 == 115, 'wait=%r' % (w7,))
+    check('远程默认等待 295 秒（agent 300 − 5）', w7 == 295, 'wait=%r' % (w7,))
 
     # ⑤ 网关的等待必须比 agent 自己的确认超时短
     r4 = drive(['--mode=accept-edits'], '你好', answer='y', answer_cid='7-1', wait=10,
@@ -539,6 +559,7 @@ def main():
 
     case_session_continue()
     case_confirm_cid()
+    case_confirm_secs_conf()
     case_empty_reply()
 
     print('%d/%d 通过' % (PASS, PASS + FAIL))

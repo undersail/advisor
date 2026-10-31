@@ -1466,7 +1466,7 @@ sub print_help {
   CLAUDE_MODE        交互模式 default / accept-edits / bypass（等同 --mode）
   CLAUDE_ALLOW_WRITE 追加可写目录，冒号分隔（等同 --allow-write）
   CLAUDE_SHELL_TIMEOUT 命令超时秒数（默认 120，0=不限）
-  CLAUDE_CONFIRM_TIMEOUT 危险操作确认等待秒数（默认 60，超时按拒绝处理）
+  CLAUDE_CONFIRM_TIMEOUT 危险操作确认等待秒数（默认 300，超时按拒绝处理）
 
 对话中可用 /claude、/gemini 切换 AI（对话内容会保留）。
 /mode 查看或切换交互模式；/allow-write 管理可写目录；/approvals 看最近自动批准。
@@ -1513,7 +1513,7 @@ EOH
   CLAUDE_MODE        対話モード default / accept-edits / bypass (--mode と同じ)
   CLAUDE_ALLOW_WRITE 書き込みを許すディレクトリを追加 (コロン区切り)
   CLAUDE_SHELL_TIMEOUT コマンドのタイムアウト秒 (既定 120、0=無制限)
-  CLAUDE_CONFIRM_TIMEOUT 危険な操作の確認待ち秒 (既定 60、超過は拒否)
+  CLAUDE_CONFIRM_TIMEOUT 危険な操作の確認待ち秒 (既定 300、超過は拒否)
 
 会話中に /claude・/gemini でAIを切り替えられる(会話は引き継がれる)。
 /mode で対話モードの表示・切り替え、/allow-write で書き込み先の管理、/approvals で自動承認の履歴。
@@ -4121,9 +4121,12 @@ sub shell_timeout_secs {
     return $v;
 }
 
+# 确认等待上限。默认 300 秒（5 分钟），与 Hermes 的 approvals.timeout 一致：
+# 60 秒只够「人正盯着屏幕」；提示推到手机上时，人可能几分钟后才看到。
+# 超时一律按拒绝处理（fail-closed），绝不放行。
 sub confirm_timeout_secs {
     my $v = defined $ENV{CLAUDE_CONFIRM_TIMEOUT} ? $ENV{CLAUDE_CONFIRM_TIMEOUT} : '';
-    return 60 unless $v =~ /^\d+$/;
+    return 300 unless $v =~ /^\d+$/;
     return $v;
 }
 

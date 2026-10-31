@@ -816,3 +816,28 @@ API 错误（HTTP 422）：Failed to deserialize … messages[430]: content shou
 
 **测试**：`test-modes` 80→83（422 不许出现「连不上模型服务」、必须原样报 `HTTP 422`、
 必须指出是第几条消息）。假端点支持 `push_error(status, body)`。
+
+## 29. 确认时限统一 300 秒（对齐 Hermes，v0.2.6）
+
+**问题**：本地 60 秒、远程 120 秒（网关 115）是拍出来的数，不是量出来的。手机上
+「看到提示 → 想一下 → 打字」，两分钟经常不够；短时限的代价是**系统性白等**：
+真到点了按拒绝，用户重来一遍，还是要再等一次。
+
+**Hermes 的做法**（`~/hermes-agent/tools/approval_context.py:239` 起）：
+`approvals.timeout` 默认 **300 秒**，注释写明「gateway push notifications may not be
+seen for minutes; 60s failed closed before Telegram taps landed」；超时 = 拒绝；
+超时后告诉用户「等了多久」并建议一个 3 倍值让用户粘贴到 `hermes config set`。
+各平台适配器另有自己的时限（Matrix `MATRIX_APPROVAL_TIMEOUT_SECONDS=300`、Teams 卡片带
+截止时间）。
+
+**改动**：
+- agent `confirm_timeout_secs()` 默认 60 → **300**（`CLAUDE_CONFIRM_TIMEOUT` 可调）。
+- 网关 `$REMOTE_CONFIRM_SECS` 120 → **300**，等待 = agent − 5 = **295**（保持「网关早收尾」）。
+- `remote.conf` 支持 **`CONFIRM_SECS`**：这是手机端改时限的正门（`--confirm-wait` 优先）；
+  生效时记审计 `confirm_secs_conf`。
+- 文案：`fmt_window()` 统一说人话（300 → 「5 分钟」），手机提问与超时回执共用；
+  超时回执补上「等待上限 5 分钟，嫌短可以配 CONFIRM_SECS」。
+- 本地 CLI / GUI 同一个 300 秒（GUI 对话框从事件里的 `timeout` 取，自动跟上）。
+
+**测试**：`test-gateway-write` 74→76（默认 295 锁死；`CONFIRM_SECS=600` → 网关等 595；
+命令行 `--confirm-wait` 压过 conf）。
