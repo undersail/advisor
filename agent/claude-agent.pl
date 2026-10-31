@@ -1958,8 +1958,14 @@ older Intel Mac (High Sierra era) that's being kept useful instead of
 thrown away. Many users here are not programmers; they want you to build
 small personal tools for them. You have four tools: read_file,
 write_file, list_dir, and run_shell. Use them to read/write files and
-run commands in the user's working directory. Keep replies concise, and
-always reply in the same language the user wrote in.
+run commands in the user's working directory. Keep replies concise.
+
+Language rule (strict): write every word the user can see in the same
+language the user wrote in — that includes the reply, one-line progress
+notes, status lines, and any sentence you write before or after a tool
+call. Tool descriptions and tool errors are English for compactness;
+they must NOT change your output language. If the user writes Chinese,
+every sentence you produce is Chinese, never Japanese.
 
 __MODE_CONFIRM_NOTE__
 
@@ -3228,40 +3234,40 @@ sub flatten_history {
 my @TOOLS = (
     {
         name => 'read_file',
-        description => 'ファイルの内容を読み取る',
+        description => 'Read the contents of a file.',
         input_schema => {
             type => 'object',
-            properties => { path => { type => 'string', description => '読み取るファイルのパス' } },
+            properties => { path => { type => 'string', description => 'Path of the file to read' } },
             required => ['path'],
         },
     },
     {
         name => 'write_file',
-        description => 'ファイルに内容を書き込む(上書き)',
+        description => 'Write content to a file (overwrites existing content).',
         input_schema => {
             type => 'object',
             properties => {
-                path    => { type => 'string', description => '書き込み先のパス' },
-                content => { type => 'string', description => '書き込む内容' },
+                path    => { type => 'string', description => 'Path to write to' },
+                content => { type => 'string', description => 'Content to write' },
             },
             required => ['path', 'content'],
         },
     },
     {
         name => 'list_dir',
-        description => 'ディレクトリの内容を一覧表示する',
+        description => 'List the contents of a directory.',
         input_schema => {
             type => 'object',
-            properties => { path => { type => 'string', description => '一覧表示するディレクトリ(省略時はカレント)' } },
+            properties => { path => { type => 'string', description => 'Directory to list (defaults to the current directory)' } },
             required => [],
         },
     },
     {
         name => 'run_shell',
-        description => 'シェルコマンドを実行し、標準出力/標準エラーを返す',
+        description => 'Run a shell command and return its stdout/stderr.',
         input_schema => {
             type => 'object',
-            properties => { command => { type => 'string', description => '実行するシェルコマンド' } },
+            properties => { command => { type => 'string', description => 'Shell command to run' } },
             required => ['command'],
         },
     },

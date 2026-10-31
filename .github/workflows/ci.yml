@@ -279,6 +279,11 @@ jobs:
           set -o pipefail
           python3 scripts/test-session-continue.py
 
+      - name: 语言锁定（工具说明无日文 / 进度说明跟随用户语言）
+        run: |
+          set -o pipefail
+          python3 scripts/test-lang-lock.py
+
       - name: 历史存储（默认明文 0600 / 加密可选 / 不悄悄降级 / 两种格式混在）
         run: |
           set -o pipefail

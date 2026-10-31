@@ -40,7 +40,7 @@
 |---|---|
 | 卡口脚本 | 6 个：`check-secrets` / `check-i18n` / `check-models` / `check-version` / `check-decoupling` / `check-shell-var-glue` |
 | 测试脚本 | 22 个，合计 **612 项**（modes 60 · **platform 42** · release-workflow 26 · audit-commands 27 · setup-py3 35 · gui-keyenv 11 · remote-notify 22 · **remote 24** · **gateway-write 42** · **mirror-drift 21** · gui-modes 25 · key-policy 25 · hooks 10 · gui-recursion 8 · **setup-perl-check 8** · **wecom-ws 59** · **gui-remote 44** · **wss-tls 9** · **memory 34** · **skill 19** · **history-storage 23** · **session-continue 21**） |
-| CI | `ci.yml` **3 个 job（gates 19 / core 10 / io 12 步，共 41 步）× 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
+| CI | `ci.yml` **3 个 job（gates 19 / core 11 / io 12 步，共 42 步）× 2 平台**（ubuntu + macOS）：`gates` 静态卡口 / `core` 慢测·核心 / `io` 慢测·输入输出；`timeout-minutes` 按平台给数值（ubuntu 25 / macOS 90） |
 | 镜像同步 | `sync-gitee.yml` 带反拉保护 + `force` 逃生门（§8.2） |
 | 提交门 | `core.hooksPath = scripts/hooks`，提交前跑泄漏 + 换行 + 调试残留 |
 | 文案/注册表 | Perl `%S` 147 · GUI `_S` 118 · `setup.sh msg()` 48 · 厂商 7 · `models.txt` 12 条（`check-version.py` 守着） |
@@ -53,7 +53,7 @@
 | 文件 | 作用 |
 |---|---|
 | `.editorconfig` | utf-8 / LF / 2 空格（`.pl` `.py` 为 4） |
-| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 41 步：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**21 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
+| `.github/workflows/ci.yml` | 3 个 job（`gates` / `core` / `io`）共 42 步：perl -c（含 remote 三个）、`--version` 冒烟、全量 py_compile、全仓 bash -n、**7 个卡口脚本**、**22 个测试脚本**、泄漏 + 换行检查；矩阵 ubuntu-latest + **macos-15-intel** |
 | `.github/workflows/sync-gitee.yml` | main + tag → `gitee.com/undersail/advisor` 镜像；**推之前先跑反拉保护**（会覆盖对方提交就中止，见 §8.2）；凭据 `oauth2:`→`undersail:` 自动回退 |
 | `docs/design_doc_advisor.md` | 架构、JSON 行协议、加密密钥层级、已知限制、改动规则 |
 | `docs/releases/` | 发布说明，文件名 = tag 名 |
@@ -665,3 +665,20 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 | 做法3 | 放弃时在状态栏与会话里说明「点一下输入框」，不让人干瞪眼 |
 | 做法4 | 兜底：焦点在任何地方打的**可打印字符**都被送进输入框（带 Ctrl 的组合键不拦） |
 | 测试 | `test-gui-modes` 38 → 42（放弃要说、正常不插噪声、焦点外按键不丢、focus 在内不重复插） |
+
+## 19. 中文会话里冒出日文（本轮）
+
+**现象**：远程要求中文，回复是中文，但工具调用前后的旁白是日文
+（「…をまとめて確認します。」）。
+
+**根因**：`read_file` / `write_file` / `list_dir` / `run_shell` 四个工具的
+description 与参数说明写的是日文。模型会照工具文档的语言写自己的旁白，
+而系统提示只说「reply in the same language」，没有覆盖「进度说明/状态行」。
+
+**修法**：① 工具说明改成中性英文（不带任何语言倾向）；② 系统提示升级为
+语言锁定条款——回复、进度说明、状态行、工具调用前后写的话，全部必须用用户
+语言，并明说「工具说明是英文，但这不改变你的输出语言」「中文会话绝不出现
+日文」。
+
+**测试**：`scripts/test-lang-lock.py`（4 项，已进 CI）：工具说明无假名、
+系统提示覆盖三类文字、明确「不改变输出语言」、明确「中文不出现日文」。
