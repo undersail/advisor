@@ -701,6 +701,25 @@ def case_approvals_log(tmp, base):
         a.stop()
 
 
+def case_connect_error(tmp, base):
+    """连不上模型服务时：必须说清「试了几次 + 该怎么查」，不能只说「请检查网络」。"""
+    print('[网络] 连不上模型服务时的文案与重试')
+    home = os.path.join(tmp, 'home-conn')
+    os.makedirs(home)
+    dead = 'http://127.0.0.1:9/v1'      # 几乎必然拒绝
+    a = Agent(home, 'default', dead, extra_env={'CLAUDE_HTTP_RETRY': '1'})
+    try:
+        ev = a.turn('随便说句什么')
+        body = ''.join(texts(ev))
+        check('连不上模型服务' in body, '文案点明「连不上模型服务」', body[:200])
+        check('127.0.0.1:9' in body, '文案带上地址', body[:200])
+        check('试了 2 次' in body, '文案说试了几次', body[:200])
+        check('密钥' in body and '代理' in body, '文案给出可执行的三步排查', body[:200])
+        check('请检查网络后重试' not in body, '不再出现旧文案「请检查网络后重试」', body[:200])
+    finally:
+        a.stop()
+
+
 def main():
     if not os.path.exists(AGENT):
         print('找不到 %s' % AGENT)
@@ -719,6 +738,7 @@ def main():
         case_bypass(tmp, base)
         case_bypass_timeout(tmp, base)
         case_content_never_null(tmp, base)
+        case_connect_error(tmp, base)
         case_confirm_cid_stale(tmp, base)
         case_write_scope(tmp, base)
         case_cmd_write_scope(tmp, base)

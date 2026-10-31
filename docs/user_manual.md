@@ -514,3 +514,11 @@ echo "完成" | perl remote/notify.pl -
 # 网关单次调试
 perl remote/gateway.pl --once --from <UserID> --text "列一下当前目录"
 ```
+
+### 写技能的两条硬要求
+
+1. **脚本一律用绝对路径**。远程服务拉起 agent 时，`PATH` 里通常没有 `~/bin`；
+   技能里只写 `tvcast` 这类裸命令，到了后台服务里就是 command not found。
+2. **写清参数格式，并留一条自检命令**（`--help` 或 `--dry-run`）。
+   先自检再真跑，比「参数写错了、再发一次」省事得多。
+

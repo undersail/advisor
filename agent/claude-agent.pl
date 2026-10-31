@@ -147,6 +147,16 @@ my %S = (
         en => "Unknown provider: '%s'\n(available: %s)\n",
         zh => "未知的提供商：'%s'\n（可选：%s）\n",
     },
+    api_retrying         => {
+        ja => "（接続できませんでした。%d 回目を %d 秒後に再試行します）\n",
+        en => "(could not connect; retry %d in %ds)\n",
+        zh => "（连不上，%d 秒后重试第 %d 次…）\n",
+    },
+    cannot_connect_api   => {
+        ja => "サーバーに接続できません（%s · %s、%d 回試行）。確認すること: ① キーが有効か ② この端末から %s に到達できるか ③ プロキシが必要か\n",
+        en => "Cannot reach the model service (%s · %s, tried %d times). Check: 1) is the key valid 2) can this machine reach %s 3) is a proxy needed\n",
+        zh => "连不上模型服务（%s · %s，试了 %d 次）。按这个顺序查：① 密钥还有效吗 ② 这台机器能不能访问 %s ③ 是否需要代理\n",
+    },
     cannot_connect       => {
         ja => "サーバーに接続できませんでした。通信環境を確認して、もう一度どうぞ。\n",
         en => "Could not reach the server. Please check your connection and try again.\n",
@@ -2038,6 +2048,9 @@ want a change first) - it does NOT mean the environment blocks tools.
 Never conclude that file writes or commands are disabled. Instead, stop,
 say plainly what you were about to do, ask what they want to adjust, and
 try again once they're ready. Do not silently retry the same write.
+When a tool call fails, never paste the raw error text back as your whole answer and never tell
+the user to "resend"/"重发": say what failed, why, and the one next step you will take or they
+should take. If the same class of error happens twice, stop retrying and report what is missing.
 EON
     'accept-edits' => <<'EON',
 File writes inside the allowed writable roots are approved automatically
@@ -2085,6 +2098,14 @@ sub system_prompt {
         }
         $p .= "---\n$mem\n---\n";
     }
+
+    # 写技能的硬要求与「有没有技能」无关，始终说起来 —— 没有技能的时候
+    # 恰恰是最该照这个规范新建一个的时候。
+    $p .= "\n# Writing a skill (always applies)\n"
+        . "If a skill calls a script, reference the script by ABSOLUTE path (when the\n"
+        . "remote service starts the agent, PATH usually does NOT include ~/bin), spell out\n"
+        . "the exact argument format, and include one self-check command (a --help or\n"
+        . "--dry-run that can be run before the real run).\n";
 
     # 技能只放「名字 + 一行说明」。全文需要时再让它用 read_file 读
     # （别把 prompt 撑胖 = 老 Mac 上也便宜又快）。
@@ -2266,7 +2287,7 @@ sub build_headers {
     return \@headers;
 }
 
-sub call_api {
+sub call_api_once {
     my ($url, $headers, $body_json) = @_;
 
     my $tmp_req    = "/tmp/claude-agent-req-$$.json";
@@ -2340,7 +2361,7 @@ sub call_api {
 
     if ($http_code !~ /^2/) {
         if ($http_code eq '' || $http_code eq '000') {
-            die L('cannot_connect');
+            die "CONNECT_FAIL\t" . L('cannot_connect');
         }
         if (looks_like_key_error($http_code, $resp_body)) {
             die L('key_invalid', provider_label($PROVIDER),
@@ -2358,6 +2379,45 @@ sub call_api {
         die L('bad_response');
     }
     return $data;
+}
+
+# 重试策略：只重试「连接没建立」和 429 / 5xx 这类临时性失败，
+# 业务错误（400/401/402/404…）一律不重试 —— 重试它们只会浪费时间和钱。
+my $HTTP_RETRY_MAX = (defined $ENV{CLAUDE_HTTP_RETRY} && $ENV{CLAUDE_HTTP_RETRY} =~ /^\d+$/)
+    ? $ENV{CLAUDE_HTTP_RETRY} : 2;
+
+sub api_host_of {
+    my ($url) = @_;
+    my $h = $url || '';
+    $h =~ s{^[a-z]+://}{}i;
+    $h =~ s{/.*$}{};
+    return $h ne '' ? $h : '(未知地址)';
+}
+
+sub call_api {
+    my ($url, $headers, $body_json) = @_;
+    my $max = 1 + $HTTP_RETRY_MAX;
+    my $tries = 0;
+    my $err = '';
+    while ($tries < $max) {
+        $tries++;
+        my $data = eval { call_api_once($url, $headers, $body_json) };
+        return $data unless $@;
+        $err = $@;
+        my $retryable = ($err =~ /CONNECT_FAIL/ || $err =~ /HTTP\s*(?:429|5\d\d)/) ? 1 : 0;
+        last unless $retryable && $tries < $max;
+        my $sleep = $tries == 1 ? 2 : 5;
+        dbg("call_api 第 $tries 次失败（可重试）：$err");
+        emit_status(L('api_retrying', $tries, $sleep));
+        sleep $sleep;
+    }
+    # 到这里说明真的连不上/一直 5xx。把排查方向直接写进回复里，
+    # 别只说「请检查网络」—— 用户拿手机根本无从判断是哪一段断了。
+    my $is_connect = ($err =~ s/^CONNECT_FAIL\t//) ? 1 : 0;
+    # 连接类失败：旧文案（无法连接…请检查网络）本身就是我们要换掉的东西，不能拼回去；
+    # 5xx / 429 这类把厂商原文留着，排障时需要看它。
+    die L('cannot_connect_api', provider_label($PROVIDER), api_host_of($url), $tries)
+        . ($is_connect ? '' : $err);
 }
 
 sub quote {
