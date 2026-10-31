@@ -733,3 +733,17 @@ OpenAI 接受 `content:null`，但 DeepSeek 这类服务（Rust serde，报错�
 **测试**：`scripts/test-modes.py` 新增 `case_content_never_null`（只给工具调用不给文本，
 断言请求体里没有 `"content":null`、且带 `tool_calls` 的 assistant 消息 `content` 是字符串）。
 `test-modes` 73→75。
+
+## 25. 长连接客户端的确认时序窗口（v0.2.6）
+
+**窗口**：客户端还没记下「等确认」时到达的 y/n，以前会被当成**新指令**塞进还在跑的那一轮，
+人看到的就是「我回了 y，却等来超时」。
+
+**修法**（`remote/wecom-ws.pl`）：
+- `gw_call` 一转发用户消息就记 `inflight`（这一轮在跑），所有出口清掉；
+- 这期间收到「只含 y/n」的消息 → 先攒进 `early_answer` 并回一句「正在等这一步的确认结果…」，
+  **不**当时写进网关（否则会给普通回合留下一条无主答复，之后某次反问可能吃它）；
+- ask 真的到了：若 `early_answer` 有值，直接拿它回答（审计 `early_answer_used`），人不必回第二遍。
+
+**测试**：`test-wecom-ws` 里去掉原来那句 `sleep(0.8)`，改成「问题刚发出去就把 y 发过去」，
+从失败变通过；另加一条「问题里写明了时限（秒）」的断言。59→60。

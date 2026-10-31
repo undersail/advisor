@@ -423,3 +423,21 @@ grep -o '^export [A-Za-z0-9_]*' ~/.claude-agent-env    # 只看变量名，不�
 - [ ] 有旧 `key.enc` 的机器：`--make-plain-history` 输一次口令后，**再启动不问口令**
 
 验完把「哪一条不符 + 你看到的消息原文」发我即可。
+
+## 远程确认出问题时，先抓这三行审计
+
+```bash
+grep -E "confirm_asked|confirm_drain|gateway_asked|gateway_answer|confirm_answered|answer_early" \
+  ~/.claude-agent/audit.log | tail -20
+```
+
+| 看到什么 | 说明 |
+|---|---|
+| `confirm_asked … cid=… wait=…` | 网关把问题发出去了，并写明等多久（默认 115 秒） |
+| `gateway_asked` 之后**没有** `gateway_answer` | 手机的答复没进网关：可能是消息没送到、或客户端把它当成新指令了 |
+| `answer_early` / `early_answer_used` | 答复比客户端记下「等确认」还早到 —— 已自动攒起来用掉（v0.2.6 起） |
+| `confirm_answered … stale=1` | 答复带的 cid 对不上，被判成上一道题的迟到答复（丢弃） |
+| `confirm_answered … timeout=1` | 到点没等到答复，按拒绝处理，并已回你一句「这次操作没有执行」 |
+
+真机验收：让它做一次需要确认的操作 → ①回 y 应执行 ②回 n 应拒绝 ③不回，到点后应收到
+「（确认超时，这次操作没有执行）」，并且审计里三行能对上。

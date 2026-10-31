@@ -259,7 +259,7 @@ for line in sys.stdin:
     elif text.startswith('ASK'):
         # 需要确认：先吐一行 ask，等调用方回一行 answer，再给最终结果
         sys.stdout.write(json.dumps({'from': frm, 'ask': 'allow write /tmp/a.txt ?',
-                                     'danger': True}) + '\n')
+                                     'danger': True, 'wait': 9}) + '\n')
         sys.stdout.flush()
         ans = 'none'
         got_cid = 'none'
@@ -363,9 +363,7 @@ def main():
         # 需要确认的操作：网关吐 ask → 客户端把问题发到手机 → 用户回 y → 网关继续
         srv.send_json(conn, msg_frame('msg6', 'allowed', 'text', 'ASK please'))
         srv.pump(conn, buf, got, 10)
-        # 真人在手机上回 y 至少要几秒；这里给客户端一点时间把「等确认」状态记下来，
-        # 否则这条 y 会被当成新指令塞进还挂着确认的那一轮里（不是产品问题，是测试抢跑）
-        time.sleep(0.8)
+        # 故意**不等**：紧跟问题就把 y 发过去，模拟「客户端还没记下等确认就收到 y」的窗口
         srv.send_json(conn, msg_frame('msg7', 'allowed', 'text', 'y'))
         srv.pump(conn, buf, got, 10)
 
@@ -456,6 +454,11 @@ def main():
     r7 = replies_for(got, 'msg7')
     texts7 = [reply_text(r) for r in r7]
     check('手机回 y 之后：网关收到 y 并继续跑完', any('REPLY:answer=y' in t for t in texts7), texts7[:3])
+    # 注：这一层（长连接客户端）暂时不给 ask 塞 cid —— 塞了会让这条用例里的
+    # 「回答往返」走不通（客户端与网关的时序在夹具里对不上）。cid 的行为断言在
+    # scripts/test-gateway-write.py 的 case_confirm_cid，另有真 agent 的 e2e 复核。
+    # 问题里写明时限（人会知道多久不回就按拒绝处理）
+    check('问题里写了时限（秒）', any('秒内回复' in t for t in texts6), texts6[:3])
 
     # 已验过的边界：cid 透传（ask 带 cid、回答回填 cid、迟到的答复被丢弃）、
     # 超时回执与 confirm_done 清状态，都由 scripts/test-gateway-write.py 的

@@ -676,6 +676,9 @@ sub gw_call {
     $depth ||= 0;
     my $s = $state->{gw}{$sender} || gw_spawn($sender, $state);
     return undef unless $s;
+    # ★ 一转发就记「这个人的一轮正在跑」。有人在这期间回了个光秃秃的 y/n，
+    #   那基本就是回答还没送到手机上的那道题 —— 不能当成新指令塞进这一轮。
+    $state->{inflight}{$sender} = 1;
     print { $s->{in} } '{"from":' . json_esc($sender) . ',"text":' . json_esc($text) . "}\n";
     if (($state->{ack_after} || 0) > 0) {
         my $sel = IO::Select->new($s->{out});
@@ -701,8 +704,14 @@ sub gw_call {
         # 需要手机端确认：这一轮先挂起，问题已经发出去，等用户下一条消息当答案
         $state->{wait}{$sender} = defined $r->{cid} ? $r->{cid} : 1;
         $on_ask->($r->{ask}, $r->{danger}, $r->{wait}) if $on_ask;
-        return { pending => 1 };
+        if (my $early = delete $state->{early_answer}{$sender}) {
+            # 人已经先回了 y/n：直接拿它回答，不必再让人回一遍
+            audit('early_answer_used', "from=$sender answer=$early");
+            return gw_answer($sender, $early, $state, $on_ask, $on_note);
+        }
+        return { pending => 1 };      # inflight 保留：一轮还没结束
     }
+    delete $state->{inflight}{$sender};
     return { reply => $r->{reply} // '' };
 }
 
@@ -725,6 +734,7 @@ sub gw_answer {
         return { pending => 1 };
     }
     delete $state->{wait}{$sender};
+    delete $state->{inflight}{$sender};
     return $r || { reply => '' };
 }
 
@@ -850,11 +860,24 @@ sub handle_msg {
         $reply_to->($head . $prompt . $tail);
     };
 
-    # ★ 正在等确认：这条消息当答案处理；不是 y/n 就按拒绝收尾，再当新指令
+    # ★ 正在等确认（或者这一轮还在跑）：这条消息当答案处理；不是 y/n 就按拒绝收尾，
+    #   再当新指令。加 inflight 是为了堵住一个时序窗口：问题刚发出去、客户端还没
+    #   记下「等确认」时到达的 y —— 以前会被当成新指令，人就看着「回了 y 却超时」。
+    my $ans_probe = $text =~ /^\s*(?:y|yes|1|true|是|允许|同意|确认|好)\s*$/i ? 'y'
+                  : $text =~ /^\s*(?:n|no|0|false|否|不|取消|拒绝)\s*$/i      ? 'n'
+                  : '';
+    # 这一轮还在跑、但客户端还没记下「等确认」，人却已经回了 y/n ——
+    # 先攒着。等 ask 真的到了再拿它去回答（见 gw_call 的 ask 分支）。
+    # 不能现在就把 answer 写进网关：那会让普通回合的 stdin 里多出一条
+    # 无主答复，之后某次反问可能把它当成答案。
+    if ($ans_probe ne '' && !$state->{wait}{$sender} && $state->{inflight}{$sender}) {
+        $state->{early_answer}{$sender} = $ans_probe;
+        audit('answer_early', "from=$sender answer=$ans_probe");
+        $reply_to->('收到，正在等这一步的确认结果…', 0);
+        return;
+    }
     if ($state->{wait}{$sender}) {
-        my $ans = $text =~ /^\s*(?:y|yes|1|true|是|允许|同意|确认|好)\s*$/i ? 'y'
-                : $text =~ /^\s*(?:n|no|0|false|否|不|取消|拒绝)\s*$/i      ? 'n'
-                : '';
+        my $ans = $ans_probe;
         my $r = gw_answer($sender, ($ans eq '' ? 'n' : $ans), $state, $on_ask, $on_note);
         if (ref $r eq 'HASH' && !$r->{pending}) {
             my $rep = $r->{reply} // '';
