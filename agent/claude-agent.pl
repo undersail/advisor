@@ -1487,7 +1487,7 @@ my $NOTOOLS = 0;            # 1 则不发送 tools（不支持的模型）
 my %MODEL_META;             # 模型 ID => { provider, base_url, notools }
 
 # 按 $provider 设置（重置）$API_KEY / $MODEL / $API_URL 等。
-# 启动时和对话中的 /claude・/gemini 都会调用。对应的
+# 启动时和对话中的 /claude、/gemini 都会调用。对应的
 # 环境变量（ANTHROPIC_API_KEY / GEMINI_API_KEY）不存在时 die
 # —— 启动时直接退出；切换时由调用方 eval 捕获，
 # 保持当前厂商继续。
