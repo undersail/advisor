@@ -1,54 +1,54 @@
 #!/usr/bin/perl
-# claude-agent.pl (advisor) — 古いIntel Mac (Snow Leopard 〜 High Sierra 世代)
-# 向けの自己完結型 AIエージェント。外部CPANモジュールに依存しない。
-# Anthropic (Claude) と Google (Gemini) の両APIに対応。
+# claude-agent.pl (advisor) — self-contained AI agent for old Intel Macs
+# (Snow Leopard through High Sierra generation). No external CPAN modules.
+# Supports both the Anthropic (Claude) and Google (Gemini) APIs.
 #
-# Mavericks(10.9)以降(Tier B)は標準のcurlが既にTLS1.2対応のため、追加の
-# ビルドなしでそのまま動く。Snow Leopard〜Mountain Lion(Tier A, 10.6-10.8)
-# では ppc_claude_cli と同じ手順でOpenSSL/curlをソースからビルドし、
-# CLAUDE_CURL / CLAUDE_CACERT でその場所を指定する。
+# Mavericks (10.9)+ (Tier B) ships a curl that already speaks TLS 1.2, so it
+# runs as-is with no extra build. On Snow Leopard through Mountain Lion
+# (Tier A, 10.6-10.8), build OpenSSL/curl from source with the same steps as
+# ppc_claude_cli and point CLAUDE_CURL / CLAUDE_CACERT at that location.
 #
-# 使い方:
-#   export ANTHROPIC_API_KEY=sk-ant-...      # または GEMINI_API_KEY=...
-#   export CLAUDE_PROVIDER=anthropic          # または gemini
+# Usage:
+#   export ANTHROPIC_API_KEY=sk-ant-...      # or GEMINI_API_KEY=...
+#   export CLAUDE_PROVIDER=anthropic          # or gemini
 #   perl claude-agent.pl
 
 use strict;
 use warnings;
-use utf8;  # このファイル自身に書かれた日本語リテラルをUTF-8として解釈する
+use utf8;  # 本文件里的中日文字面量按 UTF-8 解释
 use Encode qw(decode FB_DEFAULT);
 use File::Basename qw(dirname);
 use Cwd ();
 
-# 画面出力は明示的にUTF-8として扱う。
+# 屏幕输出显式按 UTF-8 处理。
 binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
 
-# コマンドライン引数は「バイト列」で渡ってくる。UTF-8 として解釈しておかないと、
-# 中国語の検索語や名前が壊れる（実例: --search 报价 が æ¥ä»· になっていた）。
+# 命令行参数是以「字节串」传进来的。不先按 UTF-8 解释的话，
+# 中文搜索词或名字会烂掉（实例：--search 报价 变成了 æ¥ä»·）。
 for my $__a (@ARGV) { utf8::decode($__a) unless utf8::is_utf8($__a); }
 
-# STDINはあえて生バイトのまま(:encoding層を付けない)にしておく。
-# Perl 5.8.6のPerlIO :encoding(UTF-8) は、実際のキーボード入力のように
-# バイトが少しずつ届く対話的な読み込みだと、マルチバイト文字の途中で
-# 読み込みバッファが分割されてしまい "utf8 does not map to Unicode" と
-# いう文字化けエラーを起こすことがある(パイプ経由の一括入力では再現
-# しない)。そのため、行を読み終えてバイト列が全部揃った後にまとめて
-# デコードする(下のwhileループ内)方式にしている。
+# STDIN 故意保持生字节（不加 :encoding 层）。
+# Perl 5.8.6 的 PerlIO :encoding(UTF-8) 在像真实键盘输入那样、
+# 字节一点一点到达的交互式读取中，多字节字符会中途被
+# 读取缓冲区切开，引发 "utf8 does not map to Unicode" 的
+# 乱码错误（通过管道一次性输入时复现不出来）。
+# 因此改成读完一整行、字节全部到齐之后再统一解码的方式
+# （见下面的 while 循环）。
 
-# :encoding層を付けるとSTDOUTの自動フラッシュが効かなくなり、プロンプトの
-# 表示がAPI応答まで遅延して見えることがあるため、明示的に毎回flushする。
+# 加上 :encoding 层会让 STDOUT 的自动 flush 失效，提示符的
+# 显示可能拖到 API 响应之后才出现，所以每次都显式 flush。
 $| = 1;
 
-# 端末設定を起動時に控えておき、どんな終わり方をしても必ず元に戻す。
-# read_line_interactive は端末を raw モードにするので、途中で die すると
-# 端末が壊れたまま(入力が見えない・改行されない)になってしまう。
-# --- ログ2種 ---
-# blog(): 常時ONの「パンくず」ログ。会話の中身は書かず、動作の節目と
-#   終了理由だけを ~/.claude-agent/session.log に残す(起動時に消す)。
-#   次に落ちたとき、環境変数の設定なしで最後の様子が分かるように。
-# dbg():  CLAUDE_DEBUG_LOG=<path> のときだけ動く詳細ログ。APIの生の
-#   やり取りまで書く。
+# 启动时先记下终端设置，无论以哪种方式退出都一定还原。
+# read_line_interactive 会把终端切到 raw 模式，中途 die 的话
+# 终端会坏着（看不到输入、不换行）。
+# --- 两种日志 ---
+# blog(): 常开的「面包屑」日志。不记录对话内容，只把动作节点和
+#   结束原因写进 ~/.claude-agent/session.log（启动时清空）。
+#   下次崩掉时，不用设任何环境变量也能看到最后的状况。
+# dbg():  只有设了 CLAUDE_DEBUG_LOG=<path> 时才工作的详细日志。连 API 的
+#   原始交互都写进去。
 my $BLOG_PATH = ($ENV{HOME} || '.') . '/.claude-agent/session.log';
 {
     my $d = ($ENV{HOME} || '.') . '/.claude-agent';
@@ -67,18 +67,18 @@ sub _logline {
 sub blog { _logline($BLOG_PATH, join('', @_)); }
 sub dbg  {
     my $line = join('', @_);
-    blog(substr($line, 0, 200)) if $line !~ /^BODY:/;       # 本文以外は節目としてパンくずにも
+    blog(substr($line, 0, 200)) if $line !~ /^BODY:/;       # 非正文的部分也记进面包屑作为节点
     _logline($ENV{CLAUDE_DEBUG_LOG}, $line) if $ENV{CLAUDE_DEBUG_LOG};
 }
 
 # ------------------------------------------------------------------
-# 言語(日英)。ダウンロードの7割が海外ユーザーとのことで必須になった。
-# GUI側(advisor_gui.py)と同じくmacOSのシステム言語設定を直接見る
-# (LANG環境変数はGUIアプリ起動時に空なことがあり、あてにできない)。
-# 判定できなければ、この項目の既存ユーザーに合わせて日本語を既定にする。
+# 界面语言（zh/en/ja）。七成下载来自海外用户，所以成了必需项。
+# 和 GUI 侧（advisor_gui.py）一样，直接看 macOS 的系统语言设置
+# （LANG 环境变量在 GUI 应用启动时可能是空的，靠不住）。
+# 判断不出来时，沿用既有做法默认用中文（见 $LANGCODE 的初值）。
 # ------------------------------------------------------------------
-# バージョンの出所はリポジトリ直下の VERSION ファイルだけ（tag と一致させる）。
-# 配布アプリでは VERSION を同梱するので、スクリプトと同じ場所も見る。
+# 版本号只出自仓库根目录的 VERSION 文件（要和 tag 一致）。
+# 分发出来的应用会一起带上 VERSION，所以也看脚本所在目录。
 sub app_version {
     my $dir = $0;
     $dir =~ s{/[^/]*$}{};
@@ -94,10 +94,10 @@ sub app_version {
     return 'unknown';
 }
 
-my $LANGCODE = 'zh';   # 既定は中国語（重み付け: 中文为主、英文为辅）
+my $LANGCODE = 'zh';   # 默认中文（权重：以中文为主、英文为辅）
 if (defined $ENV{CLAUDE_LANG} && $ENV{CLAUDE_LANG} =~ /^(en|ja|zh)/i) {
-    # CLAUDE_LANG=en/ja/zh があれば最優先(システム言語を変えずに表示言語を
-    # 確認したいとき用)。zh-Hans / zh_CN のような書き方も zh として扱う。
+    # CLAUDE_LANG=en/ja/zh 最优先（用于不想改系统语言、
+    # 只想确认显示语言的时候）。zh-Hans / zh_CN 这类写法也按 zh 处理。
     $LANGCODE = lc(substr($1, 0, 2));
 }
 else {
@@ -107,18 +107,18 @@ else {
         $LANGCODE = 'ja';
     }
     elsif ($out =~ /^zh/i) {
-        # zh-Hans / zh-Hant / zh_CN / zh_TW などをまとめて中国語にする。
-        # 繁体字を簡体字で出す問題はあるが、まず「中国語で読める」ことを優先。
+        # zh-Hans / zh-Hant / zh_CN / zh_TW 等一律归为中文。
+        # 繁体用户会看到简体字，但先保证「中文能读」。
         $LANGCODE = 'zh';
     }
     elsif ($out ne '') {
         $LANGCODE = 'en';
     }
-    # 判定できない環境(非macOS など)は既定の中国語のまま。
+    # 判断不了的环境（非 macOS 等）保持默认的中文。
 }
 
-# 表示言語の一覧(優先順)。%S 側に無い言語はこの順で落とす。
-#   例: zh が未訳 → en → ja。空文字を返すことは無い。
+# 显示语言候选列表（按优先级）。%S 里没有的语言按这个顺序往下退。
+#   例：zh 没译 → en → ja。不会返回空串。
 my @LANG_FALLBACK = (
     $LANGCODE,
     ($LANGCODE eq 'zh' ? ('en', 'ja') : ()),
@@ -128,11 +128,11 @@ if ($LANGCODE ne 'ja' && $LANGCODE ne 'en' && $LANGCODE ne 'zh') {
     @LANG_FALLBACK = ('ja', 'en');
 }
 
-# key => 文言。2 通り書ける:
-#   [ja, en]                     … 従来形式(中国語は en にフォールバック)
-#   { ja => .., en => .., zh => .. } … 中国語を足した形式
-# %s プレースホルダは sprintf で埋める(L(key, arg1, arg2...))。
-# 引数の順序と個数は全言語で揃えること(ずれると表示が壊れる)。
+# key => 文案。有两种写法：
+#   [ja, en]                     … 旧格式（中文回退到 en）
+#   { ja => .., en => .., zh => .. } … 加了中文的格式
+# %s 占位符由 sprintf 填充（L(key, arg1, arg2...)）。
+# 参数顺序和个数在所有语言里必须一致（错位显示就坏了）。
 # 长期记忆注入上限（字符）。超过就截断并在注入里说明 —— 别把 token 白烧掉。
 my $MEMORY_MAX_CHARS = 2000;
 
@@ -282,7 +282,7 @@ my %S = (
         en => "Unknown tool: %s",
         zh => "未知的工具：%s",
     },
-    # ---- 端末(CLIのみ、--gui無し)向け ----
+    # ---- 面向终端（仅 CLI，无 --gui） ----
     interrupted          => {
         ja => "\n中断しました。\n",
         en => "\nInterrupted.\n",
@@ -382,8 +382,8 @@ my %S = (
         zh => "\n%s 的密钥被拒绝（HTTP %s）。\n"
             . "请先 exit 退出，检查或重新配置 %s 后再启动。\n",
     },
-    # 一覧で「まだキーが無い」ことを先に示す。選んでから初めて分かる状態は
-    # 「動かないボタン」と同じで、ユーザーから見ると不具合に見える。
+    # 列表里先标明「还没有密钥」。选完才发现的状态，
+    # 和「按了没反应的按钮」一样，在用户看来就是故障。
     menu_no_key          => {
         ja => "  [キー未設定]",
         en => "  [no key yet]",
@@ -1113,38 +1113,38 @@ sub L {
         }
     }
     else {
-        # 従来の [ja, en]。中国語は未訳なので英語に落とす(日英の挙動は不変)。
+        # 旧的 [ja, en]。中文还没译，就先退到英文（日/英行为不变）。
         $s = ($LANGCODE eq 'ja') ? $pair->[0] : $pair->[1];
     }
     $s = $pair->[0] unless defined $s && $s ne '';
     return @args ? sprintf($s, @args) : $s;
 }
 
-# perl の警告(Deep recursion / Out of memory / uninitialized など)も
-# 残す。無限ループやメモリ枯渇の手前が見えることがある。
+# perl 的警告（Deep recursion / Out of memory / uninitialized 等）也
+# 留着。有时能提前看到死循环或内存耗尽的征兆。
 $SIG{__WARN__} = sub { my $w = shift; blog("WARN: $w"); dbg("WARN: $w"); warn $w; };
 
 blog("=== advisor start (pid $$) ===");
 
-# 端末設定を起動時に控えておき、どんな終わり方をしても必ず元に戻す。
-# read_line_interactive は端末を raw モードにするので、途中で die すると
-# 端末が壊れたまま(入力が見えない・改行されない)になってしまう。
+# 启动时先记下终端设置，无论以哪种方式退出都一定还原。
+# read_line_interactive 会把终端切到 raw 模式，中途 die 的话
+# 终端会坏着（看不到输入、不换行）。
 our $ORIG_STTY = `stty -g 2>/dev/null`;
 chomp $ORIG_STTY;
 sub restore_tty { system('stty', $ORIG_STTY) if $ORIG_STTY ne ''; }
 END { blog("END reached (exit=$?)"); restore_tty(); }
 $SIG{INT}  = sub { blog("SIGINT");  restore_tty(); print L('interrupted'); exit 130; };
 $SIG{TERM} = sub { blog("SIGTERM"); restore_tty(); exit 143; };
-$SIG{HUP}  = sub { blog("SIGHUP (端末が閉じられた?)"); restore_tty(); exit 129; };
+$SIG{HUP}  = sub { blog("SIGHUP (terminal closed?)"); restore_tty(); exit 129; };
 $SIG{__DIE__} = sub { blog("DIE" . ($^S ? "(in eval)" : "(FATAL)") . ": " . substr($_[0],0,300)); return; };
 
 # ------------------------------------------------------------------
-# providers.txt — キー環境変数名・既定モデル・キー取得URL・表示名の唯一の出所。
-# ここに書いておけば GUI の初回画面とメニューが自動で追従する。コード側に
-# URL やキー名を二重管理しない。
+# providers.txt — 密钥环境变量名、默认模型、取密钥 URL、显示名的唯一来源。
+# 写在这里，GUI 的首次引导画面和菜单就会自动跟上。不要在代码里
+# 重复维护 URL 或变量名。
 # ------------------------------------------------------------------
 my %PROVIDER_INFO;   # provider => { key_env, default_model, key_url, ja, en, zh }
-my @PROVIDER_ORDER;  # providers.txt の並び順（メニューの順序に使う）
+my @PROVIDER_ORDER;  # providers.txt 里的顺序（菜单顺序用它）
 {
     my @cand;
     push @cand, $ENV{CLAUDE_PROVIDERS_FILE} if $ENV{CLAUDE_PROVIDERS_FILE};
@@ -1153,7 +1153,7 @@ my @PROVIDER_ORDER;  # providers.txt の並び順（メニューの順序に使�
     my $path;
     for my $c (@cand) { if (defined $c && -f $c) { $path = $c; last } }
     if (!$path) {
-        die "providers.txt が見つかりません。リポジトリ同梱のファイルが必要です。\n";
+        die "找不到 providers.txt。需要仓库自带的那个文件。\n";
     }
     if (open(my $pf, '<:encoding(UTF-8)', $path)) {
         while (my $l = <$pf>) {
@@ -1181,15 +1181,15 @@ my @PROVIDER_ORDER;  # providers.txt の並び順（メニューの順序に使�
     }
 }
 
-# providers.txt の1項目を取り出す。無ければ即死（半端な既定値で動かさない）。
+# 取出 providers.txt 的一项。没有就立刻死（不带半吊子的默认值硬跑）。
 sub provider_info {
     my ($name, $field) = @_;
     my $info = $PROVIDER_INFO{$name};
-    die "providers.txt に '$name' の行がありません。\n" unless $info;
+    die "providers.txt 里没有 '$name' 这一行。\n" unless $info;
     return $info->{$field};
 }
 
-# 言語コードに応じた表示名
+# 按语言代码取显示名
 # 这个厂商现在有没有可用的密钥（只看当前进程环境：~/.claude-agent-env 与
 # 手工 export 的都会在启动时进到 %ENV，所以这一个判断就是全量）。
 sub provider_has_key {
@@ -1209,64 +1209,64 @@ sub provider_label {
 }
 
 # ------------------------------------------------------------------
-# コマンドライン引数 (--help / --version はAPIキー無しでも動作させる)
-# モデル切り替えは ~/bin/claude (シェルラッパー) 側の -m/--select-model で
-# 行い、ここではCLAUDE_MODEL環境変数を読むだけにして本体は単純に保つ。
+# 命令行参数（--help / --version 即使没有 API 密钥也要能用）
+# 模型切换交给 ~/bin/claude（shell 包装脚本）侧的 -m/--select-model，
+# 这里只读 CLAUDE_MODEL 环境变量，让本体保持简单。
 # ------------------------------------------------------------------
-# 履歴の保存形式（v0.2.5 で既定を反転した）:
-#   --encrypt-history / CLAUDE_ENCRYPT_HISTORY=1 → 口令で暗号化
-#   既定 → 平文（0600、ディレクトリ 0700）で保存し、パスフレーズを訊かない
-# ただし既に暗号化履歴（key.enc、または旧 .check）がある場合は、勝手に平文へ
-# 落とさず従来どおり解錠フローに入る（下の unlock_history を参照）。
+# 历史记录的保存格式（v0.2.5 里把默认反过来了）：
+#   --encrypt-history / CLAUDE_ENCRYPT_HISTORY=1 → 用口令加密
+#   默认 → 明文保存（0600，目录 0700），不问口令
+# 但如果已经存在加密历史（key.enc 或旧的 .check），不会擅自
+# 掉回明文，而是照旧走解锁流程（见下面的 unlock_history）。
 my $ENCRYPT_HISTORY = (defined $ENV{CLAUDE_ENCRYPT_HISTORY}
                        && $ENV{CLAUDE_ENCRYPT_HISTORY} ne '' && $ENV{CLAUDE_ENCRYPT_HISTORY} ne '0') ? 1 : 0;
-my $HIST_PLAIN      = 0;   # この会話は平文で保存する（unlock_history が決める）
+my $HIST_PLAIN      = 0;   # 本场对话用明文保存（由 unlock_history 决定）
 
-my $LIST_HISTORY   = 0;   # --list-history: 保存済みの会話を一覧表示して終了
-my $CONTINUE       = 0;   # --continue: 直前の会話をそのまま続ける（選択メニューを出さない）
-my $CONTINUE_NAME  = '';  # --continue <名前>: 名前で選んで続ける
-my $SESSION_NAME   = '';  # --name <名前>: この会話に名前を付ける
-my $SEARCH         = '';  # --search <語>: 保存済みの会話を全文検索して終了
-my $RESUME         = 0;   # --resume: 保存済みの会話を選んで続きから再開
-my $CHANGE_PASS    = 0;   # --change-passphrase: 履歴パスフレーズを変更して終了
-my $SET_RECOVERY   = 0;   # --set-recovery: 合言葉(復旧用の秘密の質問)を設定して終了
-my $MAKE_PLAIN     = 0;   # --make-plain-history: 既存の暗号化履歴を平文へ移して終了
-my $GUI            = 0;   # --gui: 端末用の表示をやめ、1行1件のJSONで入出力する
-# --tools=a,b : 使えるツールを絞る（能力の絞り込み。増やす方向には働かない）
-# 遠隔から使う場合はここで read_file,list_dir を渡す —— ただしその判断は
-# 呼び出し側の都合で決まる。本体は「ツールを絞れる」以上のことを知らない。
+my $LIST_HISTORY   = 0;   # --list-history: 列出已保存的对话并退出
+my $CONTINUE       = 0;   # --continue: 直接接着上一场对话（不显示选择菜单）
+my $CONTINUE_NAME  = '';  # --continue <名字>: 按名字选一场接着继续
+my $SESSION_NAME   = '';  # --name <名字>: 给这场对话起名字
+my $SEARCH         = '';  # --search <词>: 在已保存的对话里全文搜索并退出
+my $RESUME         = 0;   # --resume: 选一场已保存的对话接着继续
+my $CHANGE_PASS    = 0;   # --change-passphrase: 修改历史口令后退出
+my $SET_RECOVERY   = 0;   # --set-recovery: 设置密保问题（找回口令用）后退出
+my $MAKE_PLAIN     = 0;   # --make-plain-history: 把已有的加密历史转成明文后退出
+my $GUI            = 0;   # --gui: 不做终端显示，改成一行一条 JSON 的输入输出
+# --tools=a,b : 收窄可用的工具（只能减，不能加）
+# 远程使用时在这里传 read_file,list_dir —— 不过那个判断是
+# 调用方根据自身情况做的。本体只知道「工具可以被收窄」这些。
 my $TOOLS_ALLOW    = '';
-my $NO_CONFIG = 0;   # --no-config: 会话内の設定変更（厂商/模型/模式/可写/密钥）を拒む
-my @TOOLS_ALLOWED;   # 空 = 制限なし
+my $NO_CONFIG = 0;   # --no-config: 拒绝会话内的配置修改（厂商/模型/模式/可写/密钥）
+my @TOOLS_ALLOWED;   # 空 = 不限制
 
 # ------------------------------------------------------------------
-# 交互モード（--mode=default|accept-edits|bypass）
+# 交互模式（--mode=default|accept-edits|bypass）
 #
-# 「確認を出すかどうか」だけを切り替える。能力（ツール）は --tools の担当で、
-# この 2 つは直交する —— モードで新しいことは出来ない。
+# 只切换「要不要弹确认」。能力（工具）归 --tools 管，
+# 这两者互相正交 —— 模式不会变出新能力。
 #
-#   default      : write_file / run_shell とも毎回確認（従来通り）
-#   accept-edits : 可写範囲内の write_file だけ自動。run_shell は毎回確認
-#   bypass       : 通常操作は自動。危険なコマンドだけ確認する
+#   default      : write_file / run_shell 每次都确认（和以前一样）
+#   accept-edits : 只有可写范围内的 write_file 自动放行，run_shell 仍每次确认
+#   bypass       : 常规操作自动放行，只有危险命令才确认
 #
-# 危険なコマンドの確認は「応答が無ければ拒否」で閉じる（fail-closed）。
-# 人が居ないときに待ち続けても何も安全にならず、セッションが固まるだけ。
+# 危险命令的确认以「没有应答就拒绝」收尾（fail-closed）。
+# 没人守的时候一直等既不更安全，只会把会话卡死。
 # ------------------------------------------------------------------
 my @MODE_ORDER = ('default', 'accept-edits', 'bypass');
 my %MODE_VALID = map { $_ => 1 } @MODE_ORDER;
 my $MODE = 'default';
 my $MODE_ARG = '';
-my @WRITE_ROOTS_RAW;      # --allow-write / CLAUDE_ALLOW_WRITE の生値
-my @WRITE_ROOTS;          # 解決済みの追加可写ディレクトリ
-my @WRITE_ROOTS_DENY;     # 明示的に足しても許可しない場所
-my $CONFIRM_REASON = '';  # 直前の confirm() が拒否した理由
-my $PENDING_MODE = '';    # /mode bypass の「yes 待ち」状態
-                          #        (Python/tkinter のGUIから裏で駆動するため)
+my @WRITE_ROOTS_RAW;      # --allow-write / CLAUDE_ALLOW_WRITE 的原始值
+my @WRITE_ROOTS;          # 解析后的追加可写目录
+my @WRITE_ROOTS_DENY;     # 明确加进来也不许写的位置
+my $CONFIRM_REASON = '';  # 上一次 confirm() 拒绝的理由
+my $PENDING_MODE = '';    # /mode bypass 的「等 yes」状态
+                          #        （由 Python/tkinter 的 GUI 在后台驱动）
 
-# --tools は「--tools=a,b」と「--tools a,b」の両方を受ける。
-# 値を取る引数を for ループで扱うと、値の側が「未知の引数」として黙って
-# 捨てられる —— 実際にそれで能力制限が丸ごと効かなくなった（1行も警告が出ない）。
-# 先に正規化しておく。
+# --tools 同时接受「--tools=a,b」和「--tools a,b」两种写法。
+# 取值参数如果放在 for 循环里处理，值那一侧会被当成「未知参数」
+# 默默丢掉 —— 实际就因为这样让能力限制整个失效（一行警告都没有）。
+# 先做归一化。
 for my $i (0 .. $#ARGV) {
     if ($ARGV[$i] eq '--tools' && defined $ARGV[$i + 1]) {
         $ARGV[$i] = "--tools=$ARGV[$i + 1]";
@@ -1274,8 +1274,8 @@ for my $i (0 .. $#ARGV) {
     }
 }
 
-# --mode / --allow-write も「--mode x」の形を受ける。値の側が「未知の引数」と
-# して黙って捨てられると、指定したつもりで効かない（--tools で実際に起きた）。
+# --mode / --allow-write 也接受「--mode x」的写法。值那一侧被当成
+# 「未知参数」默默丢掉的话，以为设上了其实没生效（--tools 真出过这事）。
 for my $i (0 .. $#ARGV) {
     for my $opt ('--mode', '--allow-write', '--continue', '--name', '--search') {
         next if $i > $#ARGV || !defined $ARGV[$i];
@@ -1306,23 +1306,23 @@ for my $arg (@ARGV) {
     if ($arg =~ /^--search=(.*)$/)     { $SEARCH = $1; }
     if ($arg eq '--resume')            { $RESUME = 1; }
     if ($arg eq '--change-passphrase') { $CHANGE_PASS = 1; }
-    # 既存の暗号化履歴を平文へ切り替える（一方通行なので、明示的に叩いた時だけ）。
+    # 把已有的加密历史切成明文（单向操作，所以只在显式调用时做）。
     if ($arg eq '--make-plain-history') { $MAKE_PLAIN = 1; }
     if ($arg eq '--set-recovery')      { $SET_RECOVERY = 1; }
     if ($arg eq '--gui')               { $GUI = 1; }
-    # --rpc は --gui と完全に同じプロトコル。名前だけ用途で分けている
-    # (GUI は画面が相手、rpc はプログラムが相手)。
+    # --rpc 和 --gui 是完全相同的协议，只是按用途分了名字
+    # （GUI 对面是界面，rpc 对面是程序）。
     if ($arg eq '--rpc')               { $GUI = 1; }
     if ($arg =~ /^--tools=(.*)$/)      { $TOOLS_ALLOW = $1; }
-    # --no-config: 設定を変えるコマンドを一切受け付けない（能力の絞り込み）。
-    # 中継・埋め込みから使う想定で、キーの入力経路も同時に塞ぐ。
+    # --no-config: 一律不接受修改配置的命令（收窄能力）。
+    # 面向中转/嵌入场景，同时把密钥输入入口也堵上。
     if ($arg eq '--no-config')         { $NO_CONFIG = 1; }
     if ($arg eq '--encrypt-history')   { $ENCRYPT_HISTORY = 1; }
     if ($arg =~ /^--mode=(.*)$/)       { $MODE_ARG = $1; }
     if ($arg =~ /^--allow-write=(.*)$/) { push @WRITE_ROOTS_RAW, $1; }
 }
 
-# --- モードと可写範囲の確定（引数 > 環境変数 > 既定） ------------------
+# --- 确定模式与可写范围（参数 > 环境变量 > 默认） ------------------
 {
     my $raw = $MODE_ARG;
     $raw = $ENV{CLAUDE_MODE} if $raw eq '' && defined $ENV{CLAUDE_MODE};
@@ -1330,8 +1330,8 @@ for my $arg (@ARGV) {
     $raw =~ s/^\s+//; $raw =~ s/\s+$//;
     $raw = 'default' if $raw eq '';
     unless ($MODE_VALID{$raw}) {
-        # 既定へ黙って落とさない。落とすと「bypass のつもりが実は default」に
-        # なる（安全側に見えて、実際はユーザーの意図を無言で書き換えている）。
+        # 不默默退回默认值。退了就会「本以为在 bypass，其实在 default」
+        # （看着更安全，实际是无视用户意图偷偷改写）。
         print STDERR L('mode_bad', $raw, join(' / ', @MODE_ORDER));
         exit 2;
     }
@@ -1349,8 +1349,8 @@ if (!@WRITE_ROOTS_RAW && defined $ENV{CLAUDE_ALLOW_WRITE} && $ENV{CLAUDE_ALLOW_W
     ($ENV{HOME} || '') . '/.claude-agent-env',
 );
 
-# --help に出す「どの環境変数に何を入れるか」の表。providers.txt から生成する
-# (ここにベンダー名やキー変数名を書き足さない)。
+# --help 里那张「哪个环境变量放什么」的表。由 providers.txt 生成
+# （不要在这里补厂商名或变量名）。
 sub provider_key_table {
     return '' unless @PROVIDER_ORDER;
     my $out = '';
@@ -1374,7 +1374,7 @@ sub provider_key_table {
 
 
 sub print_help {
-    # 中国語。未対応言語は従来通り日本語へ落ちる(この下の本文)。
+    # 中文分支。不支持的语言照旧落到日语（即下面的正文）。
     if ($LANGCODE eq 'zh') {
         my $h = <<'EOH';
 用法: advisor [选项]
@@ -1411,7 +1411,7 @@ sub print_help {
   CLAUDE_SHELL_TIMEOUT 命令超时秒数（默认 120，0=不限）
   CLAUDE_CONFIRM_TIMEOUT 危险操作确认等待秒数（默认 60，超时按拒绝处理）
 
-对话中可用 /claude・/gemini 切换 AI（对话内容会保留）。
+对话中可用 /claude、/gemini 切换 AI（对话内容会保留）。
 /mode 查看或切换交互模式；/allow-write 管理可写目录；/approvals 看最近自动批准。
 /memory 查看长期记忆；/remember <事实> 记下一条；/skills 列出本机技能。
 /name <名字> 给这场对话起名；/history 列出已保存的对话；/search <词> 在历史里全文搜索。
@@ -1476,61 +1476,61 @@ EOH
 my $CURL       = $ENV{CLAUDE_CURL} || 'curl';
 my $CACERT     = $ENV{CLAUDE_CACERT} || '';
 my $MAX_TOKENS = 4096;
-# setup.sh を介さず、会話中の /claude・/gemini で入力したキーを保存する先。
+# 不经过 setup.sh、在对话里用 /claude、/gemini 输入的密钥存到这里。
 my $ENV_FILE_PATH = ($ENV{HOME} || '.') . '/.claude-agent-env';
 
-# プロバイダ切り替え。CLAUDE_PROVIDER=gemini でクレジットカード登録不要の
-# Gemini API 無料枠を、既定(anthropic)では従量課金の Claude を使う。
-# 会話中に /claude・/gemini でも切り替えられる(下の会話ループ参照)。
+# 厂商切换。CLAUDE_PROVIDER=gemini 用不需要绑卡的
+# Gemini API 免费额度；默认（anthropic）用按量计费的 Claude。
+# 对话里也可以用 /claude、/gemini 切换（见下面的对话循环）。
 my ($PROVIDER, $API_KEY, $MODEL, $API_URL, $ANTHROPIC_VERSION);
-my $NOTOOLS = 0;            # 1 なら tools を送らない(非対応モデル)
-my %MODEL_META;             # モデルID => { provider, base_url, notools }
+my $NOTOOLS = 0;            # 1 则不发送 tools（不支持的模型）
+my %MODEL_META;             # 模型 ID => { provider, base_url, notools }
 
-# $provider に応じて $API_KEY / $MODEL / $API_URL 等を(再)設定する。
-# 起動時と、会話中の /claude・/gemini の両方から呼ばれる。対応する
-# 環境変数(ANTHROPIC_API_KEY / GEMINI_API_KEY)が無ければ die する
-# — 起動時はそれで終了、切り替え時は呼び出し側で eval して握り、
-# 今のプロバイダのまま継続する。
+# 按 $provider 设置（重置）$API_KEY / $MODEL / $API_URL 等。
+# 启动时和对话中的 /claude・/gemini 都会调用。对应的
+# 环境变量（ANTHROPIC_API_KEY / GEMINI_API_KEY）不存在时 die
+# —— 启动时直接退出；切换时由调用方 eval 捕获，
+# 保持当前厂商继续。
 # ------------------------------------------------------------------
-# プロバイダ登録表
+# 厂商注册表
 #
-# 「キーの環境変数名 / 既定モデル / 投げ先URL / リクエスト構築 / 応答解析」を
-# 1箇所にまとめる。以前はこの情報が configure_provider・build_headers・
-# build_request・parse_response の4箇所に if/elsif で散っており、
-# プロバイダを1つ増やすには4箇所を同時に直す必要があった
-# (直し忘れがそのまま不具合になる)。ここに1エントリ足せば済む形にする。
+# 把「密钥环境变量名 / 默认模型 / 请求地址 / 请求构造 / 响应解析」
+# 集中到一处。以前这些信息散在 configure_provider、build_headers、
+# build_request、parse_response 四个地方的 if/elsif 里，
+# 要加一个厂商就得同时改四处
+# （漏改一处就直接变成故障）。现在加一条记录就行。
 #
 # 各項目:
-#   （key_env と default_model は providers.txt 側。コードに二重管理しない）
-#   auth           ヘッダの流儀: 'goog' 以外は x-api-key 系(既定)
-#   model_prefix   CLAUDE_MODEL を採用してよいモデルIDの接頭辞
+#   （key_env 和 default_model 在 providers.txt 侧。不要在代码里重复维护）
+#   auth           头部风格：'goog' 以外都是 x-api-key 系（默认）
+#   model_prefix   允许采用 CLAUDE_MODEL 的模型 ID 前缀
 
-#   url            固定エンドポイント(url_template が無いとき使う)
-#   url_template   %s にモデルIDを埋めるエンドポイント
-#   api_version    anthropic-version ヘッダの値(必要なときだけ)
-#   build / parse  内部形式(Anthropic content blocks)との相互変換
+#   url            固定端点（没有 url_template 时使用）
+#   url_template   把模型 ID 填进 %s 的端点
+#   api_version    anthropic-version 头的值（只在需要时）
+#   build / parse  与内部格式（Anthropic content blocks）的相互转换
 # ------------------------------------------------------------------
-# プロバイダ登録表
+# 厂商注册表
 #
-# 「キーの環境変数名・既定モデル・投げ先URL・リクエスト構築・応答解析」を
-# 1箇所にまとめる。以前はこの情報が configure_provider / build_headers /
-# build_request / parse_response の4箇所に if/elsif で散っており、
-# プロバイダを1つ増やすには4箇所を同時に直す必要があった(直し忘れが
-# そのまま不具合になる)。ここに1エントリ足せば済む形にしておく。
+# 把「密钥环境变量名、默认模型、请求地址、请求构造、响应解析」
+# 集中到一处。以前这些信息散在 configure_provider / build_headers /
+# build_request / parse_response 四个地方的 if/elsif 里，
+# 要加一个厂商就得同时改四处（漏改一处就直接变成故障）。
+# 现在加一条记录就够。
 #
-# 各エントリの項目:
-#   （key_env と default_model は providers.txt 側。コードに二重管理しない）
-#   auth           ヘッダの流儀: 'x-api-key'(既定) / 'goog' / 'bearer'
-#   model_prefix   CLAUDE_MODEL を採用してよいモデルIDの接頭辞
+# 每条记录的字段：
+#   （key_env 和 default_model 在 providers.txt 侧。不要在代码里重复维护）
+#   auth           头部风格：'x-api-key'（默认）/ 'goog' / 'bearer'
+#   model_prefix   允许采用 CLAUDE_MODEL 的模型 ID 前缀
 
-#   url            固定エンドポイント(anthropic)
-#   url_template   %s にモデルIDを埋めるエンドポイント(gemini)
-#   base_url       OpenAI互換エンドポイントの基底(末尾に /chat/completions を足す)
-#   api_version    anthropic-version ヘッダの値(必要な場合のみ)
-#   build / parse  内部形式(Anthropic content blocks)との変換関数
+#   url            固定端点（anthropic）
+#   url_template   把模型 ID 填进 %s 的端点（gemini）
+#   base_url       OpenAI 兼容端点的基址（末尾补 /chat/completions）
+#   api_version    anthropic-version 头的值（只在需要时）
+#   build / parse  与内部格式（Anthropic content blocks）的转换函数
 #
-# OpenAI系(openai / deepseek / dashscope / moonshot / zhipu)は build/parse を
-# 共有する。ベンダーごとに違うのはキーの環境変数名・既定モデル・base_url だけ。
+# OpenAI 系（openai / deepseek / dashscope / moonshot / zhipu）共用
+# build/parse。各厂商不同的只有密钥环境变量名、默认模型和 base_url。
 # ------------------------------------------------------------------
 
 my %PROVIDERS = (
@@ -1586,8 +1586,8 @@ my %PROVIDERS = (
     },
 );
 
-# 会話中に打つコマンド名のうち、プロバイダ名と違うもの。
-# (/claude は既存ユーザーの指が覚えているので残す)
+# 对话里输入的命令名当中，和厂商名不一致的那些。
+# （/claude 是老用户肌肉记忆，保留）
 my %PROVIDER_ALIAS = (
     claude => 'anthropic',
     qwen   => 'dashscope',
@@ -1596,7 +1596,7 @@ my %PROVIDER_ALIAS = (
     glm    => 'zhipu',
 );
 
-# コマンド名 → プロバイダ名。該当なしは空文字。
+# 命令名 → 厂商名。没有对应的返回空串。
 sub provider_from_command {
     my ($cmd) = @_;
     return $cmd if $PROVIDERS{$cmd};
