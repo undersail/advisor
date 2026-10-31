@@ -3229,7 +3229,7 @@ sub flatten_history {
 }
 
 # ------------------------------------------------------------------
-# ツール定義とツール実行
+# 工具定义与工具执行
 # ------------------------------------------------------------------
 my @TOOLS = (
     {
@@ -3286,8 +3286,8 @@ my @TOOLS = (
     },
 );
 
-# --tools= による絞り込み。ここは「減らす」方向にしか働かない —— 登録簿に無い
-# 名前を渡されたら黙って無視せず死ぬ（設定ミスを静かに握り潰さない）。
+# --tools= 的收窄。这里只往「减少」的方向生效 —— 注册表里没有的
+# 名字不会默默忽略，而是直接死（不把配置错误悄悄吞掉）。
 if ($TOOLS_ALLOW ne '') {
     my %known = map { $_->{name} => 1 } @TOOLS;
     my %want;
@@ -3295,7 +3295,7 @@ if ($TOOLS_ALLOW ne '') {
         $n =~ s/^\s+//; $n =~ s/\s+$//;
         next if $n eq '';
         unless ($known{$n}) {
-            die sprintf("--tools に未知のツール名 '%s' が指定されました（使えるのは: %s）\n",
+            die sprintf("--tools 指定了未知的工具名 '%s'（可用的是: %s）\n",
                         $n, join(', ', sort keys %known));
         }
         $want{$n} = 1;
@@ -3309,14 +3309,14 @@ if ($TOOLS_ALLOW ne '') {
 sub confirm {
     my ($msg, $opts) = @_;
     my $danger = ($opts && ref $opts eq 'HASH' && $opts->{danger}) ? 1 : 0;
-    # strict: 「人が居なければ拒否」で閉じたい確認（危険コマンド、可写範囲外への
-    # 書き込み）。danger は文言（★危険）のため、strict は待ち時間のため。
+    # strict：「没人守着就拒绝」时要闭合的确认（危险命令、可写范围外
+    # 的写入）。danger 是为了措辞（★危险），strict 是为了等待时长。
     my $strict = ($opts && ref $opts eq 'HASH' && $opts->{strict}) ? 1 : $danger;
     my $wait   = $strict ? confirm_timeout_secs() : 0;
     $CONFIRM_REASON = '';
 
-    # GUI モード: 確認イベントを送って、返ってくる reply を待つ。
-    # 危険な操作のときだけ待ち時間を切る（人が居ないまま固まらないように）。
+    # GUI 模式：发出确认事件，等返回的 reply。
+    # 只有危险操作才缩短等待（免得没人守着时卡死）。
     if ($GUI) {
         gui_send({ t => 'confirm', prompt => $msg, danger => $danger });
         my $value;
@@ -3326,7 +3326,7 @@ sub confirm {
             alarm($wait) if $wait > 0;
             while (1) {
                 my $r = gui_read();
-                last unless defined $r;                  # GUIが閉じた
+                last unless defined $r;                  # GUI 已关闭
                 next unless $r->{t} && $r->{t} eq 'reply';
                 $value = $r->{value};
                 $got = 1;
@@ -3346,8 +3346,8 @@ sub confirm {
         return 1;
     }
 
-    # 端末が無い（パイプ実行など）なら、危険な操作は聞かずに拒否する。
-    # 聞く相手が居ないのに待つのは、固まるだけで何も安全にしない。
+    # 没有终端（管道执行等）时，危险操作不问直接拒绝。
+    # 没人可问还等着，只会卡死，一点安全性都换不来。
     if ($strict && !(-t STDIN)) {
         $CONFIRM_REASON = 'nochannel';
         return 0;
@@ -3362,8 +3362,8 @@ sub confirm {
     print L('confirm_not_instruct');
     print "─────────────────────\n";
 
-    # y/n 以外(指示文を打ってしまった等)ではキャンセルせず、聞き直す。
-    # 誤って打ち込んだ一言で書き込みが飛んでしまうのを防ぐ。
+    # y/n 以外（打成了指令等）不当作取消，重新问。
+    # 防止误打的一句话把写入发出去。
     my $answer;
     eval {
         local $SIG{ALRM} = sub { die "ALARM_CONFIRM\n" };
@@ -3393,21 +3393,21 @@ sub confirm {
 }
 
 # ------------------------------------------------------------------
-# 行編集(矢印キー対応の簡易readline)
+# 行编辑（支持方向键的简易 readline）
 #
-# 標準の <STDIN> はカーソル移動機能を持たないため、矢印キーを押すと
-# ターミナルが送る生のエスケープシーケンス(ESC [ C など)がそのまま
-# 文字として画面に出てしまう。これを避けるため、stty で端末をraw
-# モードにし、1バイトずつ読みながら簡易的な行編集(←→移動、
-# Backspace、↑↓での履歴呼び出し)を自前で実装する。
-# 外部CPANモジュール(Term::ReadLineなど)には依存しない。
+# 标准 <STDIN> 没有光标移动功能，按方向键时
+# 终端发出的原始转义序列（ESC [ C 等）会直接
+# 当字符显示在屏幕上。为避免这点，用 stty 把终端切到 raw
+# 模式，一个字节一个字节读，自己做简易行编辑（←→移动、
+# Backspace、↑↓调历史）。
+# 不依赖外部 CPAN 模块（Term::ReadLine 等）。
 # ------------------------------------------------------------------
 {
     my @HISTORY;
 
-    # デバッグ用: $ENV{CLAUDE_DEBUG_INPUT}にファイルパスを設定すると、
-    # read_line_interactiveが実際に受け取った生バイトを1行ずつ追記する。
-    # 実機でIME入力時に何が届いているか調べるための一時的な仕組み。
+    # 调试用：设 $ENV{CLAUDE_DEBUG_INPUT} 为文件路径后，
+    # read_line_interactive 会把实际收到的生字节逐行追加进去。
+    # 这是查真机上 IME 输入时到底收到什么的临时手段。
     sub _debug_log {
         return unless $ENV{CLAUDE_DEBUG_INPUT};
         open(my $fh, '>>', $ENV{CLAUDE_DEBUG_INPUT}) or return;
@@ -3415,7 +3415,7 @@ sub confirm {
         close $fh;
     }
 
-    # UTF-8の先頭バイトからその文字が何バイトかを返す
+    # 从 UTF-8 首字节返回该字符占几字节
     sub _utf8_char_len {
         my ($byte) = @_;
         my $b = ord($byte);
@@ -3423,11 +3423,11 @@ sub confirm {
         return 2 if ($b & 0xE0) == 0xC0;
         return 3 if ($b & 0xF0) == 0xE0;
         return 4 if ($b & 0xF8) == 0xF0;
-        return 1;  # 不正なバイト列は1バイトずつ進める
+        return 1;  # 非法字节序列就一个字节一个字节往前推
     }
 
-    # デコード済みのPerl文字列を受け取り、ターミナル上での表示幅
-    # (半角=1/全角=2)を返す
+    # 接收已解码的 Perl 字符串，返回在终端上的显示宽度
+    # （半角=1/全角=2）
     sub _display_width_chars {
         my ($text) = @_;
         my $w = 0;
@@ -3445,44 +3445,44 @@ sub confirm {
         return $w;
     }
 
-    # 与えられたUTF-8バイト列の、ターミナル上での表示幅を返す
+    # 返回给定 UTF-8 字节串在终端上的显示宽度
     sub _display_width {
         my ($bytes) = @_;
         return 0 if $bytes eq '';
         return _display_width_chars(decode('UTF-8', $bytes, FB_DEFAULT));
     }
 
-    # ターミナルの桁数を返す(取得できなければ80にフォールバック)
+    # 返回终端列数（取不到就回退 80）
     sub _term_width {
         my $wh = `stty size 2>/dev/null`;
         return $1 if $wh =~ /^\s*\d+\s+(\d+)\s*$/;
         return 80;
     }
 
-    # 表示幅$w(セル数)ぶん文字を描画した直後にカーソルが位置する
-    # (0始まりの行, 0始まりの列)を返す。ターミナルの折り返しは、行末に
-    # 達しても次の文字が来るまで改行しない"遅延ラップ"仕様のため、
-    # ちょうど桁数の倍数で折り返る場合はその行の最終列に留まる。
+    # 返回画完宽度 $w（单元格数）之后光标所在位置
+    # （0 起始的行, 0 起始的列）。终端的折行是「延后换行」
+    # 规格：到行末也不会换行，直到下一个字符到来，
+    # 所以正好在列数整数倍处折行时，光标留在该行最后一列。
     sub _pos_rc {
         my ($w, $cols) = @_;
         return (0, 0) if $w <= 0 || $cols <= 0;
         my $row = int(($w - 1) / $cols);
         my $col = $w % $cols;
-        $col = $cols - 1 if $col == 0;  # 遅延ラップ: ちょうど桁数の倍数のときは行末に留まる
+        $col = $cols - 1 if $col == 0;  # 延后换行：正好是列数整数倍时留在行末
         return ($row, $col);
     }
 
-    # プロンプトを表示しつつ1行読み込む。
+    # 显示提示符并读一行。
     #
-    # 既定は「素の入力」: 端末を raw にせず <STDIN> で1行読むだけ。
-    # 理由 — 矢印キー対応の自作行編集は、キー入力のたびに端末へ大量の
-    # カーソル移動・全行再描画のエスケープシーケンスを送る。High Sierra の
-    # Terminal.app 2.8.3 はこの負荷(特に日本語=CoreText グリフ描画)で
-    # グリフ描画中に heap corruption を起こして abort することがある
-    # (Terminal 側のバグ。crash report で確認済み)。実用上、行編集より
-    # 「落ちないこと」を優先する。
+    # 默认是「朴素输入」：不把终端切 raw，只用 <STDIN> 读一行。
+    # 理由 —— 自己做的方向键行编辑，每次按键都要往终端发大量
+    # 光标移动、整行重绘的转义序列。High Sierra 的
+    # Terminal.app 2.8.3 在这种负载下（尤其是日文=CoreText 字形绘制）
+    # 画字形时会出现 heap corruption 然后 abort
+    # （Terminal 侧的 bug。crash report 里确认过）。实用上，比起行编辑
+    # 优先「不崩」。
     #
-    # CLAUDE_FANCY_INPUT=1 で従来の行編集(←→移動・↑↓履歴)に戻せる。
+    # CLAUDE_FANCY_INPUT=1 可以回到原来的行编辑（←→移动、↑↓历史）。
     sub read_line_interactive {
         my ($prompt, $use_history) = @_;
         $use_history = 1 unless defined $use_history;
@@ -3494,10 +3494,10 @@ sub confirm {
             my $line = <STDIN>;
             return undef unless defined $line;   # EOF
 
-            # 複数行を貼り付けると1行=1メッセージに割れてしまうのを防ぐ。
-            # 最初の行を読んだ直後、まだ入力がバッファに残っていれば(=貼り付け)、
-            # 続く行も同じメッセージとしてまとめる。人が1行ずつ考えて打つ場合は
-            # 次の行まで間があくので、この待ち時間(50ms)には引っかからない。
+            # 防止粘贴多行时被拆成一行一条消息。
+            # 读完第一行之后，如果输入还留在缓冲区里（=粘贴），
+            # 就把后续行也并进同一条消息。人一行一行想着打的时候
+            # 到下一行会有间隔，不会被这个等待时间（50ms）误判。
             eval {
                 my $rin = '';
                 vec($rin, fileno(STDIN), 1) = 1;
@@ -3508,45 +3508,45 @@ sub confirm {
                 }
             };
 
-            $line =~ s/\r?\n\z//;                 # 末尾の改行だけ落とす(中の改行は残す)
-            return $line;                         # 生バイト(呼び出し側でデコード)
+            $line =~ s/\r?\n\z//;                 # 只去掉末尾换行（中间的换行保留）
+            return $line;                         # 生字节（由调用方解码）
         }
 
         my $orig_stty = `stty -g`;
         chomp $orig_stty;
         my $term_cols = _term_width();
-        # -opostが無いと、環境によっては出力後処理(特にocrnl)が有効なままで
-        # 再描画に使う"\r"が改行として扱われ、行を上書きするはずが毎回新しい
-        # 行を作ってしまう(結果、入力するたびにどんどん改行されていく)。
+        # 没有 -opost 时，某些环境下输出后处理（尤其 ocrnl）仍然开着，
+        # 重绘用的 "\r" 被当成换行，本该覆盖一行却每次新建一行
+        # （结果就是每输入一次就多换一行）。
         system('stty', 'raw', '-echo', '-opost');
 
-        my $buf = '';                    # 生バイト列
-        my $pos = 0;                     # カーソル位置(バイト単位、常に文字境界)
-        my $hist_idx = scalar(@HISTORY); # 履歴カーソル(配列末尾 = 新規入力中)
-        my $saved_buf = '';              # 履歴を辿る前の入力を退避しておく
+        my $buf = '';                    # 生字节串
+        my $pos = 0;                     # 光标位置（字节单位，始终在字符边界）
+        my $hist_idx = scalar(@HISTORY); # 历史光标（数组末尾 = 正在新输入）
+        my $saved_buf = '';              # 翻历史之前先存一下当前输入
 
-        # $promptの先頭改行(例: "\nご用件をどうぞ> ")は最初の表示でだけ使う。
-        # 再描画のたびにこれをそのまま含めて出すと、キー入力するたびに
-        # 改行が挿入され続けて新しい行がどんどん増えてしまう。
+        # $prompt 开头的换行（如中文提示符里的 "\n…> "）只在首次显示时用。
+        # 每次重绘都原样带上它的话，每按一次键就会
+        # 不断插入换行，新行越来越多。
         (my $redraw_prompt = $prompt) =~ s/^\n+//;
 
-        # redraw_promptだけを表示した状態(bufが空)で何行分の表示になるかを初期値とする。
+        # 以只显示 redraw_prompt（buf 为空）时占几行作为初值。
         my $rows_used = (_pos_rc(_display_width_chars($redraw_prompt), $term_cols))[0] + 1;
 
         my $redraw = sub {
-            # $bufは生バイトのUTF-8。STDOUTには:encoding(UTF-8)層が付いているので
-            # 一度Perl文字列にデコードしてから渡さないと二重エンコードで文字化けする。
+            # $buf 是 UTF-8 生字节。STDOUT 加着 :encoding(UTF-8) 层，
+            # 不先解码成 Perl 字符串再写就会双重编码乱码。
             my $text   = decode('UTF-8', $buf, FB_DEFAULT);
             my $before = decode('UTF-8', substr($buf, 0, $pos), FB_DEFAULT);
             my $full_text   = $redraw_prompt . $text;
             my $full_width  = _display_width_chars($full_text);
             my $cursor_width = _display_width_chars($redraw_prompt . $before);
 
-            # 前回の再描画で使った行数ぶんカーソルを先頭行まで戻し、そこから
-            # 画面末尾までを丸ごとクリアする。折り返した行が複数あっても、
-            # 最終行だけをクリアする"\r\x1b[K"では前の行が消えずに残って
-            # しまい、入力するたびに同じ文字列が積み重なって表示される
-            # バグの原因になっていた。
+            # 按上次重绘用掉的行数把光标退回首行，然后从那里
+            # 清到屏幕末尾。即使折成多行，只清最后一行的
+            # "\r\x1b[K" 也清不掉前面的行，
+            # 于是每输入一次就叠一层同样的字符串，
+            # 这就是那个显示 bug 的原因。
             print "\x1b[" . ($rows_used - 1) . "A" if $rows_used > 1;
             print "\r\x1b[0J", $full_text;
 
@@ -3563,9 +3563,9 @@ sub confirm {
         print $prompt;
         _debug_log("=== read_line_interactive start ===\n");
 
-        # 誤って先読みしてしまったバイトを次のループへ戻すためのプッシュバック
-        # キュー。マルチバイト文字の続きだと思って読んだバイトが実際には
-        # continuationバイトの形式(10xxxxxx)でなかった場合に使う。
+        # 把误读进来的字节退回下一轮循环的 pushback
+        # 队列。用于：当成多字节字符后续读进来的字节，其实并不是
+        # continuation 字节格式（10xxxxxx）的情况。
         my @pending;
         my $read_one_byte = sub {
             return shift @pending if @pending;
@@ -3573,14 +3573,14 @@ sub confirm {
             my $n = sysread(STDIN, $ch, 1);
             return (defined $n && $n > 0) ? $ch : undef;
         };
-        # Mac OS X の Terminal.app は、IME(日本語入力など)で確定した
-        # テキストを渡す際、各バイトの前に0x16(Ctrl-V。端末で伝統的に
-        #「次の1文字をそのまま扱う(LNEXT)」の合図として使われるバイト)を
-        # 付けて送ってくることがある。このプログラムはraw modeで自前で
-        # 入力を処理しておりLNEXTの解釈をしていないため、何もしないと
-        # この合図のバイト自体がゴミとして文字列に混入し、UTF-8が壊れて
-        # 文字化けする。ここで0x16を読み飛ばし、次のバイトを本来のデータ
-        # として扱う。
+        # Mac OS X 的 Terminal.app 在用 IME（日文输入等）确定
+        # 文本时，会在每个字节前加 0x16（Ctrl-V。终端里传统上
+        # 表示「下一个字符原样处理（LNEXT）」的字节）
+        # 一起送过来。本程序在 raw mode 下自己处理输入，
+        # 不解释 LNEXT，所以什么都不做的话
+        # 这个标记字节本身会混进字符串里，UTF-8 就坏了、
+        # 变成乱码。这里跳过 0x16，把下一个字节
+        # 当真正的数据处理。
         my $read_byte = sub {
             my $ch = $read_one_byte->();
             if (defined $ch && $ch eq "\x16") {
@@ -3590,13 +3590,13 @@ sub confirm {
         };
 
         my $result;
-        my $ctrld_seen = 0;   # 空行での Ctrl-D。1回目は警告、2回で終了。
+        my $ctrld_seen = 0;   # 空行处的 Ctrl-D。第一次警告，两次就退出。
         RAW_LOOP: while (1) {
             my $ch = $read_byte->();
             if (!defined $ch) {
                 _debug_log("EOF\n");
                 dbg("readline: real EOF on STDIN");
-                $result = undef;  # 本物のEOF(標準入力が閉じた)
+                $result = undef;  # 真正的 EOF（标准输入被关闭）
                 last RAW_LOOP;
             }
             my $b = ord($ch);
@@ -3608,13 +3608,13 @@ sub confirm {
                 $result = $buf;
                 last RAW_LOOP;
             }
-            elsif ($b == 3) {                  # Ctrl-C: 行をキャンセルして空行扱い
+            elsif ($b == 3) {                  # Ctrl-C: 取消本行，按空行处理
                 print "\r\n";
                 $result = '';
                 last RAW_LOOP;
             }
             elsif ($b == 4) {                  # Ctrl-D
-                # 誤爆で1発終了しないよう、空行では2回連続で押されたときだけEOF。
+                # 防止误触一次就退出，空行里只有连按两次才算 EOF。
                 if ($buf eq '') {
                     $ctrld_seen++;
                     if ($ctrld_seen >= 2) {
@@ -3636,7 +3636,7 @@ sub confirm {
                     $redraw->();
                 }
             }
-            elsif ($b == 27) {                  # ESC: カーソルキーなど
+            elsif ($b == 27) {                  # ESC: 方向键等
                 my $c2 = $read_byte->();
                 next RAW_LOOP unless defined $c2;
                 if ($c2 eq '[') {
@@ -3656,7 +3656,7 @@ sub confirm {
                             $redraw->();
                         }
                     }
-                    elsif ($use_history && $c3 eq 'A') {  # ↑ 履歴を遡る
+                    elsif ($use_history && $c3 eq 'A') {  # ↑ 往历史里回退
                         if ($hist_idx > 0) {
                             $saved_buf = $buf if $hist_idx == @HISTORY;
                             $hist_idx--;
@@ -3665,7 +3665,7 @@ sub confirm {
                             $redraw->();
                         }
                     }
-                    elsif ($use_history && $c3 eq 'B') {  # ↓ 履歴を進める
+                    elsif ($use_history && $c3 eq 'B') {  # ↓ 往历史里前进
                         if ($hist_idx < @HISTORY) {
                             $hist_idx++;
                             $buf = ($hist_idx == @HISTORY) ? $saved_buf : $HISTORY[$hist_idx];
@@ -3673,7 +3673,7 @@ sub confirm {
                             $redraw->();
                         }
                     }
-                    elsif ($c3 eq '3') {         # Delete キー (ESC [ 3 ~)
+                    elsif ($c3 eq '3') {         # Delete 键 (ESC [ 3 ~)
                         my $c4 = $read_byte->();
                         if (defined $c4 && $pos < length($buf)) {
                             substr($buf, $pos, _utf8_char_len(substr($buf, $pos, 1)), '');
@@ -3682,14 +3682,14 @@ sub confirm {
                     }
                 }
             }
-            else {                               # 通常の文字(UTF-8の生バイト)
-                # マルチバイト文字の途中(バイトが揃っていない状態)でredrawすると
-                # decode()が不完全な列を「�」に化けさせてしまうため、1文字分の
-                # バイトが揃うまで読んでからバッファに追加・再描画する。
-                # ただし、続くバイトが本当にUTF-8のcontinuationバイト(10xxxxxx)
-                # でなければ、それは別の文字/キーの先頭バイトなので読み戻す
-                # (でないと、本来の入力を誤って飲み込んでしまい、以降の入力が
-                # 効かなくなってしまう)。
+            else {                               # 普通字符（UTF-8 生字节）
+                # 多字节字符中途（字节还不全）就重绘的话，
+                # decode() 会把不完整的序列变成「�」，所以
+                # 等一个字符的字节齐了再加进缓冲、重绘。
+                # 但如果后续字节不是 UTF-8 的 continuation 字节
+                # （10xxxxxx），那就是别的字符/按键的首字节，要读回去
+                # （否则会误吞掉本来的输入，之后打什么都
+                # 没反应）。
                 my $need = _utf8_char_len($ch) - 1;
                 my $char = $ch;
                 while ($need > 0) {
@@ -3719,13 +3719,13 @@ sub confirm {
 }
 
 # ------------------------------------------------------------------
-# 模式・可写範囲・危険コマンド・シェル実行の共通部品
+# 模式、可写范围、危险命令、shell 执行的公共部件
 #
-# ここは「安全側に倒す」ための判定だけを置く。判定に失敗したら危険側
-# （＝許可）に倒さず、必ず確認か拒否に倒すこと。
+# 这里只放「往安全侧倒」的判定。判定失败时不能倒向危险侧
+# （＝放行），一定要落到确认或拒绝。
 # ------------------------------------------------------------------
 
-# パスを実体に寄せる（~ 展開 + シンボリックリンク解決。未作成なら親で解決）。
+# 把路径解析到实体（~ 展开 + 符号链接解析。还没创建就在父目录上解析）。
 sub resolve_path {
     my ($p) = @_;
     return '' unless defined $p;
@@ -3746,10 +3746,10 @@ sub resolve_path {
     return '';
 }
 
-# 可写の既定根: カレントディレクトリ + 一時ディレクトリ。
-# 一時ディレクトリは TMPDIR があれば**それだけ**を使う（macOS は必ず設定される）。
-# /tmp を常に足していた頃は、テストが「範囲外」を作ったつもりで /tmp 配下に
-# 置いてしまい、環境によって可否が変わった —— 判定に環境依存を持ち込まない。
+# 可写的默认根：当前目录 + 临时目录。
+# 临时目录只要有 TMPDIR 就**只用它**（macOS 一定会设）。
+# 以前总是把 /tmp 也算进去，测试以为造了「范围外」，
+# 实际放在 /tmp 下面，能不能写就看环境 —— 判定不能带环境依赖。
 sub temp_root {
     my $t = defined $ENV{TMPDIR} && $ENV{TMPDIR} ne '' ? $ENV{TMPDIR} : '/tmp';
     return resolve_path($t);
@@ -3780,7 +3780,7 @@ sub is_hard_denied_path {
     return write_hard_denied($abs) ? 1 : 0;
 }
 
-# 書き込みが許可範囲に入っているか（default モードでは判定に使わない）。
+# 写入是否在许可范围内（default 模式下不用它判定）。
 sub write_allowed {
     my ($path) = @_;
     my $abs = resolve_path($path);
@@ -3792,9 +3792,9 @@ sub write_allowed {
     return 0;
 }
 
-# 危険コマンド。当たったら理由の identifier を返す（'' = 危険ではない）。
-# 誤検知は「確認が 1 回増える」だけで済むが、見逃しは取り返せない。
-# そのため少し広めに取る。
+# 危险命令。命中就返回理由标识（'' = 不危险）。
+# 误报只是「多一次确认」，漏报却收不回来。
+# 所以范围取宽一点。
 my @DANGER_RULES = (
     [ qr{\brm\s+(?:-[A-Za-z]+\s+)*(?:-[A-Za-z]*[rf][A-Za-z]*\s+)+['"]?(?:/|~|/\*|\$HOME|\$home)}, 'rm_root' ],
     [ qr{\bmkfs(?:\.|[\s&|;])}, 'mkfs' ],
@@ -3815,17 +3815,17 @@ my @DANGER_RULES = (
 my @DANGER_INTERACTIVE = qw(vi vim nano emacs less more top htop man ssh telnet ftp sftp);
 
 # ---------------------------------------------------------------- 目录/文件操作
-# bypass モードでも確認する「ディレクトリ・ファイル操作」。
-# 破壊や移動を伴うものだけを入れる（touch や sed -i のような「内容を書くだけ」は
-# 入れない —— それは write_file と同じ扱いで、bypass では確認しない）。
+# bypass 模式下也要确认的「目录/文件操作」。
+# 只放带破坏或移动的那些（touch、sed -i 这类「只写内容」的
+# 不放 —— 那和 write_file 同等对待，bypass 下不确认）。
 my %FS_MUTATION = map { $_ => 1 } qw(
     rm rmdir mv cp ln mkdir chmod chown chgrp dd truncate rsync
     tar zip unzip gzip gunzip install
 );
 
-# 戻り値: 見つかったコマンド名（無ければ ''）。
-# パイプライン・&&・; で分割し、各セグメントの先頭トークン（sudo/env/xargs などの
-# 前置きと -option を読み飛ばした後）だけを見る。「echo rm」のような誤検知を避ける。
+# 返回值：命中的命令名（没有则 ''）。
+# 按管道、&&、; 切分，只看每段开头的 token（跳过 sudo/env/xargs 这些
+# 前缀和 -option 之后）。避免「echo rm」这种误报。
 sub is_fs_mutation {
     my ($cmd) = @_;
     return '' unless defined $cmd && length $cmd;
@@ -3859,7 +3859,7 @@ sub is_dangerous {
     for my $rule (@DANGER_RULES) {
         return $rule->[1] if $cmd =~ $rule->[0];
     }
-    # パイプや区切りの先頭トークンも見る（`cat x | less` は固まる）
+    # 管道和分隔符后面的开头 token 也看（`cat x | less` 会卡住）
     for my $seg (split(/\|\||&&|;|\|/, $cmd)) {
         $seg =~ s/^\s+//;
         next if $seg eq '';
@@ -3872,11 +3872,11 @@ sub is_dangerous {
 
 
 # ------------------------------------------------------------------
-# コマンド文字列の「書き込み先らしきもの」を拾う（保守的・best effort）
+# 从命令字符串里捡出「看起来是写入目标」的东西（保守·best effort）
 #
-# shell の文法を完全に解析はしない。拾えるものだけ拾い、拾えなかったものは
-# 従来どおり「危険コマンドの確認」に任せる。狙いは『write_file だけが範囲の
-# 対象』という穴を塞ぐこと。cp/mv/rm/tee/リダイレクトくらいは実務上ほぼ全て。
+# 不做完整的 shell 语法解析。能捡的捡，捡不到的
+# 照旧交给「危险命令确认」。目的是堵住「只有 write_file 才受范围
+# 约束」这个洞。cp/mv/rm/tee/重定向在实务上基本覆盖全了。
 # ------------------------------------------------------------------
 sub _split_shell_words {
     my ($seg) = @_;
@@ -3902,7 +3902,7 @@ sub shell_write_targets {
     return () unless defined $cmd && $cmd ne '';
     my @targets;
 
-    # 1) リダイレクト（> / >> / 2> / &>）
+    # 1) 重定向（> / >> / 2> / &>）
     while ($cmd =~ /(?:^|[^0-9&>])>>?\s*([^\s;|&>()]+)/g) {
         my $t = $1;
         $t =~ s/^['"]//;
@@ -3910,7 +3910,7 @@ sub shell_write_targets {
         push @targets, $t;
     }
 
-    # 2) 代表的なコマンドの書き込み先
+    # 2) 代表性命令的写入目标
     for my $seg (split(/\|\||&&|;|\|/, $cmd)) {
         my @w = _split_shell_words($seg);
         next unless @w;
@@ -3939,7 +3939,7 @@ sub shell_write_targets {
     return @out;
 }
 
-# ('hard'|'scope', path) を返す。'' 相当（該当なし）なら空リスト。
+# 返回 ('hard'|'scope', path)。相当于 ''（没有命中）时返回空列表。
 sub shell_scope_violation {
     my ($cmd) = @_;
     for my $t (shell_write_targets($cmd)) {
@@ -3978,10 +3978,10 @@ sub _human_bytes {
     return sprintf('%.1f MB', $n / (1024 * 1024));
 }
 
-# run_shell の実行。タイムアウトと出力上限つき。
-#   * 出力はファイルへ落としてから読む（メモリに溜めない）
-#   * 子は独立したプロセスグループにする（npm などの孫まで確実に止める）
-#   * 打ち切り時は TERM → 0.5 秒 → KILL
+# 执行 run_shell。带超时和输出上限。
+#   * 输出先落到文件再读（不在内存里堆）
+#   * 子进程放进独立进程组（npm 之类派生的孙进程也能确实停掉）
+#   * 掐断时按 TERM → 0.5 秒 → KILL
 sub run_shell_capture {
     my ($command) = @_;
     my $limit = shell_timeout_secs();
@@ -4048,21 +4048,21 @@ sub run_shell_capture {
 }
 
 # ------------------------------------------------------------------
-# 自動承認の記録（~/.claude-agent/approvals.log）
+# 自动批准的记录（~/.claude-agent/approvals.log）
 #
-# 遠隔用の audit.log とは別ファイルにする。片方は「外から誰が何を聞いたか」、
-# こちらは「ローカルで勝手にやったこと」。混ぜるとどちらも読みにくくなる。
+# 和远程用的 audit.log 分成不同文件。一个是「外面谁问了什么」，
+# 这个是「本地擅自做了什么」。混在一起两边都难读。
 # ------------------------------------------------------------------
 sub approvals_path { return ($ENV{HOME} || '.') . '/.claude-agent/approvals.log'; }
 
 # ------------------------------------------------------------------
-# 長期記憶とスキル
-#   どちらも ~/.claude-agent/ 配下の素のテキスト。暗号化しない ——
-#   memory は毎ターン system prompt に載せるので、起動のたびに合言葉を
-#   訊くのは割に合わない。代わりに 0600 / 置き場所は ~/.claude-agent 配下
-#   （gitignore 済み）に限定し、README と手冊に「平文で置く」と明記する。
+# 长期记忆与技能
+#   两者都是 ~/.claude-agent/ 下的纯文本。不加密 ——
+#   memory 每轮都要进 system prompt，每次启动都问密保
+#   不划算。改为限制在 0600、位置在 ~/.claude-agent 下
+#   （已 gitignore），并在 README 和手册里写明「以明文存放」。
 # ------------------------------------------------------------------
-# 上限は冒頭の $MEMORY_MAX_CHARS（system_prompt からも見えるようにしている）
+# 上限取开头的 $MEMORY_MAX_CHARS（让 system_prompt 也能看到）
 
 sub memory_path {
     my $e = $ENV{CLAUDE_MEMORY_FILE};
@@ -4076,7 +4076,7 @@ sub skills_dir {
     return ($ENV{HOME} || '.') . '/.claude-agent/skills';
 }
 
-# 返り値: (注入する本文, 全長, 切ったか)
+# 返回值：(注入的正文, 全长, 是否截断)
 sub read_memory {
     my $path = memory_path();
     return ('', 0, 0) unless -f $path;
@@ -4091,14 +4091,14 @@ sub read_memory {
     return ('', 0, 0) if $total == 0;
     if ($total > $MEMORY_MAX_CHARS) {
         my $cut = substr($raw, 0, $MEMORY_MAX_CHARS);
-        $cut =~ s/\n[^\n]*$//;    # 行の途中で切らない
+        $cut =~ s/\n[^\n]*$//;    # 不在行中间切
         $cut = $raw =~ /\n/ ? $cut : substr($raw, 0, $MEMORY_MAX_CHARS);
         return ($cut, $total, 1);
     }
     return ($raw, $total, 0);
 }
 
-# 素の本文（注入用の切り詰めなし）。行単位の操作はこちら。
+# 纯正文（注入用时不做截断）。按行操作走这边。
 sub read_memory_raw {
     my $path = memory_path();
     return '' unless -f $path;
@@ -4116,7 +4116,7 @@ sub today_stamp {
     return sprintf('%04d-%02d-%02d', $t[5] + 1900, $t[4] + 1, $t[3]);
 }
 
-# 一行足す。返り値: (成功したか, 画面に出す文言)
+# 加一行。返回值：(是否成功, 显示给用户的文案)
 sub memory_add {
     my ($fact) = @_;
     $fact = '' unless defined $fact;
@@ -4195,8 +4195,8 @@ sub print_memory {
     }
 }
 
-# 技能 1 件を {name, desc, path} に。説明は frontmatter の description、
-# 無ければ最初の見出し、それも無ければ最初の非空行。
+# 把一条技能转成 {name, desc, path}。说明取 frontmatter 的 description，
+# 没有就取第一个标题，再没有就取第一行非空行。
 sub skill_entry {
     my ($name, $path) = @_;
     my $desc = '';
@@ -4234,7 +4234,7 @@ sub skill_entry {
     return { name => $name, desc => $desc, path => $path };
 }
 
-# skills/ を走査。`<名前>/SKILL.md` と `<名前>.md` の両方を受ける。
+# 遍历 skills/。`<名字>/SKILL.md` 和 `<名字>.md` 都接受。
 sub skills_list {
     my $dir = skills_dir();
     my @out;
@@ -4309,8 +4309,8 @@ sub danger_reason_text {
     return L('danger_declined');
 }
 
-# 可写ディレクトリの表示。$TMPDIR は環境ごとに長い内部パス（macOS だと
-# /var/folders/xx/.../T）で、そのまま出すと意味が伝わらないだけだった。
+# 可写目录的显示。$TMPDIR 各环境都是很长的内部路径（macOS 上是
+# /var/folders/xx/.../T），原样打出来只是让人看不懂。
 sub writable_display {
     my $tmp = temp_root();
     my @out;
@@ -4361,7 +4361,7 @@ sub allow_write_command {
         push @added, $abs;
     }
     if (@added) {
-        # 記録は必ず残す。「いつ誰が可写範囲を広げたか」は後から効いてくる。
+        # 记录一定要留。「谁在什么时候扩大了可写范围」后面会派上用场。
         approvals_log('allow-write', join(' ', @added), 'ok');
         persist_env('CLAUDE_ALLOW_WRITE', "'" . join(':', @WRITE_ROOTS) . "'");
         emit_note(L('allow_write_added', join(' ', @added)));
@@ -4380,8 +4380,8 @@ sub print_approvals {
 sub run_tool {
     my ($name, $input) = @_;
 
-    # --tools で絞られていれば、その外はここでも止める（@TOOLS から消してある
-    # ので普通は来ないが、モデルが幻覚で存在しないツール名を返すことがある）。
+    # --tools 收窄过的话，范围外的这里也拦（已经从 @TOOLS 里删掉了
+    # 所以通常到不了，但模型可能幻觉出不存在的工具名）。
     if (@TOOLS_ALLOWED) {
         my %ok = map { $_ => 1 } @TOOLS_ALLOWED;
         unless ($ok{$name}) {
@@ -4390,8 +4390,8 @@ sub run_tool {
     }
 
     if ($name eq 'remember') {
-        # 長期記憶はどのモードでも必ず人に確認する（bypass でも例外にしない）。
-        # 記憶は書いた後ずっと効くので、確認を飛ばすと事故が残り続ける。
+        # 长期记忆在任何模式下都一定问人（bypass 也不例外）。
+        # 记忆写下去之后一直生效，跳过确认会留下长期事故。
         my $fact = (ref $input eq 'HASH' && defined $input->{fact}) ? $input->{fact} : '';
         unless (confirm(L('confirm_remember', substr($fact, 0, 200)), { strict => 1 })) {
             approvals_log('remember', substr($fact, 0, 60), 'refused');
@@ -4411,12 +4411,12 @@ sub run_tool {
     }
     elsif ($name eq 'write_file') {
         my $path = $input->{path};
-        # モードごとの扱い:
+        # 各模式下的处理：
         #   default      : 毎回確認
-        #   accept-edits : 可写範囲内だけ自動。範囲外は確認（拒否にしない）
-        #   bypass       : 確認しない。可写範囲（ホワイトリスト）は **効かない**
-        #                  —— あのリストは accept-edits で「自動にしてよい範囲」を
-        #                  決めるためのもの。例外は永久禁止の場所だけ。
+        #   accept-edits : 可写范围内自动，范围外确认（不直接拒绝）
+        #   bypass       : 不确认。可写范围（白名单）**不生效**
+        #                  —— 那个列表是给 accept-edits 决定「可以自动到
+        #                  哪」用的。例外只有永久禁止的位置。
         my $auto = 0;
         if ($MODE ne 'default') {
             if (is_hard_denied_path($path)) {
@@ -4453,24 +4453,24 @@ sub run_tool {
     elsif ($name eq 'run_shell') {
         my $command = $input->{command};
         my $danger  = is_dangerous($command);
-        # コマンド経由の書き込みも可写範囲の対象にする（write_file だけが
-        # 対象という穴を塞ぐ）。識別できたものだけ見る保守的な実装。
+        # 经命令的写入也纳入可写范围管制（堵住只有 write_file 才
+        # 受管的洞）。只处理能识别出来的，保守实现。
         my ($vkind, $vpath) = shell_scope_violation($command);
         $vkind = '' unless defined $vkind;
         $vpath = '' unless defined $vpath;
 
-        # 永久禁止の場所への書き込みは、bypass では確認すらせず拒否する
-        # （write_file 側と同じ扱い。聞いても「許可できない」のだから）。
+        # 往永久禁止位置的写入，bypass 下连问都不问直接拒绝
+        # （和 write_file 侧同样处理。问了也是「不能允许」）。
         if ($MODE eq 'bypass' && $danger eq '' && $vkind eq 'hard') {
             approvals_log('run_shell', $command, 'refused_cmd_write_hard');
             emit_note(L('cmd_write_always_denied', $vpath));
             return L('cmd_write_always_denied', $vpath);
         }
 
-        # 危険なコマンドはどのモードでも確認する（bypass でも例外にしない）。
-        # bypass では加えて「ディレクトリ・ファイル操作」（rm / mv / cp / chmod /
-        # tar / unzip / find -delete 等）も確認する。逆に、可写範囲（ホワイト
-        # リスト）は bypass では判定に使わない —— あれは accept-edits 用。
+        # 危险命令在任何模式都确认（bypass 也不例外）。
+        # bypass 下还额外确认「目录/文件操作」（rm / mv / cp / chmod /
+        # tar / unzip / find -delete 等）。反过来，可写范围（白
+        # 名单）在 bypass 下不参与判定 —— 那是给 accept-edits 用的。
         my $fsop = is_fs_mutation($command);
         my $scope_ask = ($MODE eq 'bypass') ? 0 : (($vkind eq 'scope') ? 1 : 0);
         my $need_confirm;
@@ -4527,16 +4527,16 @@ sub run_tool {
 }
 
 # ------------------------------------------------------------------
-# 会話ループ
+# 会话循环
 # ------------------------------------------------------------------
 my @messages;
 
-# --- 履歴: 暗号化 → 平文への切り替え（明示的に叩いた時だけ） ---
+# --- 历史：加密 → 明文的切换（只在显式调用时做） ---
 if ($MAKE_PLAIN) {
     exit make_plain_history();
 }
 
-# --- 履歴: ロック解除 / 一覧表示 / 再開 ---
+# --- 历史：解锁 / 列表 / 继续 ---
 if ($HISTORY_ENABLED) {
     $HISTORY_ENABLED = unlock_history();
 }
@@ -4544,7 +4544,7 @@ if ($HISTORY_ENABLED) {
 if ($CHANGE_PASS) {
     unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
     if ($HIST_PLAIN) { print L('hist_plain_no_pass'); exit 0; }
-    reset_passphrase($ENV{CLAUDE_HIST_PASS});   # unlock後、CLAUDE_HIST_PASSにはマスター鍵が入っている
+    reset_passphrase($ENV{CLAUDE_HIST_PASS});   # unlock 之后 CLAUDE_HIST_PASS 里放的是主密钥
     exit 0;
 }
 
@@ -4561,12 +4561,12 @@ if ($LIST_HISTORY) {
     unless (@files) { print L('no_saved_conv'); exit 0; }
     my ($lines, $undecryptable) = history_lines();
     print "$_\n" for @$lines;
-    # 平文運用なのに暗号化履歴が残っている場合、その開き方を 1 行だけ添える
+    # 明文运行却还留着加密历史时，补一行说明怎么打开
     print L('hist_skip_enc', $undecryptable) if $HIST_PLAIN && $undecryptable > 0;
     exit 0;
 }
 
-# --- --continue: メニューを出さずに続ける（名前指定があればその会話） ---
+# --- --continue: 不显示菜单直接继续（指定名字就接那场） ---
 if ($CONTINUE && !$RESUME) {
     unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
     my ($pick, $pick_data);
@@ -4580,7 +4580,7 @@ if ($CONTINUE && !$RESUME) {
         }
         $pick      = $f;
         $pick_data = $d;
-        last;    # history_files は新しい順
+        last;    # history_files 是新的在前
     }
     if ($pick) {
         @messages = @{ $pick_data->{messages} };
@@ -4597,7 +4597,7 @@ if ($CONTINUE && !$RESUME) {
     }
 }
 
-# --- --search: 保存済みの会話を全文検索して終了 ---
+# --- --search: 在已保存的对话里全文搜索并退出 ---
 if ($SEARCH ne '') {
     unless ($HISTORY_ENABLED) { print L('history_unavailable'); exit 1; }
     print L('search_header', $SEARCH);
@@ -4630,20 +4630,20 @@ if ($RESUME) {
     my $chosen = $decoded[$sel - 1];
     if ($chosen->{data} && $chosen->{data}{messages}) {
         @messages = @{ $chosen->{data}{messages} };
-        $SESSION_FILE = "$HISTORY_DIR/" . $chosen->{file};   # 同じファイルに続けて保存
+        $SESSION_FILE = "$HISTORY_DIR/" . $chosen->{file};   # 继续写进同一个文件
         print L('resuming_conv', scalar(@messages));
     } else {
         print L('could_not_load_new');
     }
 }
 
-# 新規会話のときの保存先
+# 新对话时的保存位置
 if ($HISTORY_ENABLED && !$SESSION_FILE) {
     $SESSION_FILE = $HIST_PLAIN ? "$HISTORY_DIR/$STARTED.json"
                                 : "$HISTORY_DIR/$STARTED.json.enc";
 }
 
-# --- GUI モード: JSON でやり取りするループ(Python/tkinter から駆動) ---
+# --- GUI 模式：用 JSON 交互的循环（由 Python/tkinter 驱动） ---
 if ($GUI) {
     gui_send({
         t         => 'ready',
@@ -4668,11 +4668,11 @@ if ($GUI) {
     });
     while (1) {
         my $req = gui_read();
-        last unless defined $req;                       # GUI が閉じた = EOF
+        last unless defined $req;                       # GUI 已关闭 = EOF
         my $type = $req->{t} || '';
         last if $type eq 'quit';
         if ($type eq 'cwd') {
-            # GUI のコマンドパネルで cd した先を、AI のツールにも反映する。
+            # GUI 命令面板里 cd 到的目录，也反映到 AI 的工具上。
             my $p = $req->{path};
             if (defined $p && $p ne '' && -d $p) { chdir($p); dbg("cwd -> $p"); }
             next;
@@ -4685,8 +4685,8 @@ if ($GUI) {
                 next;
             }
             if ($m eq 'bypass' && $MODE ne 'bypass') {
-                # GUI でも 1 回だけ確認する。メニューの項目は取り消せないので、
-                # 押し間違いで無確認実行に入るのを防ぐ。
+                # GUI 里也只确认一次。菜单项不能撤销，
+                # 防止按错就进了无确认执行。
                 unless (confirm(L('mode_bypass_warn'))) {
                     emit_note(L('mode_bypass_cancelled'));
                     gui_send({ t => 'mode', mode => $MODE, writable => [ write_roots_all() ] });
@@ -4723,7 +4723,7 @@ if ($GUI) {
             my $d = defined($raw) ? eval { MiniJSON::decode($raw) } : undef;
             if ($d && $d->{messages}) {
                 @messages = @{ $d->{messages} };
-                $SESSION_FILE = $path;                     # 同じファイルに続けて保存
+                $SESSION_FILE = $path;                     # 继续写进同一个文件
                 gui_send({ t => 'history_loaded',
                            count   => scalar(@messages),
                            entries => flatten_history(\@messages) });
@@ -4761,23 +4761,23 @@ print $HISTORY_ENABLED ? L('hist_will_encrypt') : L('hist_will_not_save');
 if (@MODEL_CHOICES && !$RESUME) {
     show_model_menu();
 } else {
-    # --resume で会话を選んだ直後に厂商リストを出すと、「続きの番号入力」と
-    # 誤解して押され、そのままキー入力待ちに入る（実際に起きた）。再開時は
-    # 現在の組み合わせを示すだけにして、切り替えたい人には /model を案内する。
+    # --resume 选完对话就弹厂商列表的话，用户会以为要输「继续的编号」
+    # 而误按，接着就进到等密钥输入（真的发生过）。恢复时只显示
+    # 当前组合，想切换的人提示用 /model。
     print "[$PROVIDER / $MODEL]\n";
     print L('model_switch_hint') if $RESUME && @MODEL_CHOICES;
 }
 print L('greeting');
 
-# 1ターン分の処理。'quit' を返したら会話終了、それ以外は継続。
-# ここで die しても、呼び出し側の eval が受け止めてプログラムは落ちない。
+# 处理一轮。返回 'quit' 就结束对话，其余继续。
+# 这里 die 了，调用方的 eval 会接住，程序不会崩。
 sub handle_turn {
     my ($input) = @_;
     dbg("turn start: msgs=" . scalar(@messages) . " input=" . substr($input, 0, 80));
 
     return 'quit' if $input eq 'exit';
 
-    # 制限付きセッションでは設定系コマンドを受け付けない（对话は通す）。
+    # 受限会话不接受配置类命令（对话照常放行）。
     if ($NO_CONFIG) {
         my $pcmd = ($input =~ m{^/([a-z][a-z0-9_]*)\s*$}) ? provider_from_command($1) : '';
         if ($pcmd ne ''
@@ -4790,9 +4790,9 @@ sub handle_turn {
         }
     }
 
-    # bypass へ切り替える前の「yes と打ってもらう」待ち。
-    # /mode bypass 1 回で即座に切り替わると、指が滑っただけで無確認実行が
-    # 始まってしまう。ここだけは 2 回入力してもらう。
+    # 切到 bypass 之前「让人打 yes」的等待。
+    # /mode bypass 一次就立刻切换的话，手指一滑就进了无确认执行，
+    # 所以这里要输两次。
     if ($PENDING_MODE ne '') {
         my $want = $PENDING_MODE;
         $PENDING_MODE = '';
@@ -4803,7 +4803,7 @@ sub handle_turn {
         return;
     }
 
-    # /memory・/remember・/skills も同じくここで完結（モデルに渡さない）。
+    # /memory、/remember、/skills 也一样在这里处理完（不交给模型）。
     if ($input =~ m{^/memory\s*$}) {
         print_memory();
         return;
@@ -4839,7 +4839,7 @@ sub handle_turn {
         return;
     }
 
-    # /name・/history・/search も同じくここで完結（モデルに渡さない）。
+    # /name、/history、/search 也一样在这里处理完（不交给模型）。
     if ($input =~ m{^/name\s*$}) {
         emit_note(L('name_usage',
                     ($SESSION_NAME ne '' ? $SESSION_NAME : L('name_current_none'))));
@@ -4847,11 +4847,11 @@ sub handle_turn {
     }
     if ($input =~ m{^/name\s+(.+?)\s*$}) {
         my $nm = $1;
-        # ファイル名には使わないので、履歴 JSON にそのまま入る文字だけ軽く整える
+        # 不用于文件名，所以只轻度整理会进历史 JSON 的字符
         $nm =~ s/[\r\n\t]+/ /g;
         unless ($HISTORY_ENABLED) { emit_note(L('history_unavailable')); return; }
         $SESSION_NAME = $nm;
-        save_history(\@messages) if @messages;   # 既存ファイルにも即座に反映（無ければ次の保存で）
+        save_history(\@messages) if @messages;   # 已有文件也立即反映（没有就等下次保存）
         approvals_log('name', substr($nm, 0, 60), 'set');
         emit_note(L('name_set', $nm));
         return;
@@ -4880,7 +4880,7 @@ sub handle_turn {
         return;
     }
 
-    # /mode・/allow-write・/approvals はモデルに渡さず、ここで完結させる。
+    # /mode、/allow-write、/approvals 不交给模型，在这里处理完。
     if ($input =~ m{^/mode\s*$}) {
         emit_note(mode_summary());
         emit_note(L('mode_now_log', approvals_path())) if $MODE ne 'default';
@@ -4918,15 +4918,15 @@ sub handle_turn {
         return;
     }
 
-    # 一覧を出す(端末のみ。GUIは起動時に一覧を受け取っている)
+    # 列出列表（仅终端。GUI 启动时已收到列表）
     if ($input eq '/model' || $input eq '/models' || $input eq '/m' || $input eq '?') {
         show_model_menu() unless $GUI;
         return;
     }
 
-    # 二段階メニューの途中なら、番号はその段階への回答として扱う。
-    # 段階は「今この瞬間だけ」有効 —— 別の入力が来たら捨てる(古い段階が
-    # 残って、次の数字が勝手にモデル切り替えになる事故を防ぐ)。
+    # 处在两步菜单途中时，数字当作对当前这一步的回答。
+    # 这一步只在「当下这一瞬间」有效 —— 来了别的输入就丢掉（防止旧的
+    # 步骤残留，下一个数字莫名其妙变成切换模型）。
     my $menu_stage = $MENU_STAGE;
     $MENU_STAGE = '';
     if ($menu_stage ne '') {
@@ -4952,10 +4952,10 @@ sub handle_turn {
                 return;
             }
         }
-        # 数字以外が来た = メニューを離れて普通の操作
+        # 来的不是数字 = 离开菜单，走普通操作
     }
 
-    # 番号だけ打ったら、その番号のAIに切り替える(人間に一番やさしい操作)
+    # 只打数字就切到那个编号的 AI（对人最友好的操作）
     if ($input =~ /^\s*(\d+)\s*$/ && @MODEL_CHOICES) {
         my $n = $1;
         if ($n >= 1 && $n <= @MODEL_CHOICES) {
@@ -4965,10 +4965,10 @@ sub handle_turn {
                 : switch_to_model($id);
             return;
         }
-        # 範囲外の数字はふつうの発言として扱う(下へ流れる)
+        # 范围外的数字当作普通发言（往下走）
     }
 
-    # /model 3 や /model <ID> でも指定できる
+    # /model 3 或 /model <ID> 也能指定
     # ---- /key：密钥配置的唯一会话内入口（切换模型不夹带密钥输入）----
     if ($input =~ m{^/key(?:\s+(.+?))?\s*$}) {
         my $arg = defined $1 ? $1 : '';
@@ -5035,8 +5035,8 @@ sub handle_turn {
         return;
     }
 
-    # プロバイダだけ切り替える(/claude /gemini /openai /deepseek /qwen /kimi /glm ...)
-    # 知らない名前(/foo など)はここで捕まえず、下のふつうの発言として流す。
+    # 只切换厂商（/claude /gemini /openai /deepseek /qwen /kimi /glm ...）
+    # 不认识的名字（/foo 等）不在这里拦，往下当普通发言放走。
     my $cmd_target = ($input =~ m{^/([a-z][a-z0-9_]*)$}) ? provider_from_command($1) : '';
     if ($cmd_target ne '') {
         if ($cmd_target eq $PROVIDER) {
@@ -5059,8 +5059,8 @@ sub handle_turn {
         dbg("encode+call_api");
         my $resp = eval { call_api($API_URL, build_headers(), MiniJSON::encode($body)) };
         if ($@) {
-            # 通信エラーなど。素のユーザー発言のターンなら取り消して戻る
-            # (ツール応答の途中なら履歴を壊さないよう残す)。
+            # 通信错误等。是纯用户发言的那一轮就撤销并返回
+            # （在工具应答途中就保留，别弄坏历史）。
             emit_error($@);
             pop @messages if @messages && !ref $messages[-1]{content};
             return;
@@ -5073,10 +5073,10 @@ sub handle_turn {
             return;
         }
 
-        # 空の応答(安全フィルタ・トークン上限で本文なし 等)。空の assistant
-        # ターンを履歴に入れると以後ずっと壊れるので、入れずに戻る。
-        # thought(考え中)のtextしか無い場合も、ユーザーには何も表示され
-        # ないまま黙って終わってしまうので同様に扱う。
+        # 空响应（安全过滤、token 上限导致没有正文等）。空 assistant
+        # 轮进了历史之后会一直坏，所以不写进去直接返回。
+        # 只有 thought（思考中）的 text 时，用户什么也看不到
+        # 就默默结束了，同样处理。
         my $has_visible = grep {
             ($_->{type} eq 'text' && !$_->{thought}) || $_->{type} eq 'tool_use'
         } @content_blocks;
@@ -5101,7 +5101,7 @@ sub handle_turn {
                 push @tool_results, {
                     type        => 'tool_result',
                     tool_use_id => $block->{id},
-                    name        => $block->{name},   # Gemini は名前で結果を紐付ける
+                    name        => $block->{name},   # Gemini 按名字对应结果
                     content     => $result,
                 };
             }
@@ -5109,15 +5109,15 @@ sub handle_turn {
 
         if (@tool_results) {
             push @messages, { role => 'user', content => \@tool_results };
-            next; # ツール結果を送ってもう一度APIを呼ぶ
+            next; # 把工具结果发回去再调一次 API
         }
-        return; # tool_useが無ければこのターンは終了
+        return; # 没有 tool_use 这一轮就结束
     }
 }
 
-# --- メインループ ---
-# 1ターンごとに eval で囲み、どこで die が起きてもプログラム全体は落とさず
-# 入力プロンプトに戻す。端末設定も毎回念のため戻す。
+# --- 主循环 ---
+# 每轮都用 eval 包住，不管在哪里 die 都不让整个程序崩，
+# 回到输入提示符。终端设置也每次保险起见还原一遍。
 while (1) {
     dbg("--- waiting for input (readline) ---");
     my $input = eval { read_line_interactive(L('your_turn_prompt')) };
@@ -5132,8 +5132,8 @@ while (1) {
 
     $input = eval { decode('UTF-8', $input, FB_DEFAULT) };
     $input = '' unless defined $input;
-    # 空行は基本「入力ミス」なので捨てる。ただしモデル選択メニューの途中だけは
-    # 「Enter で取消」として届けたいので、段階が残っているときは通す。
+    # 空行基本是「输入失误」，丢掉。但模型选择菜单途中
+    # 要当「Enter 取消」送进去，所以还有未完成步骤时放行。
     next if $input eq '' && $MENU_STAGE eq '';
 
     my $r = eval { handle_turn($input) };
@@ -5146,7 +5146,7 @@ while (1) {
         print "  CLAUDE_DEBUG_LOG=\$HOME/advisor-debug.txt advisor\n";
         print L('debug_hint_2');
         print "────────\n";
-        # 半端な履歴を1つ戻して、次の発言から再開できるようにする
+        # 退回一条不完整的历史，好从下一句继续。
         pop @messages if @messages
             && ($messages[-1]{role} eq 'assistant' || ref $messages[-1]{content});
         next;
