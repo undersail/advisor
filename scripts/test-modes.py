@@ -80,6 +80,10 @@ class Script:
     def push_text(self, text='done'):
         self.queue.append({'choices': [{'message': {'role': 'assistant', 'content': text}}]})
 
+    def push_error(self, status, body):
+        """模拟厂商 4xx/5xx：状态码 + 原始正文（测「报错文案」用）。"""
+        self.queue.append({'__status__': status, '__body__': body})
+
     def next(self):
         with self.lock:
             return self.queue.pop(0) if self.queue else {
@@ -98,8 +102,13 @@ class MockLLM(http.server.BaseHTTPRequestHandler):
         n = int(self.headers.get('content-length') or 0)
         body = self.rfile.read(n).decode('utf-8', 'replace') if n else ''
         SCRIPT.requests.append(body)
-        raw = json.dumps(SCRIPT.next()).encode()
-        self.send_response(200)
+        item = SCRIPT.next()
+        if isinstance(item, dict) and '__status__' in item:
+            raw = item['__body__'].encode()
+            self.send_response(item['__status__'])
+        else:
+            raw = json.dumps(item).encode()
+            self.send_response(200)
         self.send_header('content-type', 'application/json')
         self.send_header('content-length', str(len(raw)))
         self.end_headers()
@@ -720,6 +729,28 @@ def case_connect_error(tmp, base):
         a.stop()
 
 
+def case_422_not_labeled_connect(tmp, base):
+    """422 是「它拒了这个请求」，不是「连不上」—— 贴错标签会把排障方向带偏。"""
+    print('[报错] 422 不能贴成「连不上模型服务」')
+    home = os.path.join(tmp, 'home-422')
+    os.makedirs(home)
+    body = ('{"error":{"message":"Failed to deserialize the JSON body into the target type: '
+            'messages[1]: content should be a string or a list at line 1 column 431902",'
+            '"type":"invalid_request_error"}}')
+    SCRIPT.push_error(422, body)
+    a = Agent(home, 'default', base)
+    try:
+        ev = a.turn('再来一句')
+        txt = ''.join(texts(ev))
+        check('连不上模型服务' not in txt, '422 不被说成「连不上模型服务」', txt[:200])
+        check('HTTP 422' in txt, '422 原样报出来（HTTP 422）', txt[:200])
+        check('第 1 条消息' in txt, '指明厂商指认的是第几条消息', txt[:200])
+    finally:
+        a.stop()
+    with SCRIPT.lock:
+        SCRIPT.queue = []
+
+
 def main():
     if not os.path.exists(AGENT):
         print('找不到 %s' % AGENT)
@@ -739,6 +770,7 @@ def main():
         case_bypass_timeout(tmp, base)
         case_content_never_null(tmp, base)
         case_connect_error(tmp, base)
+        case_422_not_labeled_connect(tmp, base)
         case_confirm_cid_stale(tmp, base)
         case_write_scope(tmp, base)
         case_cmd_write_scope(tmp, base)

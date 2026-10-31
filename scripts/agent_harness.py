@@ -50,6 +50,11 @@ class Script:
                                              'arguments': json.dumps(args)}}],
             }}]})
 
+    def push_error(self, status, body):
+        """模拟厂商的 4xx/5xx：状态码 + 原始正文（测「报错文案」用）。"""
+        with self.lock:
+            self.queue.append({'__status__': status, '__body__': body})
+
     def push_text(self, text='done'):
         with self.lock:
             self.queue.append({'choices': [{'message': {'role': 'assistant',
@@ -73,8 +78,13 @@ def make_server(script):
             n = int(self.headers.get('content-length') or 0)
             body = self.rfile.read(n).decode('utf-8', 'replace') if n else ''
             script.requests.append(body)
-            raw = json.dumps(script.next()).encode()
-            self.send_response(200)
+            item = script.next()
+            if isinstance(item, dict) and '__status__' in item:
+                raw = item['__body__'].encode()
+                self.send_response(item['__status__'])
+            else:
+                raw = json.dumps(item).encode()
+                self.send_response(200)
             self.send_header('content-type', 'application/json')
             self.send_header('content-length', str(len(raw)))
             self.end_headers()

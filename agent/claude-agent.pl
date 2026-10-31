@@ -2414,10 +2414,14 @@ sub call_api {
     # 到这里说明真的连不上/一直 5xx。把排查方向直接写进回复里，
     # 别只说「请检查网络」—— 用户拿手机根本无从判断是哪一段断了。
     my $is_connect = ($err =~ s/^CONNECT_FAIL\t//) ? 1 : 0;
-    # 连接类失败：旧文案（无法连接…请检查网络）本身就是我们要换掉的东西，不能拼回去；
-    # 5xx / 429 这类把厂商原文留着，排障时需要看它。
-    die L('cannot_connect_api', provider_label($PROVIDER), api_host_of($url), $tries)
-        . ($is_connect ? '' : $err);
+    if ($is_connect) {
+        # 连接类失败：旧文案（无法连接…请检查网络）本身就是我们要换掉的东西，不能拼回去。
+        die L('cannot_connect_api', provider_label($PROVIDER),
+              api_host_of($url), $tries, api_host_of($url));
+    }
+    # ★ 其余（400/401/422/…）**不能**贴成「连不上模型服务」——
+    #   连得上，是它拒了这个请求。贴错标签会把排障方向直接带偏。
+    die $err;
 }
 
 sub quote {
@@ -2634,15 +2638,27 @@ sub build_request_openai {
 
     # 发出去之前统一兜一层：content 必须有值且是字符串/数组。
     # 老会话文件、手工改过的历史、第三方导入都可能留下 content:null。
-    my $null_fixed = 0;
-    for my $m (@out) {
+    my (@bad_idx, $bad_kind);
+    for my $i (0 .. $#out) {
+        my $m = $out[$i];
         next unless ref $m eq 'HASH';
-        next if defined $m->{content};
-        $m->{content} = '';
-        $null_fixed++;
+        my $c = $m->{content};
+        if (!defined $c) {
+            $out[$i]{content} = '';
+            push @bad_idx, $i; $bad_kind = 'null';
+        }
+        elsif (ref $c eq 'HASH') {
+            # 单个块（{type=>'text',text=>…}）漏转成数组时会出现：
+            # 编出去就是个 JSON 对象，厂商同样报 content should be a string or a list。
+            $out[$i]{content} = (defined $c->{text} && !ref $c->{text}) ? $c->{text}
+                                                                       : MiniJSON::encode($c);
+            push @bad_idx, $i; $bad_kind = 'object';
+        }
     }
-    warn "::notice::修正了 $null_fixed 条 content=null 的消息（否则厂商会 422）\n"
-        if $null_fixed && ($ENV{CLAUDE_DEBUG} || '') ne '';
+    if (@bad_idx && ($ENV{CLAUDE_DEBUG} || '') ne '') {
+        warn "::notice::content 兜底：$bad_kind 修了 " . scalar(@bad_idx)
+            . " 条（下标 " . join(',', @bad_idx[0 .. ($#bad_idx > 9 ? 9 : $#bad_idx)]) . "）\n";
+    }
 
     my $req = { model => $MODEL, messages => \@out };
     $req->{max_tokens} = $MAX_TOKENS;
@@ -5279,11 +5295,34 @@ sub handle_turn {
         dbg("build_request: msgs=" . scalar(@messages));
         my $body = build_request(\@messages, \@TOOLS, system_prompt());
         dbg("encode+call_api");
-        my $resp = eval { call_api($API_URL, build_headers(), MiniJSON::encode($body)) };
+        my $json_body = MiniJSON::encode($body);
+        my $resp = eval { call_api($API_URL, build_headers(), $json_body) };
         if ($@) {
+            # ★ 先把错误存下来：下面为了取诊断信息还会 eval，$@ 会被冲掉
+            #   （踩过：报错文案变成空的，什么都看不到）。
+            my $err = $@;
+            # ★ 厂商报「messages[N].content 不合规」时，把第 N 条到底长什么样记下来：
+            #   历史动辄几百条，没有这条线索就只能靠猜（真发生过两次）。
+            if ($err =~ /messages\[(\d+)\]/) {
+                my $idx = $1;
+                my $parsed = eval { MiniJSON::decode($json_body) };
+                my $m = (defined $parsed && ref $parsed eq 'HASH')
+                    ? $parsed->{messages}[$idx] : undef;
+                if (ref $m eq 'HASH') {
+                    my $c = $m->{content};
+                    my $kind = !defined $c ? 'null'
+                             : ref $c   ? ref($c)
+                             : 'string(' . length($c) . ')';
+                    emit_note("（厂商指认的第 $idx 条消息：role="
+                        . (defined $m->{role} ? $m->{role} : '?')
+                        . " content=$kind"
+                        . (ref $m->{tool_calls} eq 'ARRAY' ? ' 带 ' . scalar(@{ $m->{tool_calls} }) . ' 个工具调用' : '')
+                        . "）");
+                }
+            }
             # 通信错误等。是纯用户发言的那一轮就撤销并返回
             # （在工具应答途中就保留，别弄坏历史）。
-            emit_error($@);
+            emit_error($err);
             pop @messages if @messages && !ref $messages[-1]{content};
             return;
         }
