@@ -77,7 +77,7 @@ sub json_escape {
     $s =~ s/\n/\\n/g;
     $s =~ s/\r/\\r/g;
     $s =~ s/\t/\\t/g;
-    # 制御文字は落とす（JSON 的に不正にならないように）
+    # 去掉控制字符（免得变成非法 JSON）
     $s =~ s/[\x00-\x1f]//g;
     return $s;
 }
@@ -85,29 +85,29 @@ sub json_escape {
 sub payload_for {
     my ($kind, $text) = @_;
     if ($kind eq 'WECOM_WEBHOOK') {
-        # 企業微信: markdown が使える。改行はそのまま入る。
+        # 企业微信: 支持 markdown。换行原样生效。
         return sprintf('{"msgtype":"markdown","markdown":{"content":"%s"}}',
                        json_escape($text));
     }
-    # 飛書: text が一番素直（markdown はバージョン差異あり）
+    # 飞书: text 最稳妥（markdown 各版本行为有差异）
     return sprintf('{"msg_type":"text","content":{"text":"%s"}}',
                    json_escape($text));
 }
 
 # ---------------------------------------------------------------- 送信
-# 返り値: (ok, detail)
+# 返回: (ok, detail)
 sub send_one {
     my ($kind, $url, $text) = @_;
     return (0, 'no url') unless defined $url && $url =~ /\S/;
-    # 本物の webhook は必ず https。http を許すと平文で通知本文が流れる。
-    # 例外はローカルテスト用に限る（127.0.0.1 / localhost / [::1]）。
+    # 真实 webhook 必须是 https。允许 http 会让通知正文明文外流。
+    # 例外仅限本地测试（127.0.0.1 / localhost / [::1]）。
     my $is_local = $url =~ m{^http://(?:127\.0\.0\.1|localhost|\[::1\])(?::\d+)?/};
     return (0, 'url must start with https') unless $url =~ m{^https://} || $is_local;
 
     my $body = payload_for($kind, $text);
 
-    # 本文は秘密ではないが、0600 で一時ファイルに置いて --data-binary で渡す
-    # （-d に直接書くとシェル経由のときに引用符で事故る）。
+    # 正文不算秘密，但仍以 0600 权限写到临时文件，用 --data-binary 传
+    # （直接塞进 -d 时，经 shell 会被引号搞出事故）。
     my $tmp = sprintf('%s/.notify-body.%d.%d', dirname($CONF_PATH), $$, int(rand(100000)));
     mkdir dirname($CONF_PATH) unless -d dirname($CONF_PATH);
     open(my $bf, '>:encoding(UTF-8)', $tmp) or return (0, "temp write failed: $!");
@@ -115,10 +115,10 @@ sub send_one {
     close $bf;
     chmod 0600, $tmp;
 
-    # ★ URL は設定(stdin)側にだけ書く。
-    # 当初 open($ph,'-|') の子で STDIN を組み替える方式にしたが、その子では
-    # fd 0 が使えず open(STDIN,'<',\$cfg) が "Bad file descriptor" で失敗し、
-    # curl が一度も走らなかった（実測）。open3 で標準入力を自分で持つ。
+    # ★ URL 只写在配置(stdin)一侧。
+    # 起初在 open($ph,'-|') 的子进程里改写 STDIN，但那个子进程里
+    # fd 0 不可用，open(STDIN,'<',\$cfg) 报 "Bad file descriptor" 失败，
+    # curl 一次都没跑起来（实测）。改用 open3 自己持有标准输入。
     my $cfg = qq{url = "$url"\n};
     $cfg .= qq{header = "content-type: application/json"\n};
     $cfg .= qq{cacert = "$CACERT"\n} if $CACERT ne '';
@@ -161,8 +161,8 @@ sub send_one {
     return (0, 'HTTP ' . ($code eq '' ? '(none)' : $code) . ': ' . substr($payload, 0, 200))
         unless $code eq '200';
 
-    # 企業微信は HTTP 200 でも errcode != 0 を返す（key 無効・IP 制限など）
-    # 飛書は code != 0 / StatusCode != 0。
+    # 企业微信即便 HTTP 200 也可能返回 errcode != 0（key 无效、IP 限制等）
+    # 飞书是 code != 0 / StatusCode != 0。
     my $ec;
     $ec = $1 if $payload =~ /"errcode"\s*:\s*(-?\d+)/;
     $ec = $1 if !defined $ec && $payload =~ /"(?:code|StatusCode)"\s*:\s*(-?\d+)/;

@@ -33,7 +33,7 @@ use strict;
 use warnings;
 use utf8;
 use Encode qw(decode);
-use Digest::MD5 qw(md5_hex);   # core 同梱（5.8+）。送信者をそのまま履歴に残さないためだけに使う
+use Digest::MD5 qw(md5_hex);   # 内核自带（5.8+）。仅用于不把发送者原样留在历史里
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use IO::Select;
@@ -143,7 +143,7 @@ sub allow_set {
     return \%a;
 }
 
-# ~/.claude-agent-env の export K=V を読む（agent に渡すモデル/キー）
+# 读取 ~/.claude-agent-env 里的 export K=V（传给 agent 的模型/密钥）
 # 读本机的 agent 环境文件（~/.claude-agent-env，形如 `export KEY=value`）。
 #
 # ★ 这里必须宽容：它本质是「shell 能 source 的片段」，而用户的手写习惯、不同版本的
@@ -203,7 +203,7 @@ sub json_escape {
     return $s;
 }
 
-# 値が文字列だけの素朴な JSON を読む（この用途では入れ子不要）。
+# 读取只含字符串的朴素 JSON（本用途不需要嵌套）。
 sub json_get {
     my ($line, $key) = @_;
     return undef unless defined $line;
@@ -244,8 +244,8 @@ sub json_esc_seq {
 }
 
 # ---------------------------------------------------------------- 会话
-# 送信者ごとに agent プロセスを1本持つ（会話の文脈を保つため）。
-# 落ちていたら作り直す。
+# 每个发送者各持一个 agent 进程（以保持对话上下文）。
+# 已退出就重建。
 my %SESS;
 
 # 配置自检：远程会话能不能起来，取决 ~/.claude-agent-env 里有没有「厂商 + 该厂商的密钥」。
@@ -314,8 +314,8 @@ sub config_sanity {
     return \@warn;
 }
 
-# 送信者ごとに「続ける会話」を決めるための鍵。
-# 送信者IDそのものをファイル名や履歴に残したくないのでハッシュ化する。
+# 每个发送者「接着聊哪段会话」的键。
+# 不想把发送者 ID 本身留在文件名或历史里，所以做哈希。
 sub remote_session_key {
     my ($from) = @_;
     return substr(md5_hex(defined $from && length $from ? $from : 'unknown'), 0, 12);
@@ -351,9 +351,9 @@ sub spawn_session {
         my @extra;
         push @extra, '--mode=' . $REMOTE_WRITE_MODE if $REMOTE_WRITE_MODE ne '';
         push @extra, ('--allow-write=' . $_) for @REMOTE_ROOTS;
-        # 送信者ごとに前回の続きから。サービスを再起動しても同じ人の会話は途切れない
-        # （Hermes でいう「チャネルごとに同じセッションへ戻る」に相当）。
-        # 名前が無ければ子側が新規会話として始めるので、ここで存在確認は要らない。
+        # 每个发送者都从上次的续点开始。服务重启后同一个人的对话也不会中断
+        # （相当于 Hermes 里的「每个通道回到同一个会话」）。
+        # 没有名字时子进程会自己开新会话，所以这里不必检查存在性。
         if ($hist_on) {
             my $key = 'remote:' . remote_session_key($from);
             push @extra, "--name=$key", "--continue=$key";
@@ -366,13 +366,13 @@ sub spawn_session {
         audit('session_spawn_failed', "from=$from", "err=$@");
         return undef;
     }
-    # 子プロセスとのやり取りは UTF-8。層を付けないと、子が書いた UTF-8 バイトを
-    # 「バイト列」として受け取り、STDOUT の :encoding(UTF-8) でもう一度符号化して
-    # 二重変換（文字化け）になる。
+    # 与子进程的交互统一用 UTF-8。不加这一层的话，子进程写出的 UTF-8 字节
+    # 会被当作「字节串」接收，再经 STDOUT 的 :encoding(UTF-8) 编码一次，
+    # 变成二次转换（乱码）。
     binmode($in,  ':encoding(UTF-8)');
     binmode($out, ':encoding(UTF-8)');
 
-    # 起動直後のイベント（ready / need_passphrase）を読み切る
+    # 读尽启动后立刻产生的事件（ready / need_passphrase）
     my $ready = 0;
     while (my $l = <$out>) {
         $l =~ s/\r?\n$//;
@@ -382,10 +382,10 @@ sub spawn_session {
             next;
         }
         if ($l =~ /"t"\s*:\s*"need_recovery"/) {
-            # 初回の履歴作成ではパスフレーズに加えて合言葉(復旧用)が要る。
-            # 応答しないと子は待ち続け、こちらは ready を待ち続けて固まる。
-            # 未設定なら空で返す → 子は KEY_FILE を捨てて「履歴なし」で進む
-            # （中途半端な暗号化履歴を残さないため。これは子側の既定動作）。
+            # 首次创建历史时，除口令还需要密保问题（用于恢复）。
+            # 不应答的话子进程会一直等，这边也一直等 ready，双方卡死。
+            # 未设置就回空 → 子进程丢弃 KEY_FILE，按「没有历史」继续
+            # （避免留下半截加密历史。这是子进程侧的默认行为）。
             my ($q, $a) = ('', '');
             if (defined $conf->{HIST_RECOVERY} && $conf->{HIST_RECOVERY} =~ /^(.*?)\|(.*)$/s) {
                 $q = $1;
@@ -422,9 +422,9 @@ sub spawn_session {
         print STDERR "本机会话没起来（$from）：$tail\n" if $tail ne '';
         return undef;
     }
-    # ★ 子プロセスの標準入力は自動フラッシュにする。これが無いと書き込んだ
-    # 1行がバッファに残り、こちらは返事を待ち、あちらは指示を待つ —— 相互
-    # ブロックで永久に止まる（実測で踏んだ）。
+    # ★ 子进程的标准输入必须自动刷新。没有它，写入的
+    # 一行会留在缓冲区，这边等回复、那边等指令 —— 互相
+    # 阻塞，永久卡住（实测踩过）。
     my $prev = select($in);
     $| = 1;
     select($prev);
@@ -474,7 +474,7 @@ sub ask_remote {
     return $ans;
 }
 
-# 1件処理して、返信テキストを返す。失敗時は undef。
+# 处理一条消息并返回回复文本。失败时返回 undef。
 sub handle_message {
     my ($from, $text, $conf) = @_;
     my $s = ensure_session($from, $conf);
@@ -488,9 +488,9 @@ sub handle_message {
     print { $s->{in} } qq|{"t":"user","text":"| . json_escape($text) . qq|"}\n|;
 
     my @texts;
-    my $out = $s->{out};          # <{ ... }> は書式として通らないので一度受ける
-    # 子プロセスが黙り込んだら永久に待たない（モデル側の無限ループ・ネットワーク
-    # 停止など）。時間切れは子を落として次回作り直す。
+    my $out = $s->{out};          # <{ ... }> 当格式串过不了，先接一次
+    # 子进程若沉默就别无限等下去（模型侧死循环、网络
+    # 中断等）。超时就杀掉子进程，下次重建。
     my $timed_out = 0;
     eval {
         local $SIG{ALRM} = sub { die "timeout\n" };
@@ -558,7 +558,7 @@ sub push_notify {
     if (!$pid) {
         exec('perl', $NOTIFY, $text) or exit 127;
     }
-    while (my $l = <$ph>) { }   # 出力は使わないが読み切る（SIGPIPE 回避）
+    while (my $l = <$ph>) { }   # 不用输出但读干净（避免 SIGPIPE）
     close $ph;
 }
 
@@ -590,7 +590,7 @@ while (my $a = shift @ARGV) {
         exit 0;
     }
     else {
-        print STDERR "未知の引数: $a\n";
+        print STDERR "未知的参数: $a\n";
         exit 2;
     }
 }
@@ -607,8 +607,8 @@ unless (keys %$allow) {
     print STDERR "白名单为空：所有消息都会被丢弃。请在 $CONF_PATH 里写 ALLOW = <id>,<id>\n";
 }
 
-# 送信者を確認する。許可外は「何も返さず」捨てる
-# （「権限がありません」と返すとボットの存在に気づかれる）。
+# 确认发送者。不在白名单就「什么都不回」直接丢弃
+# （回一句「无权限」会让对方察觉到机器人的存在）。
 unless ($REMOTE_WRITE_MODE eq '' || write_mode_ok($REMOTE_WRITE_MODE)) {
     print STDERR "未知的 --mode：$REMOTE_WRITE_MODE（可选 default / accept-edits / bypass）\n";
     exit 2;
@@ -635,7 +635,7 @@ config_sanity($conf);
 if ($MODE eq 'once') {
     if (!gate($ONCE_FROM, $ONCE_TEXT)) {
         audit('gateway_end', 'mode=once result=dropped');
-        exit 0;    # 落としたことは外から見えない。終了コードも 0。
+        exit 0;    # 丢弃与否外部不可见。退出码也是 0。
     }
     my $reply = handle_message($ONCE_FROM, $ONCE_TEXT, $conf);
     push_notify($reply) if $notify_on && defined $reply;
