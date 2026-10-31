@@ -94,7 +94,8 @@ def make_home():
 
 
 def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
-          from_='u1', hist_pass=None, answer_cid=None, stale=(), extra_env=None):
+          from_='u1', hist_pass=None, answer_cid=None, stale=(), extra_env=None,
+          pre_answer=None):
     """跑一轮：发一条消息，必要时回一个 y/n，收齐 ask 与 reply。
 
     stale：先灌几条「上一道问题迟到的回答」（带旧 cid），用来验证会被丢弃。
@@ -126,6 +127,9 @@ def drive(args, text, answer=None, wait=20.0, home=None, agent=None,
     deadline = time.time() + wait
     try:
         p.stdin.write(json.dumps({'from': from_, 'text': text}) + '\n')
+        if pre_answer is not None:
+            # 在「问题还没问出去」之前就塞一条答复：这一定是上一道题的
+            p.stdin.write(json.dumps(pre_answer) + '\n')
         p.stdin.flush()
         answered = False
         while time.time() < deadline:
@@ -290,6 +294,19 @@ def case_confirm_cid():
     check('超时回执带 confirm_done（长连接端据此清掉等确认状态）',
           any(n.get('confirm_done') for n in r3['notes']), str(r3['notes'])[:200])
 
+    # ⑥ 老版本长连接客户端不回声 cid：答复照收（只认 cid 会让人「回了 y 却看到超时」）
+    r5 = drive(['--mode=accept-edits'], '你好', answer='y', wait=10)
+    check('不带 cid 的回答也认（老客户端不会回声 cid）',
+          any('answer=y' in x for x in r5['replies']), str(r5['replies'])[:200])
+
+    # ⑦ 问题**问出去之前**就躺在缓冲区里的答复 = 上一道题的 → 必须丢掉
+    r6 = drive(['--mode=accept-edits', '--confirm-wait=3'], '你好', answer=None, wait=14,
+               pre_answer={'answer': 'y', 'cid': '1-9'})
+    check('★ 提问前就到的旧答复被丢弃（不执行）',
+          any('answer=n' in x for x in r6['replies']), str(r6['replies'])[:200])
+    # 注：Perl 的 readline 会把管道内容预读进自己的缓冲区，IO::Select 看不到，
+    # 所以这条旧答复实际是被「cid 对不上」挡下来的（两条防线任一生效即可）。
+
     # ⑤ 网关的等待必须比 agent 自己的确认超时短
     r4 = drive(['--mode=accept-edits'], '你好', answer='y', answer_cid='7-1', wait=10,
                extra_env={'CLAUDE_CONFIRM_TIMEOUT': '30'})
@@ -351,8 +368,8 @@ def main():
     check('回 n 后 agent 收到 n', any('answer=n' in x for x in r['replies']), str(r['replies']))
 
     print('\u2465 没人回答 → 超时按拒绝（fail-closed）')
-    r = drive(['--mode=accept-edits', '--allow-write=/tmp', '--confirm-wait=1'],
-              '帮我写 /tmp/a.txt', answer=None, wait=25)
+    r = drive(['--mode=accept-edits', '--allow-write=/tmp', '--confirm-wait=2'],
+              '帮我写 /tmp/a.txt', answer=None, wait=35)
     check('超时后 agent 拿到的是 n', any('answer=n' in x for x in r['replies']), str(r['replies']))
     check('审计里标了 timeout=1', 'timeout=1' in r['audit'])
 

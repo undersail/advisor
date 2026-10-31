@@ -74,10 +74,12 @@ my @REMOTE_ROOTS;                      # --allow-write 的目录
 # 远程确认等多久：必须比 agent 自己的超时**短**。
 # 旧值是固定的 120 秒，而 agent 60 秒就按拒绝收尾了 —— 多出来的那一分钟里，
 # 手机回的 y 会落到**下一次**确认上（等于没人同意却执行了）。
+# 远程（手机）给人的确认时间：本地 60 秒够，手机上「看到问题→想一下→打字」不够。
+my $REMOTE_CONFIRM_SECS = 180;
 sub agent_confirm_timeout {
     my $v = defined $ENV{CLAUDE_CONFIRM_TIMEOUT} ? $ENV{CLAUDE_CONFIRM_TIMEOUT} : '';
-    return 60 unless $v =~ /^\d+$/;
-    return $v;
+    return $v if $v =~ /^\d+$/;
+    return $REMOTE_CONFIRM_SECS;
 }
 sub confirm_wait_default {
     my $w = agent_confirm_timeout() - 5;
@@ -85,6 +87,14 @@ sub confirm_wait_default {
     return $w;
 }
 my $CONFIRM_WAIT = confirm_wait_default();   # 远程确认最多等多久（秒），超时按拒绝
+my @STDIN_PUSH;      # 反问前顺手读到的「非答复行」（新指令等）要留到下轮再处理
+
+# 统一入口：先吃预读缓存，再读 STDIN。反问前后都走它，
+# 免得「提前读进来的一行」被吞掉或者被当成答复。
+sub next_stdin_line {
+    return shift @STDIN_PUSH if @STDIN_PUSH;
+    return scalar <STDIN>;
+}
 my $L_CONFIRM_PLAIN = '(需要确认的操作)';
 
 sub write_mode_ok {
@@ -343,6 +353,8 @@ sub spawn_session {
     my $aenv = read_agent_env($envfile);
 
     my %env = (%ENV, %$aenv);
+    # 确认超时由网关统一口径：网关等 CONFIRM_WAIT，agent 要多留 5 秒
+    $env{CLAUDE_CONFIRM_TIMEOUT} = agent_confirm_timeout();
     # ★ 挡住「父进程环境泄漏」：启动远程服务的那个 shell 里若 export 了历史开关，
     #   子 agent 会照单全收，表现就是「远程突然不存历史了」。
     #   档位/可写范围不在这里清 —— 见下面「一律显式传 --mode」那段：argv 永远压过
@@ -476,6 +488,22 @@ sub ensure_session {
 sub ask_remote {
     my ($from, $prompt, $danger, $cid) = @_;
     $cid = '' unless defined $cid;
+    # 提问之前先把缓冲区里**已经到**的行处理掉：里面若有答复，那一定是上一道题的
+    # （这道题还没问出去）。留着它就会被当成这道题的答案 —— 这才是「迟到的同意放行」
+    # 的真正来源。非答复行（新指令）存起来，下一轮再处理，不能丢。
+    my $pre_drained = 0;
+    eval {
+        my $sel = IO::Select->new(\*STDIN);
+        while ($sel->can_read(0)) {
+            my $l0 = <STDIN>;
+            last unless defined $l0;
+            if ($l0 =~ /"answer"/) { $pre_drained++; next }
+            push @STDIN_PUSH, $l0;
+        }
+        1;
+    };
+    audit('confirm_drain', "from=$from", "dropped=$pre_drained") if $pre_drained;
+
     print '{"from":"' . json_escape($from) . '","ask":"' . json_escape($prompt)
         . '","danger":' . ($danger ? 1 : 0)
         . ',"cid":"' . json_escape($cid) . '"'
@@ -489,12 +517,14 @@ sub ask_remote {
         local $SIG{ALRM} = sub { die "ask_timeout\n" };
         alarm $CONFIRM_WAIT if $CONFIRM_WAIT > 0;
         while (1) {
-            my $line = <STDIN>;
+            my $line = next_stdin_line();
             last unless defined $line;
             my $v  = json_get($line, 'answer') // '';
             my $lc = json_get($line, 'cid') // '';
-            # ★ 上一道问题迟到的回答：不再当成这一道的答案
-            if ($cid ne '' && $lc ne $cid) { $stale++; next; }
+            # 带 cid 的答复必须对上这道题；不带 cid 的照收（老版本长连接客户端不回声
+            # cid —— 只认 cid 会让它每次都被当成迟到答复，用户回 y 却看到超时）。
+            # 跨题的串台已由上面的 drain 挡住。
+            if ($cid ne '' && $lc ne '' && $lc ne $cid) { $stale++; next; }
             $ans = 'y' if ($v =~ /^(y|yes|1|true)$/i);
             last;
         }
@@ -688,7 +718,7 @@ if ($MODE eq 'once') {
 }
 
 if ($MODE eq 'stdin') {
-    while (my $l = <STDIN>) {
+    while (my $l = next_stdin_line()) {
         $l =~ s/\r?\n$//;
         next if $l =~ /^\s*$/;
         my $from = json_unescape(json_get($l, 'from') // '');

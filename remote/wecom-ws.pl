@@ -661,7 +661,7 @@ sub gw_read_turn {
             # 记下这道题的 cid：回答时原样带回去，网关只认匹配的
             $state->{wait}{$sender} = defined $j->{cid} ? $j->{cid} : 1;
             return { ask => $j->{ask}, danger => ($j->{danger} ? 1 : 0),
-                     cid => $j->{cid} };
+                     cid => $j->{cid}, wait => $j->{wait} };
         }
         if (defined $j->{reply}) {
             audit('gateway_done', 'reply_len=' . length($j->{reply}));
@@ -700,7 +700,7 @@ sub gw_call {
     if (defined $r->{ask}) {
         # 需要手机端确认：这一轮先挂起，问题已经发出去，等用户下一条消息当答案
         $state->{wait}{$sender} = defined $r->{cid} ? $r->{cid} : 1;
-        $on_ask->($r->{ask}, $r->{danger}) if $on_ask;
+        $on_ask->($r->{ask}, $r->{danger}, $r->{wait}) if $on_ask;
         return { pending => 1 };
     }
     return { reply => $r->{reply} // '' };
@@ -721,7 +721,7 @@ sub gw_answer {
     my $r = gw_read_turn($sender, $s, $state, $on_note);
     if ($r && $r->{ask} && $on_ask) {
         $state->{wait}{$sender} = 1;
-        $on_ask->($r->{ask}, $r->{danger});
+        $on_ask->($r->{ask}, $r->{danger}, $r->{wait});
         return { pending => 1 };
     }
     delete $state->{wait}{$sender};
@@ -841,9 +841,13 @@ sub handle_msg {
     my $on_note = sub { my $t = shift; $reply_to->($t) if defined $t && length $t };
     # 网关把 agent 的 y/n 问题转过来，这里原样交给用户；不回就超时按拒绝
     my $on_ask = sub {
-        my ($prompt, $danger) = @_;
+        my ($prompt, $danger, $wait) = @_;
         my $head = $danger ? '⚠ 危险操作，需要你在手机上确认：' : '需要你确认：';
-        $reply_to->($head . $prompt . "\n\n回复 y 允许 / n 拒绝（不回则超时按拒绝处理）");
+        # 把时限说清楚：不回会按拒绝处理，别让人以为「回了就一定来得及」
+        my $tail = (defined $wait && $wait =~ /^\d+$/)
+            ? "\n\n回复 y 允许 / n 拒绝（请在 ${wait} 秒内回复，超时按拒绝处理）"
+            : "\n\n回复 y 允许 / n 拒绝（不回则超时按拒绝处理）";
+        $reply_to->($head . $prompt . $tail);
     };
 
     # ★ 正在等确认：这条消息当答案处理；不是 y/n 就按拒绝收尾，再当新指令
