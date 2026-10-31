@@ -64,9 +64,9 @@ def probe(label, path, old, new, cmd):
 print('=== 1. 解耦卡口：网关必须把 --no-config 传下去 ===')
 probe('解耦 --no-config', 'remote/gateway.pl',
       """        open3($in, $out, $errh, 'perl', $AGENT, '--rpc', '--no-config',
-              '--tools=' . join(',', @REMOTE_TOOLS));""",
+              '--tools=' . join(',', effective_tools()), @extra);""",
       """        open3($in, $out, $errh, 'perl', $AGENT, '--rpc',
-              '--tools=' . join(',', @REMOTE_TOOLS));""",
+              '--tools=' . join(',', effective_tools()), @extra);""",
       ['python3', 'scripts/check-decoupling.py'])
 
 print('=== 2. setup 卡口：不带引号的 heredoc 里不许有反引号 ===')
@@ -90,7 +90,7 @@ probe('GUI 原子写入', 'gui/advisor_gui.py',
 print('=== 5. GUI 焦点：忙完后必须把焦点交回写作框 ===')
 probe('GUI 焦点', 'gui/advisor_gui.py',
       """        if not busy:
-            # 返信が終わったら入力欄へ戻す（毎回クリックさせない）
+            # 回复结束后把输入交回输入框（不必每次点击）
             self._focus_write_zone()""",
       """        if not busy:
             pass   # probe""",

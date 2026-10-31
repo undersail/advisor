@@ -682,3 +682,23 @@ description 与参数说明写的是日文。模型会照工具文档的语言�
 
 **测试**：`scripts/test-lang-lock.py`（4 项，已进 CI）：工具说明无假名、
 系统提示覆盖三类文字、明确「不改变输出语言」、明确「中文不出现日文」。
+
+## 20. 源码去日文化（本轮）
+
+**口径**：代码里不再有日文。注释——技术/中性写英文，其余简体中文；写死的用户文案一律中文。
+**保留**：i18n 词条（`%S` 的 `ja =>`、GUI 的 `"ja":`、`setup.sh` `msg()` 的 ja 分支、日语 `--help`
+文本、`/^(y|はい)$/` 之类接受日语确认词的匹配）——这是「可选日语界面」本身，删掉等于删功能。
+
+| 文件 | 清理前含假名行 | 清理后 | 剩余内容 |
+|---|---|---|---|
+| `agent/claude-agent.pl` | 805 | 212 | 166 条 `ja =>` + 其续行 + 日语 `--help` heredoc + 确认词正则 |
+| `gui/advisor_gui.py` | 485 | 119 | 112 条 `"ja":` 及其续行、主题三语 label、真实字体名、macOS 原生菜单（仅 ja 模式执行） |
+| `setup.sh` | 175 | 81 | `msg()` 的 ja 分支与生成 wrapper 的三语块 |
+| `release/build_standalone_app.sh` / `remote/*.pl` | 76 | 0 | — |
+| `models.txt` / `providers.txt` / `scripts/*` | 27 | 1 | `audit-probes.py` 的探针锚点（必须与目标文件逐字一致） |
+
+**纪律**：这类机械替换最容易碰坏行为，所以每批都跑了 `perl -c` / `py_compile` / `bash -n` +
+`check-i18n`（防止误删 i18n 词条）+ `check-models`（防止改坏数据文件），并逐文件核对 diff 只有注释与字符串。
+
+**顺带修的探针**：`scripts/audit-probes.py` 有两处锚点因为注释被翻译而失效（GUI 焦点、解耦 `--no-config`），
+已同步成现在的代码；探针本身 21/21 通过 —— 这也说明「卡口自己也得被验」。
