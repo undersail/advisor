@@ -53,8 +53,8 @@ def check(cond, name, detail=''):
         FAIL += 1
         msg = '  FAIL %s%s' % (name, ('  ← %s' % detail) if detail else '')
         print(msg)
-        # GitHub の注釈は ::error:: しか拾わない。stdout にだけ出すと
-        # 「赤いのに理由が分からない」になる（実際に一度そうなった）。
+        # GitHub 的注记只认 ::error::。只打到 stdout 就会
+        # 变成「红了却看不到原因」（真这么出过一次）。
         print('::error::test-modes: %s%s'
               % (name, (' | ' + detail.replace('\n', ' / ')[:400]) if detail else ''))
 
@@ -131,8 +131,8 @@ class Agent:
             'CLAUDE_LANG': 'zh',
             'CLAUDE_MODE': mode,
             'TERM': 'dumb',
-            # 一時ディレクトリの根を明示する（/tmp はもう既定の可写根ではない）。
-            # ここを固定しないと「範囲外」の意味が実行環境で変わってしまう。
+            # 显式指定临时目录的根（/tmp 已经不是默认可写根）。
+            # 不固定这里，「范围外」的含义会随执行环境变化。
             'TMPDIR': os.path.join(home, 'tmpdir'),
         }
         if extra_env:
@@ -153,8 +153,8 @@ class Agent:
         self._read_hello()
 
     def _pump(self):
-        # 1 本の読み取りスレッドで全部受ける（readline を都度スレッドにすると
-        # 終了時に closed file で溢れるし、行の取りこぼしも起きる）。
+        # 用一条读线程收下全部输出（每次 readline 都开线程的话，
+        # 退出时会刷出一堆 closed file，还会漏行）。
         try:
             for line in self.p.stdout:
                 self.q.put(line)
@@ -186,8 +186,8 @@ class Agent:
                 print('::notice::agent 握手 OK（mode=%s model=%s）'
                       % (obj.get('mode'), obj.get('model')))
                 return
-        # 握手が来ない = agent が起動していない。理由を出さないと CI では
-        # ただ「赤い」だけになる。
+        # 等不到握手 = agent 没起来。不说明原因的话 CI 里
+        # 就只是「红了」而已。
         rc = self.p.poll()
         err = ''
         try:
@@ -283,7 +283,7 @@ def last_tool_results():
         return ''
     out = []
     for m in req.get('messages') or []:
-        # OpenAI 形式では tool 役のメッセージに結果が入る
+        # OpenAI 格式里 tool 角色的消息带结果
         if m.get('role') == 'tool':
             out.append(str(m.get('content')))
             continue

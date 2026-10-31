@@ -669,7 +669,7 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 ## 19. 中文会话里冒出日文（本轮）
 
 **现象**：远程要求中文，回复是中文，但工具调用前后的旁白是日文
-（「…をまとめて確認します。」）。
+（「先确认一下」这类日文短句）。
 
 **根因**：`read_file` / `write_file` / `list_dir` / `run_shell` 四个工具的
 description 与参数说明写的是日文。模型会照工具文档的语言写自己的旁白，

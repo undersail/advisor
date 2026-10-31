@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-advisor_gui.py  ―  advisor の1画面GUIフロントエンド
+advisor_gui.py  ―  advisor 的单窗口图形界面前端
 
-裏で `advisor gui`(= perl claude-agent.pl --gui)を起動し、1行1件のJSONで
-やり取りする。入力はノート下部の書き込み欄(OSの日本語入力がそのまま
-普通に使える。Terminal.app の2バイト文字バグを回避できる)、質問と回答は
-1枚のノートに交互に追記されていく(枠付きの入力ボックスは無い)。
+在后台启动 `advisor gui`（即 perl claude-agent.pl --gui），用一行一条的 JSON
+通信。输入区在笔记下方（系统输入法可直接使用，还能绕开 Terminal.app 的
+双字节字符问题），提问与回答会交替追加到同一张笔记上
+（没有带边框的输入框）。
 
-見た目は2つ:
-  - ノート : 生成りの紙に書いていく感じ。相手の返答は2文字ぶん字下げ。
-  - ハッカー: 黒地に緑文字。
+界面有两种：
+  - 笔记：像在米色纸上书写。对方的回复缩进两个字。
+  - 黑客：黑底绿字。
 
-必要なもの: Python 3.x + tkinter(標準同梱)のみ。外部ライブラリ不要。
+依赖：仅需 Python 3.x + tkinter（标准库自带）。不需要外部库。
 """
 
 import json
@@ -33,21 +33,21 @@ from tkinter import messagebox
 from tkinter import simpledialog
 from tkinter import ttk
 
-# 本文の左インセット(px)。ノート左の赤い縦罫(大学ノートの余白線)の
-# すぐ右から書き始める、という要望に合わせた小さめの値。
+# 正文左侧留白（px）。笔记本左侧有红色竖线（大学笔记本的页边线），
+# 从它紧右边开始书写，因此取较小的值。
 EDGE = 10
 
 # ---------- 言語 ----------
-# ダウンロードの7割が海外ユーザーとのことで日英対応が必須になった。
-# LANG環境変数はGUIアプリをダブルクリック起動した時に空になることが
-# あり(ログインシェルを経由しないため)あてにできない。macOS自体の
-# 言語設定を直接読む。判定できなければ、この項目の既存ユーザーに
-# 合わせて日本語を既定にする。ボタン文字は _S/L() で切り替えるだけで
-# レイアウト(padx等)自体は変えていないので、英語の方が長い/短い場合は
-# 別途ヘッダーの余白調整が要るかもしれない。
+# 下载用户七成来自海外，因此双语/多语支持成为必需。
+# LANG 环境变量在双击启动 GUI 应用时可能为空
+# （因为不经过登录 shell），不可靠。因此直接读取 macOS 自身的
+# 语言设置。判定不出时，为照顾本项目的既有用户，
+# 默认使用日语。按钮文字只用 _S/L() 切换，
+# 布局（padx 等）本身未改动，若某语言更长/更短，
+# 可能还要单独调整头部留白。
 def _detect_lang():
-    # CLAUDE_LANG=en/ja/zh があれば最優先(システム言語を変えずに表示言語を
-    # 確認したいとき用)。zh-Hans / zh_CN のような書き方も zh として扱う。
+    # 若设置了 CLAUDE_LANG=en/ja/zh 则最优先（用于在不改系统语言的情况下
+    # 检查显示语言）。zh-Hans / zh_CN 这类写法也按 zh 处理。
     override = os.environ.get("CLAUDE_LANG", "").strip().lower()
     if override[:2] in ("en", "ja", "zh"):
         return override[:2]
@@ -59,19 +59,19 @@ def _detect_lang():
         if out.startswith("ja"):
             return "ja"
         if out.startswith("zh"):
-            # zh-Hans / zh-Hant / zh_CN / zh_TW をまとめて中国語にする。
-            # 繁体字を簡体字で出す問題はあるが、まず「中国語で読める」を優先。
+            # 把 zh-Hans / zh-Hant / zh_CN / zh_TW 统一当作中文。
+            # 用简体显示繁体内容会有问题，但优先保证「能用中文阅读」。
             return "zh"
         if out:
             return "en"
     except Exception:
         pass
-    # 判定できない環境(非macOS など)は既定の中国語。
+    # 判定不出的环境（非 macOS 等）默认用中文。
     return "zh"
 
 
-# 表示言語の優先順。未訳の言語はこの順で落とす(zh 未訳 -> en -> ja)。
-# 空文字を返さないための保険。
+# 显示语言的回退顺序。未翻译的语言按此顺序回退（zh 未译 -> en -> ja）。
+# 保证不会返回空字符串。
 _LANG_FALLBACK = {
     "ja": ("ja", "en"),
     "en": ("en", "ja"),
@@ -81,7 +81,7 @@ _LANG_FALLBACK = {
 
 LANG = _detect_lang()
 
-# key: (日本語, English)。フォーマット文字列は L(key, **kwargs) で埋める。
+# key: {ja, en, zh}。格式化字符串用 L(key, **kwargs) 填充。
 _S = {
     "tab_chat": {
         "ja": "会話",
@@ -354,7 +354,7 @@ _S = {
         "en": "(internal error: {err})",
         "zh": "（内部错误：{err}）",
     },
-    # macOS メニューバー(画面最上部のOSメニュー。アプリ内ヘッダーとは別物)
+    # macOS 菜单栏（屏幕最上方的系统菜单，与应用内头部不同）
     "menu_edit": {
         "ja": "編集",
         "en": "Edit",
@@ -390,7 +390,7 @@ _S = {
         "en": "Minimize",
         "zh": "最小化",
     },
-    # 初回起動時、APIキー未登録のときに出す案内画面
+    # 首次启动、尚未登记 API 密钥时显示的引导画面
     "onboard_intro": {
         "ja": "はじめまして。AdvisorはAIとやり取りするためのアプリです。使うには"
         "「APIキー」というあなた専用の利用許可コード(パスワードのような"
@@ -435,7 +435,7 @@ _S = {
         "en": "Couldn't verify the API key (HTTP {code}). Please check that it's correct.",
         "zh": "无法校验 API 密钥（HTTP {code}）。请确认密钥是否正确。",
     },
-    # 会話中に、まだキーを登録していないAIへ切り替えようとしたときの案内
+    # 会话中试图切换到尚未登记密钥的 AI 时的提示
     "switch_key_title": {
         "ja": "APIキーの登録",
         "en": "Register API Key",
@@ -632,12 +632,12 @@ _S = {
 
 
 def L(key, **kw):
-    """文言を引く。
+    """取文案。
 
-    条目は 2 通り書ける:
-        ("日本語", "English")                      … 従来形式(中国語は英語に落ちる)
-        {"ja": ..., "en": ..., "zh": ...}          … 中国語を足した形式
-    未訳の言語は _LANG_FALLBACK の順で回退し、空文字は返さない。
+    条目有两种写法：
+        (原字符串, English)                        … 旧格式（中文回退到英文）
+        {"ja": ..., "en": ..., "zh": ...}          … 加入中文的格式
+    未翻译的语言按 _LANG_FALLBACK 的顺序回退，不会返回空字符串。
     """
     entry = _S[key]
     s = None
@@ -662,17 +662,17 @@ def theme_label(spec):
     return spec.get("label_en", spec["label"]) if LANG == "en" else spec["label"]
 
 
-# 書き込み欄が空のときに出す案内。クリックすると全体が消えて先頭から
-# 書ける(_write_click_clear)。点滅する縦線のカーソルの代わりに、
-# 点滅だけ止めて(insertofftime=0)この矢印で書き始めの位置を示す。
+# 书写区为空时显示的提示。点击后整段消失，可从开头
+# 重新书写（_write_click_clear）。不用闪烁的竖线光标，
+# 而是停止闪烁（insertofftime=0），用这个箭头标出书写起点。
 WRITE_MARK = L("write_mark")
 
 CFG_PATH = os.path.expanduser("~/.claude-agent/gui.json")
 
-# ```lang ... ``` のコードブロック検出
+# ```lang ... ``` 代码块检测
 FENCE_RE = re.compile(r"```[ \t]*([\w+.\-]*)[ \t]*\n(.*?)```", re.DOTALL)
-# ざっくりした汎用ハイライト(python/js/sh/json あたりを想定)。
-# 並び順が優先度: 文字列 → コメント → 数値 → キーワード。
+# 粗略的通用高亮（针对 python/js/sh/json 等）。
+# 排列顺序即优先级：字符串 → 注释 → 数值 → 关键字。
 CODE_RE = re.compile(r"""
     (?P<str>"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)
   | (?P<com>\#[^\n]*|//[^\n]*|/\*.*?\*/)
@@ -685,31 +685,31 @@ CODE_RE = re.compile(r"""
 """, re.VERBOSE | re.DOTALL)
 HL_TAG = {"str": "code_str", "com": "code_com", "num": "code_num", "kw": "code_kw"}
 
-# テーマ定義。レイアウトは全モード共通(読みやすさ優先):
-#   自分の発言 = 右寄せ、ブロックの左は 1/3 空ける
-#   相手の返答 = 左寄せ、ブロックの右は 1/3 空ける
-#   発言の間に薄い区切り線。色・書体・穴だけモードで変える。
-#   prompt_prefix = 自分の発言に色付き「watermark> 」を付ける(端末系)
-#   handwriting   = 手書き風フォントが入っていれば使う(環境依存)
-#   holes         = 左にルーズリーフの穴
+# 主题定义。布局所有模式通用（优先可读性）：
+#   自己的发言 = 右对齐，块左侧留 1/3 空白
+#   对方的回复 = 左对齐，块右侧留 1/3 空白
+#   发言之间加浅色分隔线。只有颜色、字体、孔洞随模式变化。
+#   prompt_prefix = 给自己的发言加彩色的「watermark> 」（终端风格）
+#   handwriting   = 若有手写风字体就使用（依赖环境）
+#   holes         = 左侧活页本的孔
 THEMES = {
     "paper": {
         "label": "ノート", "label_en": "Note", "label_zh": "笔记", "handwriting": True, "holes": True,
-        # 背景を少し明るく、文字(質問・回答とも)は逆にもう少し濃くして
-        # はっきりさせた(明るくした分そのままだとコントラストが落ちる
-        # ため。実際にはコントラスト比は上がっている: fg 9.57→12.5,
+        # 背景稍微调亮，文字（提问与回答）则再调深一些，使其更
+        # 清晰（只调亮背景的话对比度会下降
+        # 的缘故。实际对比度是上升的：fg 9.57→12.5,
         # ai 7.74→10.8)。
-        "bg": "#faf4e6", "fg": "#1a2c54", "ai": "#463420",   # 青黒インク / 茶
+        "bg": "#faf4e6", "fg": "#1a2c54", "ai": "#463420",   # 青黑墨水 / 茶色
         "dim": "#9a8f78", "err": "#a5341f", "rule": "#d7b7ab", "code_bg": "#efe6cf",
-        "line": "#c96b63",                                    # 昔のルーズリーフの赤い罫
-        "hline": "#9fb0c9",     # 横罫線(紺グレー)。PhotoImageでの埋め込みは
-                                # このマシンで描画されなかったため、既に
-                                # 描けている縦罫(Canvas.create_line)と同じ
-                                # 実部品(tk.Frame)を使う方式に変更した
-        "vline": "#c96b63",                                   # 左の縦罫(赤)。書き始めの目印
+        "line": "#c96b63",                                    # 旧式活页本的红色横线
+        "hline": "#9fb0c9",     # 横线（深灰蓝）。用 PhotoImage 嵌入时
+                                # 在本机绘制不出来，所以改成与已经
+                                # 能画出的竖线（Canvas.create_line）相同的
+                                # 实际部件（tk.Frame）方式
+        "vline": "#c96b63",                                   # 左侧竖线（红）。书写起点标记
         "input_bg": "#f0e7d2", "input_fg": "#1a2c54",
         "hl": {"kw": "#7a3b8f", "str": "#8a5a2b", "com": "#9a8f78", "num": "#3a5a3a"},
-        "font": ("Hiragino Maru Gothic ProN", 12),  # 少し小さめにして行数を稼ぐ
+        "font": ("Hiragino Maru Gothic ProN", 12),  # 稍小一点，以多显示几行
     },
     "coding": {
         "label": "コーディング", "label_en": "Code", "label_zh": "编程", "prompt_prefix": True,
@@ -721,8 +721,8 @@ THEMES = {
     },
     "hacker": {
         "label": "ハッカー", "label_en": "Hacker", "label_zh": "黑客", "prompt_prefix": True,
-        # エラー/終了コード(err)以外は全部緑にする、との要望。以前は
-        # promptとhl.kw/numがシアン系だったので緑に寄せた。
+        # 除错误/退出码（err）外全部用绿色。以前
+        # prompt 和 hl.kw/num 是青色系，因此改为偏绿。
         "bg": "#000000", "fg": "#39ff5a", "ai": "#33dd88", "prompt": "#00ff66",
         "dim": "#2e7d4f", "err": "#ff5555", "rule": "#2e9d55", "code_bg": "#041004",
         "line": "#2e9d55", "input_bg": "#041004", "input_fg": "#39ff5a",
@@ -733,7 +733,7 @@ THEMES = {
 
 
 def pick_font(family, size):
-    """指定 family が無ければ順に代替。手書き風は入っていれば拾う。"""
+    """若没有指定 family 则依次尝试替代字体。手写风字体存在就用它。"""
     try:
         import tkinter.font as tkfont
         have = set(tkfont.families())
@@ -914,10 +914,10 @@ def stop_remote_service(timeout=6.0):
 
 
 def wecom_ws_search_paths():
-    """wecom-ws.pl を探す候補を優先順で返す（見つからない時に**どこを見たか**を出すため）。"""
+    """按优先级返回查找 wecom-ws.pl 的候选位置（找不到时输出**查过哪些位置**）。"""
     here = os.path.dirname(os.path.abspath(__file__))
     raw = [
-        os.path.join(here, "..", "remote", "wecom-ws.pl"),           # リポジトリ
+        os.path.join(here, "..", "remote", "wecom-ws.pl"),           # 仓库内
         os.path.join(here, "remote", "wecom-ws.pl"),
         os.path.join(os.path.expanduser("~/claude-build"), "remote", "wecom-ws.pl"),
     ]
@@ -957,16 +957,16 @@ def run_wecom_check(script, timeout=30):
 
 
 def _pointing_cursor():
-    """macOS は pointinghand、それ以外(X11)は hand2。
+    """macOS 用 pointinghand，其他平台（X11）用 hand2。
 
-    ここを直書きすると Linux で Tk が bad cursor spec で落ちる。
-    macOS の見た目・挙動はそのまま（darwin では従来どおり pointinghand）。
+    写死的话 Linux 上的 Tk 会因 bad cursor spec 崩溃。
+    macOS 的外观与行为保持不变（darwin 下仍为 pointinghand）。
     """
     return "pointinghand" if sys.platform == "darwin" else "hand2"
 
 
 def _providers_path():
-    """providers.txt の場所。同梱(Resources) → リポジトリ直下 → ~/claude-build の順。"""
+    """providers.txt 的位置。依次为 随包(Resources) → 仓库根目录 → ~/claude-build。"""
     cands = []
     here = _bundled_resource_dir()
     if here:
@@ -981,10 +981,10 @@ def _providers_path():
 
 
 def read_providers():
-    """providers.txt を読む。
+    """读取 providers.txt。
 
-    返り値: [(name, {key_env, default_model, key_url, ja, en, zh}), ...]（ファイル順）
-    ここが唯一の出所。GUI 側にキー名やURLを書き足さない。
+    返回值: [(name, {key_env, default_model, key_url, ja, en, zh}), ...]（按文件顺序）
+    这里是唯一的来源。不要在 GUI 侧另写密钥名或 URL。
     """
     out = []
     path = _providers_path()
@@ -1025,7 +1025,7 @@ def provider_label(info):
 
 
 def read_models():
-    """models.txt を読む: [{id, ja, en, zh, provider, base_url}, ...]"""
+    """读取 models.txt: [{id, ja, en, zh, provider, base_url}, ...]"""
     path = None
     for c in (os.path.expanduser("~/claude-build/models.txt"),
               os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -1058,7 +1058,7 @@ def read_models():
 
 
 def read_env_file():
-    # ~/.claude-agent-env の "export VAR=値" 形式を辞書にして返す。
+    # 把 ~/.claude-agent-env 里的 "export VAR=值" 形式解析成字典返回。
     result = {}
     try:
         with open(ENV_FILE_PATH, encoding="utf-8") as f:
@@ -1075,8 +1075,8 @@ def read_env_file():
 
 
 def has_valid_api_key():
-    # どのベンダーでも「そのベンダーのキーがあるか」で判定する。
-    # キー名は providers.txt から引く(ここに GEMINI/ANTHROPIC を書き足さない)。
+    # 任何厂商都按「该厂商自己的密钥是否存在」来判定。
+    # 密钥名从 providers.txt 取（不要在这里写死 GEMINI/ANTHROPIC）。
     env = read_env_file()
     provider = env.get("CLAUDE_PROVIDER", "")
     if not provider:
@@ -1088,10 +1088,10 @@ def has_valid_api_key():
 
 
 def _bundled_resource_dir():
-    # setup.shでビルドした場合は自分自身(advisor_gui.py)と同じフォルダに
-    # claude-agent.pl / models.txt が既にある(~/claude-build/)。
-    # ダブルクリックだけで動く単体アプリ(py2appの標準ビルド)の場合は、
-    # アプリ本体の Contents/Resources/ に同梱されているはずなのでそちらを探す。
+    # 用 setup.sh 构建时，claude-agent.pl / models.txt 已经和
+    # advisor_gui.py 在同一目录（~/claude-build/）。
+    # 若是双击即可运行的单体应用（py2app 标准构建），
+    # 它们应随包放在应用的 Contents/Resources/ 下，因此去那里找。
     here = os.path.dirname(os.path.abspath(__file__))
     if os.path.isfile(os.path.join(here, "claude-agent.pl")):
         return here
@@ -1106,8 +1106,8 @@ def _bundled_resource_dir():
 
 
 def ensure_backend_files():
-    # setup.shを一度も実行していない(=~/claude-buildが無い)環境でも、
-    # アプリに同梱したエージェント本体を~/claude-buildへ配置して動くようにする。
+    # 即使从未执行过 setup.sh（没有 ~/claude-build），也要能运行：
+    # 把随包附带的 agent 主体放到 ~/claude-build 下再启动。
     build_dir = os.path.expanduser("~/claude-build")
     target_agent = os.path.join(build_dir, "claude-agent.pl")
     target_models = os.path.join(build_dir, "models.txt")
@@ -1134,8 +1134,8 @@ def ensure_backend_files():
 
 
 def build_backend_command_and_env():
-    # ~/bin/advisor(setup.shが生成するラッパー)があればそれを使う。
-    # 無ければ(=setup.shを実行していない)、同梱したエージェントを直接起動する。
+    # 若存在 ~/bin/advisor（setup.sh 生成的包装脚本）就用它。
+    # 若不存在（未执行 setup.sh），直接启动随包附带的 agent。
     wrapper = os.path.expanduser("~/bin/advisor")
     if os.path.isfile(wrapper) and os.access(wrapper, os.X_OK):
         return [wrapper, "gui"], None
@@ -1150,10 +1150,10 @@ def build_backend_command_and_env():
 
 
 def validate_api_key(provider, api_key, base_url="", model=""):
-    """キーが本当に通るかをその場で確かめる（種別ごとに叩き方が違う）。
+    """当场验证密钥是否真的可用（不同厂商的调用方式不同）。
 
-    gemini     : x-goog-api-key ヘッダ + generateContent
-    anthropic  : x-api-key + anthropic-version ヘッダ + /v1/messages
+    gemini     : x-goog-api-key 请求头 + generateContent
+    anthropic  : x-api-key + anthropic-version 请求头 + /v1/messages
     OpenAI互換 : Authorization: Bearer + <base_url>/chat/completions
     """
     if provider == "gemini":
@@ -1236,10 +1236,10 @@ def write_env_atomic(lines):
 
 
 def save_onboard_env(provider, api_key):
-    """選んだベンダーのキーだけを書き換える。
+    """只改写所选厂商的密钥。
 
-    他ベンダーのキーは消さない —— 一度登録したキーを、別のベンダーを試した
-    だけで失うのは事故なので。既存行の並びも保つ。
+    不删除其他厂商的密钥 —— 只因试了别的厂商就丢掉已登记的密钥，
+    那是事故。既有行的顺序也保持不变。
     """
     info = {}
     for name, i in read_providers():
@@ -1248,7 +1248,7 @@ def save_onboard_env(provider, api_key):
             break
     keyvar = info.get("key_env", "")
     if not keyvar:
-        raise RuntimeError("providers.txt に %s の定義がありません" % provider)
+        raise RuntimeError("providers.txt 中没有 %s 的定义" % provider)
     default_model = info.get("default_model", "")
     try:
         with open(ENV_FILE_PATH, encoding="utf-8") as f:
@@ -1290,9 +1290,9 @@ class AdvisorGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Advisor")
-        self.root.geometry("560x800")          # A5 大学ノートの比率(縦長)
-        # Dock/ウィンドウのアイコン(できれば)。tkinter だけだと Dock は
-        # Python の絵のままのことがあるが、少なくとも試みる。
+        self.root.geometry("560x800")          # A5 大学笔记本的比例（竖长）
+        # Dock/窗口图标（尽量）。只用 tkinter 的话 Dock 里可能
+        # 一直是 Python 的图标，但至少试一下。
         try:
             png = os.path.expanduser("~/claude-build/advisor.png")
             if os.path.isfile(png):
@@ -1303,12 +1303,12 @@ class AdvisorGUI:
 
         self.events = queue.Queue()
         self.proc = None
-        # バックエンド起動時に足す引数（--continue など）。セッションの続きは
-        # 「起動時の引数」で決まるので、切り替え＝再起動になる。
+        # 启动后端时追加的参数（--continue 等）。会话的延续由
+        # 「启动参数」决定，所以切换 ＝ 重启。
         self._extra_args = []
         self.busy = False
         self.pane = "chat"                      # "chat" / "cmd"
-        self.cwd = os.path.expanduser("~")      # コマンドパネルの現在地
+        self.cwd = os.path.expanduser("~")      # 命令面板的当前目录
         self.cmd_proc = None
         self._providers = read_providers()
         self.model_label_var = tk.StringVar(value="…")
@@ -1331,23 +1331,23 @@ class AdvisorGUI:
         self._build_ui()
         self._apply_theme(self.theme_name)
         self._write_show_marker()
-        # 起動直後に書き込み欄へフォーカスを渡す。渡さないと「ウィンドウは
-        # 出ているのに何を打っても入らない」になる（実機で踏んだ）。
+        # 启动后立刻把焦点交给书写区。不交的话就会「窗口出来了
+        # 但敲什么都不进去」（在真机上踩过）。
         self._focus_write_zone(force=True)
         self._activate_window()
-        # macOS では「窓は出ているが前面のアプリになっていない」ことがあり、
-        # focus_force 一回では入らない。5 秒間だけ自己監視して、焦点が
-        # 入力欄に来るまで取り直す（来なければ画面に理由を出す）。
+        # macOS 上可能出现「窗口出来了但没成为前台应用」，
+        # 只做一次 focus_force 进不去。只自我监视 5 秒，
+        # 在焦点落到输入框之前反复重取（取不到就把原因显示到画面上）。
         self._focus_ok = False
         self.root.after(200, lambda: self._focus_watchdog(0))
         self._start_backend()
         self.root.bind("<FocusIn>", self._on_window_focus, add="+")
-        # 焦点が外れていても打てるように、窓全体でキーを拾う
+        # 即使焦点不在也能输入，所以在整个窗口上捕获按键
         self.root.bind("<Key>", self._on_root_key, add="+")
         self.root.after(80, self._pump)
 
     def _activate_window(self):
-        """窗を前面のアプリにする。macOS では topmost を一瞬立てるのが効く。"""
+        """把窗口切到前台应用。macOS 上瞬间置顶最有效。"""
         try:
             self.root.deiconify()
             self.root.lift()
@@ -1358,10 +1358,10 @@ class AdvisorGUI:
             pass
 
     def _focus_watchdog(self, tries):
-        """起動後 5 秒だけ、焦点が入力欄に来たか見張って取り直す。
+        """启动后只监视 5 秒，看焦点是否到了输入框，没到就重取。
 
-        Xvfb のように「常に焦点なし」の環境では諦めて理由を出すだけで、
-        無限に叩き続けない（テストやヘッドレスで暴走させない）。
+        Xvfb 这种「始终没有焦点」的环境里只放弃并显示原因，
+        不无限重试（避免在测试或无头环境里失控）。
         """
         try:
             if self.root.focus_get() is self.write_zone:
@@ -1370,7 +1370,7 @@ class AdvisorGUI:
             if tries >= 12:
                 if not getattr(self, "_focus_ok", False):
                     self._focus_hint_shown = True
-                    # 状態表示にも出す（注記が読めない状況でも気づけるように）
+                    # 也显示到状态栏（即使注释读不到也能察觉）
                     try:
                         self.status_var.set(L("focus_click_hint"))
                     except Exception:
@@ -1388,10 +1388,10 @@ class AdvisorGUI:
             pass
 
     def _on_root_key(self, event):
-        """焦点が入力欄に無いまま打たれたキーを入力欄へ流す（最後の砦）。
+        """把焦点不在输入框时敲下的按键转给输入框（最后的防线）。
 
-        窓が前面でも、焦点がどこにも無いと打った文字が捨てられてしまい
-        「入力できない」になる。印字可能な文字だけ拾って入力欄に差し込む。
+        即使窗口在前台，焦点不在任何地方时敲下的字符会被丢弃，
+        就成了「输入不了」。只拾取可打印字符并插入输入框。
         """
         try:
             if event.widget is self.write_zone:
@@ -1416,13 +1416,13 @@ class AdvisorGUI:
             pass
 
     def _focus_write_zone(self, force=False):
-        """入力欄へフォーカスを渡す。
+        """把焦点交给输入框。
 
-        force=True は起動直後用。macOS では窓が出ていても
-        focus_set() だけだとキー入力が入らないことがある（実機で
-        「打っても何も入らない」になった）ので、focus_force() で
-        窓そのものにキーボードフォーカスを取らせる。
-        返信待ちの後の復帰は force=False（他のアプリの邪魔をしない）。
+        force=True 用于启动直后。macOS 上即使窗口出来了，
+        只调 focus_set() 也可能收不到键盘输入（真机上出现过
+        「敲了也什么都没进去」），所以用 focus_force()
+        让窗口本身夺取键盘焦点。
+        等待回复之后的恢复用 force=False（不打扰其他应用）。
         """
         try:
             if str(self.write_zone.cget("state")) in ("disabled", "1"):
@@ -1438,7 +1438,7 @@ class AdvisorGUI:
         except Exception:
             pass
 
-    # ---------- 初回起動時、APIキー未登録なら出す案内画面 ----------
+    # ---------- 首次启动、未登记 API 密钥时显示的引导画面 ----------
     def _build_onboarding(self):
         bg = "#fdf6e3"
         self._providers = read_providers()
@@ -1453,8 +1453,8 @@ class AdvisorGUI:
                  bg=bg, fg="#2b2b2b", wraplength=440, justify=tk.LEFT).pack(
             pady=(0, 20), padx=40)
 
-        # 7ベンダーをラジオで並べると横に溢れるので、プルダウン1つにする。
-        # 表示名は providers.txt から引く(ここにベンダー名を直書きしない)。
+        # 7 个厂商用单选按钮横排会溢出，所以改用一个下拉框。
+        # 显示名从 providers.txt 取（不要在这里直写厂商名）。
         provider_row = tk.Frame(frame, bg=bg)
         provider_row.pack(pady=(0, 10))
         self._provider_labels = {}
@@ -1472,9 +1472,9 @@ class AdvisorGUI:
         tk.Label(frame, text=L("onboard_key_get_here"), font=("Helvetica", 13, "bold"),
                  bg=bg, fg="#2b2b2b").pack(pady=(4, 8))
 
-        # 非技術者にも「押せるボタン」だと一目で分かるよう、生のURLではなく
-        # 色付き・大きめのボタン風ラベルにする(小さい下線リンクだと
-        # 見落とされやすいとのフィードバックを受けて)。
+        # 让非技术用户一眼看出「这是能按的按钮」，所以不用裸露的 URL，
+        # 而是做成有色、较大的按钮式标签（小的下划线链接
+        # 容易被看漏，收到过这样的反馈）。
         self._onboard_link = tk.Label(frame, text="", fg="#ffffff", bg="#1a5fb4",
                                        cursor=_pointing_cursor(),
                                        font=("Helvetica", 16, "bold"),
@@ -1507,7 +1507,7 @@ class AdvisorGUI:
         self._onboard_status.pack(pady=(4, 20))
 
     def _onboard_selected(self):
-        """下拉で選ばれているベンダー名と、その定義を返す。"""
+        """返回下拉框中选中的厂商名及其定义。"""
         lbl = getattr(self, "_onboard_label", None)
         name = self._provider_labels.get(lbl.get(), "") if lbl else ""
         for n, info in getattr(self, "_providers", []):
@@ -1555,21 +1555,21 @@ class AdvisorGUI:
         self._onboard_frame.destroy()
         self._start_main_ui()
 
-    # ---------- macOSメニューバー(画面最上部のOSメニュー。アプリ内
-    # ヘッダーの[ 会話 ][ コマンド ]等とは別物) ----------
+    # ---------- macOS 菜单栏（屏幕最上方的系统菜单，与应用内的
+    # 头部 [ 对话 ][ 命令 ] 等不是一回事） ----------
     def _build_menubar(self):
         menubar = tk.Menu(self.root)
         self.root.config(menu=menubar)
 
-        # 先頭のアプリケーションメニュー(About/隠す/サービス/終了)はTk自身が
-        # バンドル名から自動で用意してくれるが、中身の文言はTk本体に
-        # コンパイル済みで埋め込まれた固定の英語で、OS言語設定にもここでの
-        # 翻訳にも反応しない(setAppleMenu:というCocoaの古いAPIでTkが自分で
-        # 登録してしまうため)。自前で"apple"という名前のメニューを追加しても
-        # マージされず、空の別メニューが並ぶだけだったので作らない。日本語化は
-        # _localize_native_app_menu() でOSネイティブメニューを直接書き換えて
-        # 行う。「終了」を選んだ時にきちんと後片付け(_on_close)されるように
-        # だけここでフックする。
+        # 最前面的应用菜单（About/隐藏/服务/退出）由 Tk 自己
+        # 按 Bundle 名自动准备，但其内容文案是编译进 Tk 本体的
+        # 固定英文，既不随 OS 语言设置变化，也不受这里的
+        # 翻译影响（Tk 用 setAppleMenu: 这个旧 Cocoa API 自行
+        # 注册）。即使自己加一个名为 "apple" 的菜单也不会
+        # 被合并，只会多出一个空菜单，所以不建。本地化交给
+        # _localize_native_app_menu() 直接改写 OS 原生菜单
+        # 完成。这里只挂钩子，保证选择「退出」时能正确
+        # 收尾（_on_close）。
         self.root.createcommand("tk::mac::Quit", self._on_close)
 
         edit_menu = tk.Menu(menubar, tearoff=0)
@@ -1584,11 +1584,11 @@ class AdvisorGUI:
         edit_menu.add_command(label=L("menu_select_all"), accelerator="Cmd-A",
                                command=self._menu_select_all)
 
-        # セッション：保存済みの会話を続ける／名前を付ける／検索する。
-        # 手で --continue などを打たなくても使えるようにするための入口。
+        # 会话：继续已保存的对话／命名／搜索。
+        # 这是不必手打 --continue 等参数的入口。
         session_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label=L("menu_session"), menu=session_menu)
-        self.session_menu = session_menu   # テストが中身を内省できるように保持する
+        self.session_menu = session_menu   # 保留下来，方便测试内省其内容
         session_menu.add_command(label=L("menu_session_continue"),
                                  command=self._session_continue_last)
         session_menu.add_command(label=L("menu_session_continue_named"),
@@ -1601,14 +1601,14 @@ class AdvisorGUI:
         session_menu.add_command(label=L("menu_session_search"),
                                  command=self._session_search)
 
-        # ツール：リモート接続の設定（キーの登録と同じく、GUIから完結させる）
+        # 工具：远程连接设置（与登记密钥一样，在 GUI 内完成）
         tools_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label=L("menu_tools"), menu=tools_menu)
         tools_menu.add_command(label=L("remote_menu"),
                                command=self._open_remote_dialog)
 
-        # name="window" にするとTkが項目を自動生成してくれるが、その中身
-        # (Minimize/Zoom等)は英語固定で翻訳できない。自前の項目にする。
+        # 若用 name="window"，Tk 会自动生成条目，但其内容
+        # （Minimize/Zoom 等）是固定英文，无法翻译。所以自建条目。
         window_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label=L("menu_window"), menu=window_menu)
         window_menu.add_command(label=L("menu_minimize"), accelerator="Cmd-M",
@@ -1638,11 +1638,11 @@ class AdvisorGUI:
             pass
 
     def _localize_native_app_menu(self):
-        # Tkが自動生成するアプリケーションメニュー(About/隠す/サービス/終了)
-        # の中身は英語固定でTkからは書き換えられない(_build_menubar内の説明
-        # 参照)。pyobjc(py2appビルド時のみ同梱)が使える場合だけ、OSの
-        # ネイティブメニューを直接書き換えて日本語化する。無い環境では何も
-        # せず英語のまま(壊れはしない)。
+        # Tk 自动生成的应用菜单（About/隐藏/服务/退出）
+        # 内容是固定英文，无法通过 Tk 改写（见 _build_menubar 内的说明）。
+        # 只有能用 pyobjc（仅在 py2app 构建时随包）时，
+        # 才直接改写 OS 原生菜单来做本地化。没有的环境什么都不做，
+        # 保持英文（不会坏掉）。
         if LANG != "ja":
             return
         try:
@@ -1678,14 +1678,14 @@ class AdvisorGUI:
         self.bar = tk.Frame(self.root)
         self.bar.pack(fill=tk.X)
 
-        # ヘッダーのボタン類は tk.Button/Menubutton だと macOS が独自の
-        # 見た目(枠付きの部品)を勝手に描いてしまい、relief や色を変えても
-        # 反映されない。tk.Label + クリックの組み合わせにすると、Tk自身が
-        # 描画するので好きな見た目(会話タブと同じ手書き風)にできる。
+        # 头部按钮若用 tk.Button/Menubutton，macOS 会自作主张
+        # 画出自己的外观（带边框的部件），即使改 relief 或颜色也
+        # 不生效。改用 tk.Label + 点击的组合，则由 Tk 自己
+        # 绘制，可以做成任意外观（与对话标签页相同的手写风）。
         self.tab_chat = tk.Label(self.bar, text=L("tab_chat"), cursor=_pointing_cursor(), padx=3)
         self.tab_chat.bind("<Button-1>", lambda e: self._show_pane("chat"))
-        # 左端の余白を赤線の始まり(padx=56)に合わせる(右端のボタン群を
-        # 揃えたのと同じ考え方)。
+        # 左侧留白与红线的起点（padx=56）对齐（与右侧按钮组
+        # 对齐的思路相同）。
         self.tab_chat.pack(side=tk.LEFT, padx=(56, 1), pady=2)
         self.tab_cmd = tk.Label(self.bar, text=L("tab_cmd"), cursor=_pointing_cursor(), padx=3)
         self.tab_cmd.bind("<Button-1>", lambda e: self._show_pane("cmd"))
@@ -1694,7 +1694,7 @@ class AdvisorGUI:
         self.model_lbl = tk.Label(self.bar, textvariable=self.model_label_var)
         self.model_lbl.pack(side=tk.LEFT, padx=10, pady=6)
 
-        # 見た目・AI切替・続きから、の3つも同じ理由で tk.Label + クリックに
+        # 外观、AI 切换、从上次继续这三项也同样用 tk.Label + 点击处理，
         self.theme_btn = tk.Label(self.bar, cursor=_pointing_cursor(), padx=8, pady=2)
         self.theme_menu = tk.Menu(self.theme_btn, tearoff=0)
         self.theme_btn.bind("<Button-1>", lambda e: self._popup_menu(self.theme_menu, self.theme_btn))
@@ -1703,11 +1703,11 @@ class AdvisorGUI:
             self.theme_menu.add_radiobutton(
                 label=theme_label(spec), value=key, variable=self._theme_choice,
                 command=lambda k=key: self._choose_theme(k))
-        # 右端の余白を赤線の終わり(padx=56)に合わせる。ここが一番右端の
-        # ボタンなので、右側だけ追加で余白を足す。
+        # 右侧留白与红线的终点（padx=56）对齐。这里是最右边的
+        # 按钮，所以右侧额外再加一点留白。
         self.theme_btn.pack(side=tk.RIGHT, padx=(6, 56), pady=3)
 
-        # 幅は固定せず文字なりに(固定幅にすると文字が欠けて矢印と重なるため)
+        # 不固定宽度，随文字长度（固定宽度会截断文字并与箭头重叠）
         self.switch_btn = tk.Label(self.bar, text=L("switch_btn"), cursor=_pointing_cursor(),
                                    padx=8, pady=2)
         self.switch_menu = tk.Menu(self.switch_btn, tearoff=0)
@@ -1719,8 +1719,8 @@ class AdvisorGUI:
         self.hist_btn.bind("<Button-1>", lambda e: self._write({"t": "list_history"}))
         self.hist_btn.pack(side=tk.RIGHT, padx=6, pady=3)
 
-        # 交互モードの切替。いま何モードかが常に見えていないと、
-        # 「勝手に確認なしで走った」と受け取られる（黙って挙動が変わるのが一番悪い）。
+        # 交互模式切换。必须随时能看出当前是哪个模式，
+        # 否则会被理解成「没确认就自己跑了」（悄悄改变行为最糟）。
         self.mode_btn = tk.Label(self.bar, text=L("mode_btn"), cursor=_pointing_cursor(),
                                  padx=8, pady=2)
         self.mode_menu = tk.Menu(self.mode_btn, tearoff=0)
@@ -1733,57 +1733,57 @@ class AdvisorGUI:
         self.mode_btn.bind("<Button-1>", lambda e: self._popup_menu(self.mode_menu, self.mode_btn))
         self.mode_btn.pack(side=tk.RIGHT, padx=6, pady=3)
 
-        # 常設のバッジ（bypass のときは色を変える）。
+        # 常设徽标（bypass 时改变颜色）。
         self.mode_badge = tk.Label(self.bar, text="", cursor=_pointing_cursor(), padx=6, pady=2)
         self.mode_badge.pack(side=tk.RIGHT, padx=(6, 0), pady=3)
         self._mode_key = "default"
         self._mode_writable = []
 
-        # ヘッダー下の細い罫線(共通)。
+        # 头部下方的细线（通用）。
         self.hdr_rule = tk.Frame(self.root, height=1)
         self.hdr_rule.pack(side=tk.TOP, fill=tk.X, padx=56)
 
-        # 会話ペインとコマンドペインは同じ場所に重ねて置き、切り替えは
-        # pack_forget/pack でなく tkraise で行う。pack_forget は中の
-        # 罫線・穴のFrameを含めて全部いったんアンマップするようで、
-        # 古いMacだと切り替えに何秒もかかっていた(tkraiseなら重ねた
-        # まま前後を入れ替えるだけで済む)。
+        # 对话面板与命令面板叠放在同一位置，切换用
+        # tkraise 而不是 pack_forget/pack。pack_forget 似乎会把
+        # 其中的分隔线与孔洞 Frame 一并全部解除映射，
+        # 在旧 Mac 上切换要花好几秒（用 tkraise 只需交换叠放
+        # 顺序即可）。
         self.pane_host = tk.Frame(self.root)
         self.pane_host.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        # ================= 会話ペイン =================
+        # ================= 对话面板 ================= 
         self.chat_pane = tk.Frame(self.pane_host)
         self.chat_pane.place(relx=0, rely=0, relwidth=1, relheight=1)
 
-        # ステータスバー。最下段、常に2行ぶんの高さを確保する
-        # (pack_propagate(False)で中身の量に関わらず高さを保つ)。
+        # 状态栏。最下方，始终保证 2 行的高度
+        # （用 pack_propagate(False) 让高度不随内容多少变化）。
         self.status_frame = tk.Frame(self.chat_pane)
         self.status_frame.pack(side=tk.BOTTOM, fill=tk.X)
         self.status_frame.pack_propagate(False)
         self.status_lbl = tk.Label(self.status_frame, textvariable=self.status_var,
                                    anchor=tk.NW, justify=tk.LEFT)
-        # 左端を赤線(上のin_ruleと同じpadx=56)の始まりに合わせる。
+        # 左端与红线（与上面的 in_rule 相同的 padx=56）起点对齐。
         self.status_lbl.pack(fill=tk.BOTH, expand=True, padx=(56, 0))
 
         self.in_rule = tk.Frame(self.chat_pane, height=1)
         self.in_rule.pack(side=tk.BOTTOM, fill=tk.X, padx=56)
 
-        # 書き込み欄。以前のような枠付きの箱+送信ボタンではなく、ノートの
-        # 続きに見える4行ぶんの領域(罫線・穴もノート本文と共通)。
-        # Enterで送信、Shift+Enterで改行。
+        # 书写区。不再是以前那种带边框的框 + 发送按钮，而是看起来像
+        # 笔记延续的 4 行区域（分隔线与孔洞也与笔记正文相同）。
+        # Enter 发送，Shift+Enter 换行。
         self.write_row = tk.Frame(self.chat_pane)
-        # ★ 入力欄と会話欄は**別の面**だと分かるようにする。
-        #   以前は本文と同じ背景で「地続き」に見せていたが、どこに打てば
-        #   いいのか分からない、という指摘が出たので区切る。
+        # ★ 让输入区和对话区看起来是**两个不同的面**。
+        #   以前与正文同背景，显得「连成一片」，但有人指出
+        #   不知道在哪里输入，因此分隔开。
         self.write_row.pack(side=tk.BOTTOM, fill=tk.X)
         self.write_sep = tk.Frame(self.chat_pane, height=1)
         self.write_sep.pack(side=tk.BOTTOM, fill=tk.X)
         self.write_holes = tk.Canvas(self.write_row, width=36, highlightthickness=0)
         self.write_holes.pack(side=tk.LEFT, fill=tk.Y)
         self.write_holes.bind("<Configure>", lambda e: self._request_draw_holes())
-        # 右端の手前(4文字ぶん)で折り返すための余白。固定サイズなので、
-        # write_zone(expand=True)より先にpackして場所を確保しておく
-        # (send_btnの件と同じ理由。順番を逆にすると場所が残らない)。
+        # 在靠右端（4 个字符处）折行用的留白。尺寸固定，所以要
+        # 在 write_zone(expand=True) 之前 pack 以确保位置
+        # （与 send_btn 同理。顺序颠倒的话就留不出空隙）。
         self.write_pad_right = tk.Frame(self.write_row, width=1)
         self.write_pad_right.pack(side=tk.RIGHT, fill=tk.Y)
         self.write_zone = tk.Text(self.write_row, height=4, wrap=tk.CHAR,
@@ -1791,9 +1791,9 @@ class AdvisorGUI:
                                   padx=18, pady=0)
         self.write_zone.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.write_zone.bind("<Return>", self._on_return)
-        # プレースホルダー(矢印)は <<Modified>> (中身が実際に変わった後の
-        # 通知)で消す。<Key> で消すとIMEの変換前の生入力に割り込み、
-        # 1文字目だけ英字のまま入ってしまう不具合が過去にあったため。
+        # 占位符（箭头）在 <<Modified>>（内容实际变化后的
+        # 通知）时清除。若用 <Key> 清除会打断 IME 转换前的原始输入，
+        # 过去曾有只有第一个字符按英文字母输入的故障。
         self.write_zone.bind("<<Modified>>", self._write_on_modified)
         self.write_zone.bind("<Button-1>", self._write_click_clear)
         self.write_zone.bind("<FocusOut>", self._write_focus_out)

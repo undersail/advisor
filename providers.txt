@@ -1,12 +1,12 @@
-# Advisor のプロバイダ表 / Advisor providers / Advisor 厂商表
+# Advisor providers / Advisor 厂商表
 #
-# provider|key_env|default_model|key_url|日本語|English|中文
+# provider|key_env|default_model|key_url|ja|en|zh
 #
-# ・GUI の初回画面とモデルメニューがこれを読む(コードにURLやキー名を書かない)
-# ・key_env / default_model は agent/claude-agent.pl の %PROVIDERS と一致必須
-#   (scripts/check-models.py がCIで突き合わせる)
-# ・key_url は「キーを取得するページ」。各社のコンソールは予告なく変わるので、
-#   変わったらこの1行だけ直せば GUI も追従する。
+# GUI 首屏和模型菜单读这个文件（代码里不要写 URL 和 key 名）
+# key_env / default_model 必须与 agent/claude-agent.pl 的 %PROVIDERS 一致
+#   (scripts/check-models.py 在 CI 里比对)
+# key_url 是「去哪申请 key」的页面。各家控制台地址会不打招呼就变，
+# 变了只改这一行，GUI 自动跟上。
 anthropic|ANTHROPIC_API_KEY|claude-sonnet-5|https://console.anthropic.com/|Anthropic (Claude)|Anthropic (Claude)|Anthropic (Claude)
 gemini|GEMINI_API_KEY|gemini-3.5-flash-lite|https://aistudio.google.com/apikey|Google (Gemini)|Google (Gemini)|Google (Gemini)
 openai|OPENAI_API_KEY|gpt-4o|https://platform.openai.com/api-keys|OpenAI|OpenAI|OpenAI

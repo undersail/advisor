@@ -1,33 +1,33 @@
 #!/bin/bash
-# setup.sh — high_sierra_claude (advisor) のセットアップスクリプト
+# setup.sh — high_sierra_claude (advisor) 安装脚本
 #
-# 対象: Mavericks(10.9)〜High Sierra(10.13)以降のIntel Mac(Tier B)。
-# これらは標準のcurlが既にTLS1.2に対応しているため、追加のビルドなしで
-# そのまま使える。もし ~/claude-toolchain (ppc_claude_cli と同じ手順で
-# ビルドしたTLS対応curl/OpenSSL、Tier A=Snow Leopard〜Mountain Lion向け)
-# が既にあれば、そちらを自動的に優先して使う。
+# 目标: Mavericks(10.9) 至 High Sierra(10.13) 及之后的 Intel Mac(Tier B)。
+# 这些系统自带的 curl 已支持 TLS 1.2，因此不需要额外编译即可直接使用。
+# 若本机已有 ~/claude-toolchain（按 ppc_claude_cli 同样步骤编译出的
+# 支持 TLS 的 curl/OpenSSL，Tier A = Snow Leopard 至 Mountain Lion 用），
+# 则自动优先使用它。
 #
-# やること:
-#   1. 使うAI(Gemini / Anthropic)の選択
-#   2. APIキーの案内と安全な入力・保存 (~/.claude-agent-env)
-#   3. claude-agent.pl と models.txt を ~/claude-build/ に配置
-#   4. ~/bin/advisor ラッパーコマンドの設置
-#   5. bash補完の設置 (~/.bash_profile から source)
-#   6. ダブルクリック用 Advisor.app (GUI) の生成 (~/Applications)
-#   7. 実際にAPIを叩いて疎通確認
+# 本脚本做的事:
+#   1. 选择要用的 AI(Gemini / Anthropic)
+#   2. 引导输入并安全保存 API 密钥 (~/.claude-agent-env)
+#   3. 把 claude-agent.pl 与 models.txt 放到 ~/claude-build/
+#   4. 安装 ~/bin/advisor 包装命令
+#   5. 安装 bash 补全（从 ~/.bash_profile source）
+#   6. 生成可双击启动的 Advisor.app (GUI)（~/Applications）
+#   7. 真正调一次 API 做连通性检查
 #
-# 日英対応: ダウンロードの7割が海外ユーザーとのことで必須になった。
-# GUI(advisor_gui.py)・エージェント(claude-agent.pl)と同じく、macOSの
-# システム言語設定を直接見て判定する(LANG環境変数はSSH/GUI起動時に
-# あてにならないことがあるため)。bash 3.2(旧Macの標準)には連想配列が
-# 無いので、msg()内のcase文で日英を切り替える方式にしている。
+# 多语言: 下载用户约七成在海外，所以多语言是必需的。
+# 与 GUI(advisor_gui.py)、agent(claude-agent.pl) 一样，直接读 macOS 的
+# 系统语言设置来判定(LANG 环境变量在 SSH/GUI 启动时
+# 并不可靠)。bash 3.2(旧 Mac 的标配)没有关联数组，
+# 所以用 msg() 里的 case 分支切换语言。
 
 set -e
 
 # --- 言語判定 ---
-# CLAUDE_LANG=en/ja があれば最優先(システム言語を変えずに英語表示を
-# 確認したいとき用)。例: CLAUDE_LANG=en bash setup.sh
-# 表示言語を 3 値で持つ(ja / en / zh)。IS_EN は既存コードとの互換のため残す。
+# 有 CLAUDE_LANG=en/ja 时最优先(用于不改系统语言、
+# 只想确认英文显示的情况)。例: CLAUDE_LANG=en bash setup.sh
+# 显示语言用 3 个值表示(ja / en / zh)。IS_EN 为兼容既有代码而保留。
 LANGCODE="zh"
 case "${CLAUDE_LANG:-}" in
   en*) LANGCODE="en" ;;
@@ -48,13 +48,13 @@ esac
 IS_EN=0
 [ "$LANGCODE" = "en" ] && IS_EN=1
 
-# msg <key> [printf-args...]: キーに対応する文言を表示する。
-# 中国語(既定) → 英語 → 日本語 の順にフォールバックする。
-# 訳し漏れがあっても壊れず、既存の en/ja 表示は一切変わらない。
+# msg <key> [printf-args...]: 输出 key 对应的文案。
+# 按 中文(默认) → 英文 → 日文 的顺序回退。
+# 漏译也不会崩，既有的 en/ja 显示完全不变。
 msg() {
   local key="$1"; shift
   local fmt=""
-  # 中国語。未命中は空のままにして en/ja へフォールバックさせる。
+  # 中文。未命中时保持为空，让它回退到 en/ja。
   if [ "$LANGCODE" = "zh" ]; then
     case "$key" in
       err_no_providers) fmt="找不到厂商表：%s（providers.txt 必须和 setup.sh 放在一起）" ;;
@@ -99,7 +99,7 @@ msg() {
       created_app) fmt="已创建 %s（双击即可启动 GUI，不会打开终端）。" ;;
       created_app_hint) fmt="  拖到 Dock 或桌面上，下次就能一键打开。" ;;
       building_app) fmt="正在构建 Advisor.app（首次需要一点时间）…" ;;
-      building_app_clt) fmt="正在安装 Xcode Command Line Tools（仅首次・约 190MB，签名应用需要它）…" ;;
+      building_app_clt) fmt="正在安装 Xcode Command Line Tools（仅首次，约 190MB，签名应用需要它）…" ;;
       app_build_fallback) fmt="没能构建成正式应用，改为生成简易版（菜单栏里的应用名会显示为「Python」）。" ;;
       checking_api) fmt="正在测试 API 连通性…" ;;
       api_ok) fmt="连通性正常。准备就绪。" ;;
@@ -242,7 +242,7 @@ y で続行、Enter だけで %s のままにします: " ;;
 }
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# バージョンの出所はリポジトリ直下の VERSION ファイルだけ。
+# 版本号的唯一来源是仓库根目录的 VERSION 文件。
 APP_VERSION="$(cat "$SCRIPT_DIR/VERSION" 2>/dev/null | tr -d ' \t\r\n')"
 [ -z "$APP_VERSION" ] && APP_VERSION="0.0.0-dev"
 ENV_FILE="$HOME/.claude-agent-env"
@@ -279,7 +279,7 @@ if [ -n "${ADVISOR_SETUP_VERBOSE:-}" ]; then
   msg perl_reported "$PERL_VER"
 fi
 
-# ~/.claude-agent-env の1行を差し替える(無ければ追記)
+# 替换 ~/.claude-agent-env 里的一行(没有就追加)
 upsert_env() {
   local var="$1" val="$2"
   touch "$ENV_FILE"
@@ -289,7 +289,7 @@ upsert_env() {
   chmod 600 "$ENV_FILE"
 }
 
-# Tier A の自前ビルドtoolchainがあればそちらを使い、無ければ標準curlを使う
+# 有 Tier A 自编译 toolchain 就用它，没有就用系统自带的 curl
 if [ -x "$HOME/claude-toolchain/bin/curl" ]; then
   CURL_BIN="$HOME/claude-toolchain/bin/curl"
   CACERT="$HOME/claude-toolchain/cacert.pem"
@@ -304,12 +304,12 @@ echo ""
 msg title
 echo ""
 
-# 既存の設定を読み込んでおく(キーの使い回し判定に使う)
+# 先读入已有配置(用于判断能否复用密钥)
 [ -f "$ENV_FILE" ] && . "$ENV_FILE" 2>/dev/null || true
 
-# --- 1. 使うAIを選ぶ ---
-# ベンダーの一覧・キー変数名・既定モデル・キー取得URLは providers.txt が唯一の
-# 出所。GUI とまったく同じファイルを読む（ここにベンダー名を書き足さない）。
+# --- 1. 选择要用的 AI ---
+# 厂商清单、密钥变量名、默认模型、取密钥的 URL 都以 providers.txt
+# 为唯一来源。与 GUI 读的是同一个文件（不要在这里补厂商名）。
 PROVIDERS_FILE="$SCRIPT_DIR/providers.txt"
 if [ ! -f "$PROVIDERS_FILE" ]; then
   msg err_no_providers "$PROVIDERS_FILE"
@@ -342,8 +342,8 @@ if [ "$P_COUNT" -eq 0 ]; then
   exit 1
 fi
 
-# 既にあるキーと、いま使っている AI を先に調べる（重ねて入れ直す事故を防ぐ）。
-# 値そのものは表示しない —— 「あるか無いか」だけ。
+# 先查已有密钥和当前正在用的 AI（避免重复覆盖造成事故）。
+# 不显示值本身 —— 只说「有还是没有」。
 _CUR_PROVIDER="${CLAUDE_PROVIDER:-}"
 _CUR_CHOICE=0
 _FIRST_KEYED=0
@@ -391,9 +391,9 @@ if [ "$PROVIDER_CHOICE" -lt 1 ] || [ "$PROVIDER_CHOICE" -gt "$P_COUNT" ]; then
   exit 1
 fi
 
-# 別の厂商（キー未設定）に切り替えようとしている場合だけ一度だけ確認する。
-# 何も言わずに CLAUDE_PROVIDER を書き換えると、貼ったキーが別の厂商のもので
-# 落ちて「キーが無効になった」ように見える。
+# 只有在要切到另一家厂商（还没配密钥）时才确认一次。
+# 若一声不吭就改 CLAUDE_PROVIDER，粘进来的密钥属于另一家会
+# 直接失败，看起来像「密钥失效了」。
 if [ "$_CUR_CHOICE" -gt 0 ] \
    && [ "$PROVIDER_CHOICE" -ne "$_CUR_CHOICE" ] \
    && [ "${P_HASKEY[$PROVIDER_CHOICE]}" != "1" ]; then
@@ -409,9 +409,9 @@ PROVIDER="${P_NAME[$PROVIDER_CHOICE]}"
 KEY_VAR="${P_KENV[$PROVIDER_CHOICE]}"
 DEFAULT_MODEL="${P_DMODEL[$PROVIDER_CHOICE]}"
 
-# 環境ファイルには前の厂商の CLAUDE_MODEL が残っていることがある（厂商を変えたら
-# そのモデル名は必ず無効）。属していないモデル名で叩くと 400 になり、
-# 「キーが違う」と誤解させるので、ここで必ず整合させる。
+# 环境文件里可能残留上一家厂商的 CLAUDE_MODEL（换了厂商后
+# 那个模型名一定无效）。用不属于该厂商的模型名去请求会 400，
+# 让人误以为「密钥不对」，所以这里必须对齐。
 _MODEL_RESET=0
 if [ -n "${CLAUDE_MODEL:-}" ]; then
   if ! awk -F'|' -v m="$CLAUDE_MODEL" -v p="$PROVIDER" \
@@ -431,8 +431,8 @@ KEY_PAGE="${P_URL[$PROVIDER_CHOICE]}"
 msg using_provider "$PROVIDER"
 echo ""
 
-# --- 2. APIキー ---
-# 既にそのプロバイダのキーが保存済みなら、それを使う
+# --- 2. API 密钥 ---
+# 该厂商的密钥已保存过就直接用它
 EXISTING_KEY="$(eval "printf '%s' \"\${$KEY_VAR}\"")"
 if [ -n "$EXISTING_KEY" ]; then
   msg reuse_key "$KEY_VAR"
@@ -440,9 +440,9 @@ if [ -n "$EXISTING_KEY" ]; then
   API_KEY="$EXISTING_KEY"
   echo ""
 else
-  # 厂商ごとの「何をクリックするか」の手順は書かない —— 各社のコンソールは
-  # 予告なく変わるし、7社ぶん×3言語で持つと必ず腐る。取得ページのURLだけ
-  # providers.txt から出して、あとは README に任せる。
+  # 不写每家厂商「该点哪里」的步骤 —— 各家的控制台
+  # 会毫无预告地改版，7 家 × 3 种语言写下来必然腐烂。只从
+  # providers.txt 取密钥页面的 URL，其余交给 README。
   msg key_intro_generic "${P_LABEL[$PROVIDER_CHOICE]}"
   msg key_where "$KEY_PAGE"
   echo ""
@@ -486,28 +486,28 @@ if [ -n "${CLAUDE_MODEL:-}" ]; then
   upsert_env "CLAUDE_MODEL" "$CLAUDE_MODEL"
 fi
 
-# --- 3. エージェント本体を配置 ---
+# --- 3. 放置 agent 本体 ---
 mkdir -p "$BUILD_DIR"
 cp "$SCRIPT_DIR/agent/claude-agent.pl" "$BUILD_DIR/claude-agent.pl"
 cp "$SCRIPT_DIR/models.txt" "$BUILD_DIR/models.txt"
 cp "$SCRIPT_DIR/providers.txt" "$BUILD_DIR/providers.txt"
 [ -f "$SCRIPT_DIR/gui/advisor_gui.py" ] && cp "$SCRIPT_DIR/gui/advisor_gui.py" "$BUILD_DIR/advisor_gui.py"
 [ -f "$SCRIPT_DIR/launcher/advisor.png" ] && cp "$SCRIPT_DIR/launcher/advisor.png" "$BUILD_DIR/advisor.png"
-# remote/ も一緒に置く。GUI のリモートパネルはここから wecom-ws.pl を探すので、
-# 置き忘れると「找不到 wecom-ws.pl」で起動できない（実機で出た）。
+# 连 remote/ 一起放。GUI 的远程面板要从这里找 wecom-ws.pl，
+# 忘了放就会「找不到 wecom-ws.pl」而无法启动（真机上出现过）。
 if [ -d "$SCRIPT_DIR/remote" ]; then
   mkdir -p "$BUILD_DIR/remote"
   cp "$SCRIPT_DIR"/remote/*.pl "$BUILD_DIR/remote/" 2>/dev/null || true
 fi
 msg placed_files "$BUILD_DIR"
 
-# --- 4. advisor コマンド(ラッパー)の設置 ---
+# --- 4. 安装 advisor 命令(包装脚本) ---
 mkdir -p "$BIN_DIR"
 WRAP_IS_EN="$IS_EN"
 WRAP_LANGCODE="$LANGCODE"
 cat > "$BIN_DIR/advisor" << WRAPEOF
 #!/bin/bash
-# advisor — high_sierra_claude ラッパーコマンド (setup.sh が自動生成)
+# advisor — high_sierra_claude 包装命令 (由 setup.sh 自动生成)
 set -e
 
 ENV_FILE="$ENV_FILE"
@@ -516,8 +516,8 @@ PROVIDERS_FILE="$BUILD_DIR/providers.txt"
 AGENT_SCRIPT="$BUILD_DIR/claude-agent.pl"
 CURL_BIN="$CURL_BIN"
 CACERT="$CACERT"
-# CLAUDE_LANG=en/ja がその場で指定されていればそちらを優先し、
-# 無ければセットアップ時に判定した言語を使う。
+# 命令行当场指定了 CLAUDE_LANG=en/ja 就优先用它，
+# 否则用安装时判定的语言。
 case "\${CLAUDE_LANG:-}" in
   en*) LANGCODE="en" ;;
   ja*) LANGCODE="ja" ;;
@@ -527,12 +527,12 @@ esac
 IS_EN=0
 [ "\$LANGCODE" = "en" ] && IS_EN=1
 
-# 端末の文字コードを UTF-8 に固定する。これが C ロケール等になっていると、
-# 素の行入力(canonical mode)で日本語1文字(3バイト)をtty側が1バイト単位で
-# 扱ってしまい、Backspace でカーソルと文字の位置がずれる・数文字先を消す、
-# という現象になる。Terminal の設定に依存せず必ず UTF-8 にする。
+# 把终端字符编码固定为 UTF-8。若是 C locale 之类，
+# 原始行输入(canonical mode)下中文一个字(3 字节)会被 tty 按字节
+# 处理，Backspace 时光标与文字位置错开、还会连前面的字一起删掉。
+# 所以不依赖 Terminal 的设置，一律用 UTF-8。
 if [ -z "\$LANG" ] || [ "\${LANG#*.}" = "\$LANG" ]; then
-  # 端末の文字コードは表示言語に合わせる(zh のとき ja_JP を避ける)
+  # 终端字符编码跟随显示语言(zh 时避开 ja_JP)
   if [ "\$LANGCODE" = "zh" ]; then export LANG="zh_CN.UTF-8"; else export LANG="ja_JP.UTF-8"; fi
 fi
 export LC_CTYPE="\${LC_CTYPE:-\$LANG}"
@@ -607,7 +607,7 @@ EOF
 }
 
 list_models() {
-  # models.txt は id|日本語|English|中文。LANGCODE に応じて列を選ぶ。
+  # models.txt 是 id|日文|English|中文。按 LANGCODE 选列。
   if [ "\$LANGCODE" = "zh" ]; then
     awk -F'|' '{printf "  %-32s %s\n", \$1, (\$4 != "" ? \$4 : \$2)}' "\$MODELS_FILE"
   elif [ "\$IS_EN" = "1" ]; then
@@ -617,8 +617,8 @@ list_models() {
   fi
 }
 
-# モデルID → プロバイダ。models.txt の provider 列が唯一の出所
-# （以前は「gemini で始まれば gemini、それ以外は anthropic」という2社前提だった）
+# 模型 ID → 厂商。models.txt 的 provider 列是唯一来源
+# （以前是「gemini 开头算 gemini，其余算 anthropic」这种只考虑两家的假设）
 provider_of() {
   local _p
   _p="\$(awk -F'|' -v m="\$1" '\$1==m && \$5!="" {print \$5; exit}' "\$MODELS_FILE" 2>/dev/null)"
@@ -626,15 +626,15 @@ provider_of() {
   echo "\$_p"
 }
 
-# プロバイダ → キーの環境変数名（providers.txt から引く）
+# 厂商 → 密钥的环境变量名（从 providers.txt 里查）
 keyvar_of() {
   local _k
   _k="\$(awk -F'|' -v p="\$1" '\$1==p {print \$2; exit}' "\$PROVIDERS_FILE" 2>/dev/null)"
   echo "\$_k"
 }
 
-# 使うAIを選ぶ。引数に番号があれば非対話。CLAUDE_MODEL と CLAUDE_PROVIDER を
-# セットで書き換えるので「Geminiのモデルを選んだのに中身はClaudeのまま」が起きない。
+# 选择要用的 AI。带编号参数时走非交互。CLAUDE_MODEL 与 CLAUDE_PROVIDER
+# 成对改写，所以不会出现「选了 Gemini 的模型、内容却还是 Claude」的情况。
 select_model() {
   local want="\$1"
   local i=1
@@ -678,15 +678,15 @@ select_model() {
   local keyvar
   keyvar="\$(keyvar_of "\$prov")"
   if [ -z "\$keyvar" ]; then
-    # providers.txt に無いプロバイダ（ユーザーが自分で足した等）はここで諦める
+    # providers.txt 里没有的厂商（用户自己加的等）在这里放弃
     if [ "\$LANGCODE" = "zh" ]; then echo "※ providers.txt 里没有 \$prov 的密钥定义。"
     elif [ "\$IS_EN" = "1" ]; then echo "※ providers.txt has no key entry for \$prov."
     else echo "※ providers.txt に \$prov のキー定義がありません。"; fi
     return 0
   fi
   if ! grep -q "^export \$keyvar=" "\$ENV_FILE"; then
-    # 会話中のコマンド名はプロバイダ名そのもの（/deepseek /qwen ...）。
-    # anthropic だけは昔の指の記憶に合わせて /claude を案内する。
+    # 会话内的命令名就是厂商名本身（/deepseek /qwen ...）。
+    # 只有 anthropic 按老用户的习惯提示 /claude。
     local slash="\$prov"
     [ "\$prov" = anthropic ] && slash=claude
     if [ "\$LANGCODE" = "zh" ]; then
@@ -702,9 +702,9 @@ select_model() {
 PERL_ARGS=()
 while [ \$# -gt 0 ]; do
   raw="\$1"
-  # ダッシュの数(- でも -- でも無しでも)や大文字小文字を気にしなくて
-  # いいように正規化してから判定する。--version か -version か version か、で
-  # 迷って挫折しないように。
+  # 先把短横线的个数(- 或 -- 或没有)和大小写归一化
+  # 再判断，这样 --version、-version、version 都不会
+  # 让人犹豫或放弃。
   norm="\$(printf '%s' "\$raw" | sed 's/^-*//' | tr 'A-Z' 'a-z')"
   case "\$norm" in
     "") shift ;;
@@ -712,7 +712,7 @@ while [ \$# -gt 0 ]; do
     v|version) echo "advisor (high_sierra_claude) $APP_VERSION"; exit 0 ;;
     list-models|listmodels|models) list_models; exit 0 ;;
     select-model|selectmodel|select)
-      # 設定だけして終了する(起動は次に 'advisor' と打てばよい)
+      # 只写配置就退出(下次打 'advisor' 即启动)
       if [ -n "\$2" ] && [ "\$2" -eq "\$2" ] 2>/dev/null; then
         select_model "\$2"
       else
@@ -721,7 +721,7 @@ while [ \$# -gt 0 ]; do
       exit 0
       ;;
     [0-9]|[0-9][0-9])
-      # 「advisor 3」= 3番のAIにして起動
+      # 「advisor 3」= 切到第 3 个 AI 并启动
       select_model "\$norm"; shift ;;
     gui|window|app)
       PERL_ARGS[\${#PERL_ARGS[@]}]="--gui"; shift ;;
@@ -779,7 +779,7 @@ fi
 WRAPEOF
 chmod +x "$BIN_DIR/advisor"
 msg created_wrapper "$BIN_DIR/advisor"
-# 旧名(claude)が残っていれば片付ける
+# 旧名(claude)若还在就清掉
 [ -e "$BIN_DIR/claude" ] && rm -f "$BIN_DIR/claude" && msg removed_old_wrapper "$BIN_DIR/claude"
 
 # 把 $HOME/bin 加进 PATH，并**验证真的生效**。
@@ -809,13 +809,13 @@ case "${SHELL:-}" in
   *zsh*) path_ensure "$HOME/.zprofile" ;;
 esac
 
-# --- 5. bash補完の設置 ---
+# --- 5. 安装 bash 补全 ---
 cp "$SCRIPT_DIR/completion/advisor-completion.bash" "$COMPLETION_FILE"
 if ! grep -qF "source $COMPLETION_FILE" "$HOME/.bash_profile" 2>/dev/null; then
   echo "source $COMPLETION_FILE" >> "$HOME/.bash_profile"
   msg installed_completion "$COMPLETION_FILE"
 fi
-# 旧補完(claude)の後始末
+# 清理旧的补全(claude)
 if [ -f "$HOME/.claude-completion.bash" ]; then
   grep -v "source $HOME/.claude-completion.bash" "$HOME/.bash_profile" > "$HOME/.bash_profile.tmp" 2>/dev/null && mv "$HOME/.bash_profile.tmp" "$HOME/.bash_profile" || true
   rm -f "$HOME/.claude-completion.bash"
@@ -828,14 +828,14 @@ else
 fi
 echo ""
 
-# --- 6. ダブルクリック用 Advisor.app (GUI) の生成 ---
-# py2appで単体アプリとしてビルドする。python3を直接execするだけの簡易版だと
-# メニューバー/DockにOS標準の「Python」という表示が出てしまう(python.org
-# 配布のpython3実行ファイル自体にその名前が埋め込まれており、シェルスクリプト
-# 経由のexecでは上書きできないため)。py2appでビルドすると実行ファイル自体が
-# バンドル内に生成され、正しく「Advisor」と表示される。
-# ビルドに失敗した場合(ネットワーク不通など)は簡易版にフォールバックする
-# (動作は変わらず、メニューバー表示だけ「Python」のままになる)。
+# --- 6. 生成可双击启动的 Advisor.app (GUI) ---
+# 用 py2app 构建成独立应用。只 exec python3 的简易版会让
+# 菜单栏/Dock 显示系统默认的「Python」(python.org
+# 分发的 python3 可执行文件本身就带这个名字，
+# 经由 shell 脚本 exec 无法覆盖)。用 py2app 构建时可执行文件本身
+# 生成在 bundle 内，才能正确显示为「Advisor」。
+# 构建失败时(网络不通等)回退到简易版
+# (行为不变，只是菜单栏显示仍是「Python」)。
 # python3 的查找：每个候选都必须**真能执行**才算数。
 # 以前的写法最后一路兜底写死 /usr/bin/python3 —— 但 macOS 12.3 起只有在装了
 # Xcode Command Line Tools 之后才有这个 stub，于是「兜底」兜到一个不存在的路径：
@@ -909,8 +909,8 @@ PLISTEOF
 }
 
 build_advisor_app_py2app() {
-  # コード署名にXcode Command Line Toolsが要る。無ければその場で導入する
-  # (softwareupdateはこの用途では管理者権限が無くても実行できる)。
+  # 代码签名需要 Xcode Command Line Tools。没有就当场安装
+  # (softwareupdate 用于这个目的时不需要管理员权限也能跑)。
   if ! xcode-select -p >/dev/null 2>&1; then
     msg building_app_clt
     touch /tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress
@@ -921,9 +921,9 @@ build_advisor_app_py2app() {
     xcode-select -p >/dev/null 2>&1 || return 1
   fi
 
-  # pyobjc-framework-Cocoa はメニューバーのAbout/隠す/サービス/終了といった
-  # Tk自身が固定の英語文字列で自動生成する項目を、OSのネイティブメニューへ
-  # 直接アクセスして日本語化するために使う(advisor_gui.py側で使用)。
+  # pyobjc-framework-Cocoa 用于把菜单栏里 About/隐藏/服务/退出这些
+  # Tk 自身用固定英文字符串自动生成的项，改成通过访问 OS 原生菜单
+  # 实现的本地化文案(在 advisor_gui.py 侧使用)。
   "$PY3" -m pip install --user --quiet py2app pyobjc-framework-Cocoa \
     >/tmp/advisor-py2app-install.log 2>&1 || return 1
 
@@ -999,11 +999,11 @@ else
   CACERT_OPT=()
 fi
 
-# 叩き方は「認証の形」で3種類しかない:
-#   gemini    … x-goog-api-key ヘッダ + generateContent（モデルIDをURLに埋める）
-#   anthropic … x-api-key + anthropic-version ヘッダ + /v1/messages
-#   それ以外  … Authorization: Bearer + <base_url>/chat/completions
-# この3分岐は agent/claude-agent.pl の %PROVIDERS の auth と対応している。
+# 请求方式按「认证形态」只有三种:
+#   gemini    … x-goog-api-key 头 + generateContent（模型 ID 拼进 URL）
+#   anthropic … x-api-key + anthropic-version 头 + /v1/messages
+#   其余      … Authorization: Bearer + <base_url>/chat/completions
+# 这三个分支与 agent/claude-agent.pl 里 %PROVIDERS 的 auth 相对应。
 TEST_MODEL="${CLAUDE_MODEL:-$DEFAULT_MODEL}"   # 已在上面校验为当前厂商的模型
 BASE_URL="$(awk -F'|' -v m="$TEST_MODEL" '$1==m {print $6}' "$SCRIPT_DIR/models.txt" 2>/dev/null | head -1)"
 if [ -z "$BASE_URL" ]; then

@@ -184,8 +184,8 @@ def case_session_continue():
     key3 = [a for a in r3['argv'] if a.startswith('--name=remote:')]
     check('不同发送者的键不同（各聊各的）', bool(key3) and key3[0] != names[0], str((names, key3)))
     check('发送者 ID 本身不进命令行参数', 'wxid_bob' not in ' '.join(r3['argv']), str(r3['argv']))
-    # 監査ログは従来どおり from= を残す（誰が頼んだかを追うため）。ハッシュ化するのは
-    # 「会話ファイル名と --name/--continue の鍵」だけ —— そちらには生のIDを出さない。
+    # 审计日志照旧保留 from=（要追是谁发起的）。需要哈希的只有
+    # 「会话文件名和 --name/--continue 的键」—— 那两处不能出现原始 ID。
     resume = [l for l in r3['audit'].splitlines() if 'session_resume' in l]
     check('session_resume 的键里没有原始发送者 ID',
           bool(resume) and all('wxid_bob' not in l for l in resume), str(resume))
