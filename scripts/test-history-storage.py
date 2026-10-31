@@ -50,6 +50,24 @@ def session_files(hist_dir, suffix):
     return sorted(f for f in os.listdir(hist_dir) if f.endswith(suffix))
 
 
+def case_local_only_no_key(tmp, base):
+    """本地维护命令不联网，就不该要 API key（用户实际踩到的一次）。"""
+    print('[维护命令] 没有 API key 也能转明文 / 列历史')
+    home = os.path.join(tmp, 'home-nokey')
+    os.makedirs(os.path.join(home, '.claude-agent', 'history'), exist_ok=True)
+    os.makedirs(os.path.join(home, 'tmpdir'), exist_ok=True)
+    # 只放一个「解不开的」密文 + 钥匙，用来看命令有没有被 key 挡住
+    open(os.path.join(home, '.claude-agent', 'history', 'x.json.enc'), 'w').write('nope')
+    open(os.path.join(home, '.claude-agent', 'key.enc'), 'w').write('nope-key')
+    env = {'CLAUDE_PROVIDER': 'anthropic'}      # 没有 ANTHROPIC_API_KEY
+    rc, out = run_cli(home, '--list-history', extra=env)
+    H.check('请设置' not in out, '没有 key 时 --list-history 不被「请设置」挡住', out[:200])
+    rc2, out2 = run_cli(home, '--make-plain-history', extra=env, stdin_text='whatever\n')
+    H.check('请设置' not in out2, '没有 key 时 --make-plain-history 也不被挡住', out2[:200])
+    H.check(('口令' in out2 or '打不开' in out2) and '请设置' not in out2,
+            '钥匙不对时说的是历史打不开（不是 key 的问题）', out2[:200])
+
+
 def main():
     if not os.path.exists(H.AGENT):
         H.check(False, 'agent 存在', H.AGENT)
@@ -58,6 +76,8 @@ def main():
     work = tempfile.mkdtemp(prefix='hist-')
     srv, base = H.make_server(SCRIPT)
     try:
+        case_local_only_no_key(work, base)
+
         home = os.path.join(work, 'home')
         os.makedirs(home)
         hist = os.path.join(home, '.claude-agent', 'history')

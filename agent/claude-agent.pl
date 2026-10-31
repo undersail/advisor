@@ -1086,6 +1086,11 @@ my %S = (
         ja => "%d 個の履歴を復号できませんでした（例: %s）。\n何も消していません。\n",
         en => "%d conversation(s) could not be decrypted (e.g. %s).\nNothing was deleted.\n",
         zh => "有 %d 个会话解不开（例如 %s），什么都没有删除。\n"},
+    plain_hist_backup_meta_warn => {
+        ja => "（バックアップ時に一部のメタデータは複製できませんでした。中身は問題ありません）\n",
+        en => "(some file metadata could not be copied during backup; the contents are intact)\n",
+        zh => "（备份时有部分文件元数据没复制成功，不影响内容）\n",
+    },
     plain_hist_backup_kept => {
         ja => "バックアップは残してあります: %s\n",
         en => "The backup is kept at: %s\n",
@@ -1284,6 +1289,7 @@ my $SEARCH         = '';  # --search <词>: 在已保存的对话里全文搜索
 my $RESUME         = 0;   # --resume: 选一场已保存的对话接着继续
 my $CHANGE_PASS    = 0;   # --change-passphrase: 修改历史口令后退出
 my $SET_RECOVERY   = 0;   # --set-recovery: 设置密保问题（找回口令用）后退出
+my $LOCAL_ONLY_CMD = 0;   # 只在本机跑、不联网的命令（不校验 API key）
 my $MAKE_PLAIN     = 0;   # --make-plain-history: 把已有的加密历史转成明文后退出
 my $GUI            = 0;   # --gui: 不做终端显示，改成一行一条 JSON 的输入输出
 # --tools=a,b : 收窄可用的工具（只能减，不能加）
@@ -1352,7 +1358,7 @@ for my $arg (@ARGV) {
         print "advisor (high_sierra_claude) " . app_version() . "\n";
         exit 0;
     }
-    if ($arg eq '--list-history')      { $LIST_HISTORY = 1; }
+    if ($arg eq '--list-history')      { $LIST_HISTORY = 1; $LOCAL_ONLY_CMD = 1; }
     if ($arg eq '--continue' || $arg eq '-c') { $CONTINUE = 1; }
     if ($arg =~ /^--continue=(.*)$/)   { $CONTINUE = 1; $CONTINUE_NAME = $1; }
     if ($arg =~ /^--name=(.*)$/)       { $SESSION_NAME = $1; }
@@ -1362,10 +1368,10 @@ for my $arg (@ARGV) {
     }
     if ($arg =~ /^--search=(.*)$/)     { $SEARCH = $1; }
     if ($arg eq '--resume')            { $RESUME = 1; }
-    if ($arg eq '--change-passphrase') { $CHANGE_PASS = 1; }
+    if ($arg eq '--change-passphrase') { $CHANGE_PASS = 1; $LOCAL_ONLY_CMD = 1; }
     # 把已有的加密历史切成明文（单向操作，所以只在显式调用时做）。
-    if ($arg eq '--make-plain-history') { $MAKE_PLAIN = 1; }
-    if ($arg eq '--set-recovery')      { $SET_RECOVERY = 1; }
+    if ($arg eq '--make-plain-history') { $MAKE_PLAIN = 1; $LOCAL_ONLY_CMD = 1; }
+    if ($arg eq '--set-recovery')      { $SET_RECOVERY = 1; $LOCAL_ONLY_CMD = 1; }
     if ($arg eq '--gui')               { $GUI = 1; }
     # --rpc 和 --gui 是完全相同的协议，只是按用途分了名字
     # （GUI 对面是界面，rpc 对面是程序）。
@@ -1690,7 +1696,13 @@ sub configure_provider {
     my $spec = provider_spec($provider);
 
     my $env_key = provider_info($provider, 'key_env');
-    $ENV{$env_key} or die L('need_key', $env_key);
+    if (!$ENV{$env_key}) {
+        # ★ 纯本地命令（转明文历史 / 列历史 / 改口令 / 设密保）根本不联网，
+        #   却因为「先校验密钥」被拦住 —— 用户实际踩到：--make-plain-history
+        #   打出「请设置 ANTHROPIC_API_KEY」就退了。
+        return if $LOCAL_ONLY_CMD && !$GUI;
+        die L('need_key', $env_key);
+    }
     $API_KEY = $ENV{$env_key};
 
     # CLAUDE_MODEL 跨厂商会不一致，所以只有在它以该厂商的
@@ -3031,11 +3043,27 @@ sub make_plain_history {
     my $parent = File::Basename::dirname($HISTORY_DIR);
     my $base   = File::Basename::basename($HISTORY_DIR);
     my $backup = "$parent/$base-backup-" . _timestamp();
-    my $rc = system('cp', '-R', $HISTORY_DIR, $backup);
-    if ($rc != 0 || !-d $backup) {
+    # macOS 的 cp 默认会连**扩展属性**一起拷，普通用户经常拿到
+    # 「unable to copy extended attributes … Permission denied」（实测踩到）。
+    # 历史的 JSON 根本不需要那些元数据，所以 macOS 上显式 -X 不拷。
+    my @cpargs = ('cp', '-R');
+    push @cpargs, '-X' if $^O eq 'darwin';
+    my $rc = system(@cpargs, $HISTORY_DIR, $backup);
+    # 成败不看 cp 的退出码（它会因为无关紧要的元数据报警告而返回非 0），
+    # 而是逐个数：每个 *.enc 都在、体积和源文件一致，才算备份成立。
+    my $backup_ok = (-d $backup) ? 1 : 0;
+    if ($backup_ok) {
+        for my $f (@enc) {
+            my $src = "$HISTORY_DIR/$f";
+            my $dst = "$backup/$f";
+            unless (-f $dst && (-s $dst) == (-s $src)) { $backup_ok = 0; last; }
+        }
+    }
+    if (!$backup_ok) {
         print L('plain_hist_backup_failed', $backup);
         return 1;
     }
+    print L('plain_hist_backup_meta_warn') if $rc != 0;
     chmod 0700, $backup;
 
     # 解密并写出 *.json。有一个失败就中断（不删）。

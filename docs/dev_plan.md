@@ -86,7 +86,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **205**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `agent/claude-agent.pl` → `my %S` | **206**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
 | `gui/advisor_gui.py` → `_S` | **123** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|<各语言标签>|English label` |
@@ -146,7 +146,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 补中文（现 205 条，随功能增长）
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 206 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 65 条）
@@ -841,3 +841,35 @@ seen for minutes; 60s failed closed before Telegram taps landed」；超时 = �
 
 **测试**：`test-gateway-write` 74→76（默认 295 锁死；`CONFIRM_SECS=600` → 网关等 595；
 命令行 `--confirm-wait` 压过 conf）。
+
+## 30. 本地维护命令被 API key 挡住；备份时拷扩展属性报错（v0.2.6）
+
+**用户实际输出**（Mac）：
+
+```
+$ perl ~/claude-build/claude-agent.pl --make-plain-history
+请设置 ANTHROPIC_API_KEY
+```
+
+`--make-plain-history` / `--list-history` / `--change-passphrase` / `--set-recovery`
+**根本不联网**，却在 `configure_provider()` 里因为「先校验密钥」直接 `die`。用户只能
+先随便配个 key 再回来 —— 这是纯粹的入口缺陷。
+
+**同一次输出里的第二条**（调好 key 之后）：
+
+```
+cp: /Users/…/.claude-agent/history: unable to copy extended attributes to …-backup-…: Permission denied
+cp: …/20261027-000148.json.enc: could not copy extended attributes to …
+```
+
+macOS 的 `cp` 默认连**扩展属性**一起拷，普通用户经常 EPERM。原来的判断是
+`system('cp','-R',…)` 退出码非 0 就报「备份失败」，于是**明明内容都拷好了也判失败**。
+
+**改动**：
+1. 新增 `$LOCAL_ONLY_CMD`（上面四个命令置位）；`configure_provider()` 在它置位且非 GUI 时
+   **不再要求密钥**。
+2. 备份命令：macOS 上显式 `cp -R -X`（不拷扩展属性）；成败**不看退出码**，改为逐个核对
+   每个 `*.enc` 都在且体积与源一致；元数据没拷到时打一句「不影响内容」。
+
+**测试**：`test-history-storage` 38→41（没有 key 时 `--list-history` / `--make-plain-history`
+都不被「请设置」挡住；钥匙不对时说的是「历史打不开」而不是 key）。
