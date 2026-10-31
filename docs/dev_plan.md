@@ -86,7 +86,7 @@
 
 | 位置 | 条数 | 现有结构 |
 |---|---|---|
-| `agent/claude-agent.pl` → `my %S` | **202**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
+| `agent/claude-agent.pl` → `my %S` | **203**（交互模式新增 31 条，模型菜单标注新增 2 条）| 原为 `key => ["日本語", "English"]`；已改为 `{ ja => , en => , zh => }` |
 | `gui/advisor_gui.py` → `_S` | **123** | 同上，`L()` 里 `ja, en = _S[key]` |
 | `setup.sh` → `msg()` | **87** 处调用 | `IS_EN=0/1` 二元 case |
 | `models.txt` | 5 行 | `id|<各语言标签>|English label` |
@@ -146,7 +146,7 @@ CI 只做结构性检查（2~7 列），provider / base_url / flags 的业务校
 ### 3.3 任务清单
 
 - [x] `agent/claude-agent.pl`：`L()` 改 hashref/数组双支持 + `$LANGCODE` 三分支（zh→en→ja 回退）
-- [x] `agent/claude-agent.pl`：`%S` 补中文（现 202 条，随功能增长）
+- [x] `agent/claude-agent.pl`：`%S` 补中文（现 203 条，随功能增长）
 - [x] `agent/claude-agent.pl`：`print_help`（单引号 heredoc，非 `%S` 条目）另起中文分支
 - [x] `gui/advisor_gui.py`：`L()` 改 dict/tuple 双支持 + `_detect_lang()` 三分支
 - [x] `gui/advisor_gui.py`：`_S` 补中文（现 65 条）
@@ -640,7 +640,7 @@ python3 scripts/ci-local.py --pristine   # 干净环境（最小 PATH、临时 H
 - [x] 三条命令在 `--no-config`（手机远程）里一律拒绝，文案与 `/mode` `/key` 一致
 - [x] GUI 菜单 **会话**：接着上次 / 接着指定 / 列出现有对话 / 起名 / 搜索；
       前两个 = 带 `--continue` 重启后端，并明确提示「上面内容不重放」
-- [x] `%S` 202 → **184**（新增 6 条）；GUI `_S` 123 → **113**
+- [x] `%S` 203 → **184**（新增 6 条）；GUI `_S` 123 → **113**
 - [x] 测试：`test-session-continue` 21 → **31 项**（含受限会话拒绝）；`test-gui-modes` 25 → **35 项**
       （菜单五项齐全、`--continue` 真的进了后端命令行、起名走普通一轮输入）
 - [ ] 真机验收（用户）：GUI「会话 → 接着上次」后能接上；菜单里没有需要手敲参数的地方
@@ -747,3 +747,21 @@ OpenAI 接受 `content:null`，但 DeepSeek 这类服务（Rust serde，报错�
 
 **测试**：`test-wecom-ws` 里去掉原来那句 `sleep(0.8)`，改成「问题刚发出去就把 y 发过去」，
 从失败变通过；另加一条「问题里写明了时限（秒）」的断言。59→60。
+
+## 26. 跑完了却“没有回复”（reply_len=0，v0.2.6）
+
+**现象**：远程让它跑一件长事（电视推流，17:48–17:49 整段工具调用都在），中途电视确实来取流
+（`GET /x 206`），但回复是空的 —— 审计里 `ws gateway_done reply_len=0`，人只看到“没反应”。
+
+**机理**：网关只把 `text` / `error` 事件当回复带走，`note`（提示类）一律忽略。所以只要一轮
+结束时没有正文（本地命令走了 note、模型只回了推理内容、或工具跑完后没给总结），回复就是空串，
+手机端什么都不显示 —— 而任务其实已经执行完了。
+
+**修法（两边都堵）**：
+- agent：每轮开始清零 `$TURN_TEXTS`/`$TURN_TOOLS`，`emit_text`/`emit_error` 计数；一轮结束
+  若一条都没有 → 补一条 `turn_no_text`（这一轮跑了 N 次工具调用，但没有产生总结文字）。
+- 网关：`handle_message` 出口若 reply 为空 → 依据本轮工具数生成说明（「跑了 N 次工具调用，
+  但没有文字回复；细节在 ~/.claude-agent/audit.log」），并记审计 `reply_empty_filled`。
+
+**测试**：`test-gateway-write` 71→74（假 agent 只报工具不回文字）；`test-session-continue`
+34→35（`/history` 这种只有 note 的一轮也要有文字带走）。

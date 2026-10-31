@@ -809,6 +809,11 @@ my %S = (
         en => "* This is a dangerous operation. Please read it carefully.\n",
         zh => "★ 这是危险操作，请仔细确认。\n",
     },
+    turn_no_text         => {
+        ja => "（この回は道具を %d 回使いましたが、まとめの文章が出ませんでした）\n",
+        en => "(this turn ran %d tool call(s) but produced no summary text)\n",
+        zh => "（这一轮跑了 %d 次工具调用，但没有产生总结文字）\n",
+    },
     confirm_void_note    => {
         ja => "（前の確認への遅れた返事 %d 件を無視しました）\n",
         en => "(ignored %d late replies that belonged to an earlier confirmation)\n",
@@ -1300,6 +1305,8 @@ my @WRITE_ROOTS;          # 解析后的追加可写目录
 my @WRITE_ROOTS_DENY;     # 明确加进来也不许写的位置
 my $CONFIRM_REASON = '';  # 上一次 confirm() 拒绝的理由
 my $CONFIRM_SEQ = 0;      # 每次确认一个 id（cid），迟到的答复一律不认
+my $TURN_TEXTS = 0;       # 这一轮发出去多少条 text（网关只把 text/error 当回复）
+my $TURN_TOOLS = 0;       # 这一轮跑了多少次工具
 my $PENDING_MODE = '';    # /mode bypass 的「等 yes」状态
                           #        （由 Python/tkinter 的 GUI 在后台驱动）
 
@@ -1948,6 +1955,7 @@ sub gui_read_typed {
 
 sub emit_text {
     my ($text) = @_;
+    $TURN_TEXTS++ if defined $text && $text =~ /\S/;
     if ($GUI) { gui_send({ t => 'text', text => $text }); }
     else      { print "\n$PROVIDER> $text\n"; }
 }
@@ -1963,6 +1971,7 @@ sub emit_status {
 }
 sub emit_error {
     my ($text) = @_;
+    $TURN_TEXTS++ if defined $text && $text =~ /\S/;   # error 也算「带得走的回复」
     if ($GUI) { gui_send({ t => 'error', text => $text }); }
     else      { print "\n$text"; }
 }
@@ -4882,12 +4891,19 @@ if ($GUI) {
         my $text = defined $req->{text} ? $req->{text} : '';
         next if $text eq '';
 
+        $TURN_TEXTS = 0;
+        $TURN_TOOLS = 0;
         my $r = eval { handle_turn($text) };
         if ($@) {
             dbg("turn error(gui): $@");
             emit_error(L('turn_failed'));
             pop @messages if @messages
                 && ($messages[-1]{role} eq 'assistant' || ref $messages[-1]{content});
+        }
+        # ★ 一轮跑完却一条 text 都没有 → 网关会把它当成「没回复」（手机端啥也看不到）。
+        #   补一条，把这一轮到底做了什么说清楚。
+        if (!$TURN_TEXTS) {
+            emit_text(L('turn_no_text', $TURN_TOOLS));
         }
         eval { save_history(\@messages) if $HISTORY_ENABLED };
         gui_send({ t => 'turn_done' });
@@ -5242,6 +5258,7 @@ sub handle_turn {
             }
             elsif ($t eq 'tool_use') {
                 emit_tool($block->{name}, $block->{input});
+                $TURN_TOOLS++;
                 my $result = eval { run_tool($block->{name}, $block->{input}) };
                 $result = L('tool_error', $@) if $@;
                 push @tool_results, {

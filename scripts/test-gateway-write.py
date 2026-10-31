@@ -73,7 +73,9 @@ while (my $l = <STDIN>) {
             last;
         }
     }
-    print '{"t":"text","text":"answer=' . $ans . ' cid=' . $cid . '"}', "\n";
+    if (!(defined $ENV{FAKE_NO_TEXT} && $ENV{FAKE_NO_TEXT} ne '')) {
+        print '{"t":"text","text":"answer=' . $ans . ' cid=' . $cid . '"}', "\n";
+    }
     print '{"t":"turn_done"}', "\n";
 }
 '''
@@ -260,6 +262,18 @@ def case_session_continue():
     rw_tools = [a for a in r6['argv'] if a.startswith('--tools=')]
     check('可写档包含 remember', bool(rw_tools) and 'remember' in rw_tools[0], str(rw_tools))
     check('可写档包含 write_skill', bool(rw_tools) and 'write_skill' in rw_tools[0], str(rw_tools))
+
+
+def case_empty_reply():
+    print('[远程] 跑完却没有文字回复 → 不能发空串（人以为没动静）')
+    print('::notice::[远程] 空回复必须变有话说')
+    r = drive(['--mode=accept-edits'], '把电视推流跑起来', answer='y', answer_cid='7-1',
+              wait=10, extra_env={'FAKE_NO_TEXT': '1'})
+    rep = (r['replies'][0] if r['replies'] else '')
+    check('★ 空回复被替换成有内容的说明', len(rep.strip()) > 0, repr(rep)[:120])
+    check('说明里点出「跑了工具调用」并指明去处',
+          '工具调用' in rep and 'audit.log' in rep, rep[:200])
+    check('审计里记了 reply_empty_filled', 'reply_empty_filled' in r['audit'], r['audit'][-200:])
 
 
 def case_confirm_cid():
@@ -525,6 +539,7 @@ def main():
 
     case_session_continue()
     case_confirm_cid()
+    case_empty_reply()
 
     print('%d/%d 通过' % (PASS, PASS + FAIL))
     return 0

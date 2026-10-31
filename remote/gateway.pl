@@ -559,6 +559,7 @@ sub handle_message {
     print { $s->{in} } qq|{"t":"user","text":"| . json_escape($text) . qq|"}\n|;
 
     my @texts;
+    my @tools_seen;               # 这一轮跑过哪些工具（空回复时用来解释）
     my $out = $s->{out};          # <{ ... }> 当格式串过不了，先接一次
     # 子进程若沉默就别无限等下去（模型侧死循环、网络
     # 中断等）。超时就杀掉子进程，下次重建。
@@ -571,6 +572,7 @@ sub handle_message {
             next if $l eq '';
             if ($l =~ /"t"\s*:\s*"tool"/) {
                 my $name = json_get($l, 'name') // '?';
+                push @tools_seen, $name;
                 audit('tool', "from=$from", "name=$name");
                 next;
             }
@@ -618,6 +620,16 @@ sub handle_message {
     return undef if $timed_out;
 
     my $reply = join("\n", @texts);
+    unless ($reply =~ /\S/) {
+        # ★ 空回复 = 手机端什么也收不到，人以为「没动静」。工具其实可能已经跑完了，
+        #   所以必须回一句，说明「做了事但没文字总结」，并把去处指给用户。
+        my $tools = scalar(@tools_seen);
+        $reply = ($tools > 0)
+            ? "（这一轮跑了 $tools 次工具调用，但没有文字回复。操作本身可能已经执行，"
+              . "细节在本机审计日志：~/.claude-agent/audit.log）"
+            : '（这一轮没有产生任何文字回复）';
+        audit('reply_empty_filled', "from=$from", "tools=$tools");
+    }
     audit('reply', "from=$from", 'len=' . length($reply));
     return $reply;
 }

@@ -88,6 +88,20 @@ def case_rpc_named_resume(tmp, base):
     H.check('第一句' in joined, '第二轮请求里带着上一轮的内容（真接上）', joined[:300])
     b.stop()
 
+def case_note_only_turn(tmp, base):
+    """只有提示（note）、没有正文的一轮，必须补一条 text —— 否则远端收到空回复。"""
+    print('[回复] 只有 note 的一轮要补一条文字')
+    home = os.path.join(tmp, 'home-note')
+    os.makedirs(home)
+    SCRIPT.reset()
+    a = H.Agent(home, base, extra_env={'CLAUDE_NO_HISTORY': '0'})
+    ev = a.turn('/history')          # 本地命令：只发 history_list 事件，没有正文
+    body = ''.join(H.texts(ev))
+    H.check('note-only 的一轮也有文字带走（不是空回复）',
+            '没有产生总结文字' in body or len(body.strip()) > 0, body[:200])
+    a.stop()
+
+
 def main():
     if not os.path.exists(H.AGENT):
         H.check(False, 'agent 存在', H.AGENT)
@@ -101,6 +115,7 @@ def main():
         hist = os.path.join(home, '.claude-agent', 'history')
 
         case_rpc_named_resume(work, base)
+        case_note_only_turn(work, base)
 
         # ---- A) 第一场：普通会话，之后 --continue 接着它
         a = H.Agent(home, base, extra_env={'CLAUDE_NO_HISTORY': '0'})
