@@ -995,15 +995,19 @@ sub handle_msg {
     # ★ 发完就走，不在这里等回执。旧写法「每发一片就 wait_ack 10 秒」有两个后果：
     #   ① 分片之间白等 ② 等回执期间到达的新消息会被丢掉。回执统一交给主循环（pending 表）。
     my $reply_to = sub {
-        my ($content, $final) = @_;
+        my ($content, $final, $no_outbox) = @_;
         $final = 1 unless defined $final;
         # ★ 上一条（可能是重启前没送达的）一起带给这个人
         if ($final && length $sender) {
             my $pre = outbox_prefix($sender);
             $content = $pre . $content if length $pre;
         }
-        # ★ 发送前落盘：发送途中被 kill / 崩溃 / 重启都不会丢
-        outbox_push($sender, $content) if $final && length $sender;
+        # ★ 发送前落盘：发送途中被 kill / 崩溃 / 重启都不会丢。
+        #   过程话（例如「这条命令会重启远程服务…」）同样要落盘 —— 只存最终回复时，
+        #   重启会正好把过程话吞掉（真机就栽在这：回执没送出去，队列里也没有）。
+        if (!$no_outbox && length $sender) {
+            outbox_push($sender, $content);
+        }
         my @parts = split_text($content, $limit - 60);
         my $i = 0;
         for my $p (@parts) {
@@ -1028,7 +1032,7 @@ sub handle_msg {
     if (!length $text) { return }
 
     inflight_set($sender, $text);
-    my $on_slow = sub { $reply_to->('正在处理，请稍等…', 0) };
+    my $on_slow = sub { $reply_to->('正在处理，请稍等…', 0, 1) };
     # 网关的临时提示：原样发给手机（例如「确认超时，这次操作没有执行」）
     my $on_note = sub { my $t = shift; $reply_to->($t) if defined $t && length $t };
     # 网关把 agent 的 y/n 问题转过来，这里原样交给用户；不回就超时按拒绝
