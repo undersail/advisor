@@ -94,6 +94,110 @@ sub audit {
 }
 
 sub logmsg { print STDERR strftime('%H:%M:%S', localtime) . " $_[0]\n" }
+# ---------------------------------------------------------------- 出站队列
+# 回复只有一条出口：绑在入站消息的 req_id 上。服务一重启（或崩溃、被超时 kill），
+# 这一轮算出来的回复就没有接收方，被静默丢掉 —— 用户只能等下次提问才看到结果。
+# 所以：发送前先落盘，发成功才删。
+#   ~/.claude-agent/outbox/<发送者>.txt   一行一条：<epoch>\t<正文>
+#   （正文里的换行/制表符转义成 \x01 / \x02，便于按行存）
+my $OUTBOX_DIR = $ENV{OUTBOX_DIR} || "$AGENT_DIR/outbox";
+
+sub _outbox_file {
+    my ($to) = @_;
+    my $safe = defined $to ? $to : '';
+    $safe =~ s/[^A-Za-z0-9_.@-]/_/g;
+    $safe = 'unknown' if $safe eq '';
+    return "$OUTBOX_DIR/$safe.txt";
+}
+
+sub _outbox_esc { my $t = shift; $t =~ s/\n/\x01/g; $t =~ s/\t/\x02/g; return $t }
+sub _outbox_unesc { my $t = shift; $t =~ s/\x01/\n/g; $t =~ s/\x02/\t/g; return $t }
+
+sub outbox_push {
+    my ($to, $text) = @_;
+    return 0 unless defined $text && length $text;
+    my $f = _outbox_file($to);
+    eval {
+        make_path($OUTBOX_DIR) unless -d $OUTBOX_DIR;
+        chmod 0700, $OUTBOX_DIR;
+        my $old = umask(077);
+        my $ok = open(my $fh, '>>:encoding(UTF-8)', $f);
+        umask($old);
+        die "open $f: $!\n" unless $ok;
+        chmod 0600, $f;
+        print {$fh} time . "\t" . _outbox_esc($text) . "\n";
+        close $fh;
+        1;
+    } or do { audit('outbox_push_err', "to=$to err=$@"); return 0 };
+    return 1;
+}
+
+# 读出待发条目（不清空）
+sub outbox_read {
+    my ($to) = @_;
+    my $f = _outbox_file($to);
+    return () unless -f $f;
+    my @out;
+    my $old = umask(077);
+    my $ok = open(my $fh, '<:encoding(UTF-8)', $f);
+    umask($old);
+    return () unless $ok;
+    while (my $line = <$fh>) {
+        chomp $line;
+        my ($ts, $text) = split(/\t/, $line, 2);
+        next unless defined $text && length $text;
+        push @out, { ts => ($ts || 0), text => _outbox_unesc($text) };
+    }
+    close $fh;
+    return @out;
+}
+
+sub outbox_clear { my ($to) = @_; my $f = _outbox_file($to); unlink $f if -f $f }
+
+# 把待发条目拼成一段前缀（发送成功后再清空）
+sub outbox_prefix {
+    my ($to) = @_;
+    my @e = outbox_read($to);
+    return '' unless @e;
+    my @t = map { $_->{text} } @e;
+    my $body = join("\n\n", @t);
+    $body = substr($body, 0, 1500) . '…' if length($body) > 1500;
+    return "（下面是重启前没能送达的回复）\n$body\n\n---\n";
+}
+
+# 启动时主动补发：长连接没有 req_id 发不出去，但自建应用 webhook 可以。
+# 没配 NOTIFY 就留着，等这个发送者的下一条消息一起带出去（不假装成功）。
+sub outbox_startup_push {
+    return unless -d $OUTBOX_DIR;
+    opendir(my $dh, $OUTBOX_DIR) or return;
+    my @files = grep { /\.txt$/ } readdir $dh;
+    closedir $dh;
+    for my $f (sort @files) {
+        (my $to = $f) =~ s/\.txt$//;
+        my @e = outbox_read($to);
+        next unless @e;
+        my $text = "（重启前没送达的回复，补发）\n" . join("\n\n", map { $_->{text} } @e);
+        $text = substr($text, 0, 1500) . '…' if length($text) > 1500;
+        my $np = "$SCRIPT_DIR/notify.pl";
+        if (!-f $np) { audit('outbox_undelivered', "to=$to reason=no_notify"); next }
+        my $pid = open(my $ph, '|-');
+        if (!$pid) { audit('outbox_undelivered', "to=$to reason=spawn"); next }
+        if ($pid < 0) { audit('outbox_undelivered', "to=$to reason=spawn"); next }
+        if ($pid == 0) {
+            # 子进程：把正文喂给 notify.pl -
+            exec('perl', $np, '-') or POSIX::_exit(127);
+        }
+        print $ph $text;
+        close $ph;
+        if ($? == 0) {
+            outbox_clear($to);
+            audit('outbox_delivered', "to=$to n=" . scalar(@e));
+        } else {
+            audit('outbox_undelivered', "to=$to reason=notify_fail code=" . ($? >> 8));
+        }
+    }
+}
+
 
 # ---------------------------------------------------------------- 单实例
 # 用 flock 独占：两个 --serve 同时跑会把同一条消息各回一遍（各起一个 agent），
@@ -825,6 +929,13 @@ sub handle_msg {
     my $reply_to = sub {
         my ($content, $final) = @_;
         $final = 1 unless defined $final;
+        # ★ 上一条（可能是重启前没送达的）一起带给这个人
+        if ($final && length $sender) {
+            my $pre = outbox_prefix($sender);
+            $content = $pre . $content if length $pre;
+        }
+        # ★ 发送前落盘：发送途中被 kill / 崩溃 / 重启都不会丢
+        outbox_push($sender, $content) if $final && length $sender;
         my @parts = split_text($content, $limit - 60);
         my $i = 0;
         for my $p (@parts) {
@@ -837,6 +948,7 @@ sub handle_msg {
             audit('ws_sent', "to=$sender part=$i/" . scalar(@parts) . ' len=' . length($p)
                            . ($final ? '' : ' progress=1'));
         }
+        outbox_clear($sender) if $final && length $sender;   # 发成功了才删
     };
 
     if ($msgtype ne 'text') {
@@ -931,6 +1043,10 @@ sub run_session {
     $SUB_OK = 1;          # 这条置位后，重连退避会从头算（官方 SDK 也是认证成功即清零）
     audit('ws_subscribe_ok', "url=$url");
     logmsg('已订阅，等待消息（Ctrl-C 结束）');
+    # ★ 上次没送达的回复：配了自建应用通知就主动推一条；没配就留着，
+    #   等这个人下次发消息时一起带出去（不假装成功，审计写清原因）。
+    eval { outbox_startup_push() };
+    audit('outbox_startup_err', "err=$@") if $@;
 
     my $hb = $c->{HEARTBEAT} || 30;
     my $next_ping = time() + $hb;

@@ -341,6 +341,26 @@ def case_content_never_null(tmp, base):
         a.stop()
 
 
+def case_self_restart_warns(tmp, base):
+    """会砍断远程链路的命令，执行前必须先说一句。
+
+    真实故障：让它重启远程服务，重启完这一轮就没有接收方了，手机上什么都没有，
+    只能等下次提问才看到结果。
+    """
+    print('[远程] 重启服务的命令先给回执')
+    print('::notice::[远程] 自重起命令先说一句')
+    a = Agent(tmp, 'bypass', base)
+    try:
+        SCRIPT.push_tool('run_shell', {'command': 'kill $(cat ~/.claude-agent/wecom-ws.pid)'})
+        SCRIPT.push_text('已重启')
+        ev = a.turn('重启远程服务')
+        texts = ' '.join((m.get('text') or '') for m in ev if isinstance(m, dict))
+        check('执行前有「会重启远程服务」的提示', '重启远程服务' in texts, texts[:200])
+        check('并承诺重新连上后补结果', ('补给你' in texts) or ('重新连上' in texts), texts[:200])
+    finally:
+        a.stop()
+
+
 def case_system_prompt_has_today(tmp, base):
     """系统提示里必须有「现在几点」，并说明旧时间戳只是历史。
 
@@ -817,6 +837,7 @@ def main():
         case_accept_edits(tmp, base)
         case_bypass(tmp, base)
         case_bypass_timeout(tmp, base)
+        case_self_restart_warns(tmp, base)
         case_system_prompt_has_today(tmp, base)
         case_numeric_text_stays_string(tmp, base)
         case_content_never_null(tmp, base)

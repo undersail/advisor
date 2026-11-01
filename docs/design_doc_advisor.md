@@ -1259,3 +1259,21 @@ OpenAI 容忍，DeepSeek（Rust serde）直接 422。**不是厂商抽风，是�
 
 **兜底仍在**：出口扫一遍所有消息，`content` 为 undef / 哈希 / 数字都转成字符串，
 `CLAUDE_DEBUG` 打开时打 notice 说明修了几条。
+
+## 附：出站队列——回复不能只有一条出口（v0.2.7）
+
+**不变量**：任何要发给用户的回复，**先落盘再发，发成功才删**。
+
+- 位置：`~/.claude-agent/outbox/<发送者>.txt`（文件 0600、目录 0700），一行一条
+  `<epoch>\t<正文>`，正文里的换行/制表符转义成 `\x01`/`\x02`
+- 为什么需要：`aibot_respond_msg` 必须带**入站消息的 `req_id`**，它只存在于正在跑的进程里。
+  服务重启 / 崩溃 / 被超时 kill，这一轮算出来的回复就没有接收方（实测：重启后手机上
+  一片空白，只能等下次提问）
+- 补发（两条路，都不假装成功）：
+  1. **下一条消息一起带出去**（永远可用）：回复里先加「（下面是重启前没能送达的回复）」
+  2. **启动时主动推**（需要自建应用 webhook）：订阅成功后用 `notify.pl` 推一条；
+     没配就留着，审计写 `outbox_undelivered reason=no_notify`
+- 审计：`outbox_delivered` / `outbox_undelivered` / `outbox_push_err`
+
+**配套**：`run_shell` 命中「会重启自己的服务」的命令（`looks_like_self_restart()`）时，
+**先**发一句回执再执行，别让用户对着空白等。

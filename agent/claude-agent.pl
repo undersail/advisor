@@ -218,6 +218,11 @@ my %S = (
         en => "Could not load that conversation.",
         zh => "无法读取该对话。",
     },
+    self_restart_warn    => {
+        ja => "⚠ このコマンドはリモートサービスを再起動します。今回の返信がスマホに届かない可能性があります。再接続でき次第、結果をお送りします。",
+        en => "⚠ This command restarts the remote service, so this turn's reply may not reach your phone. I will deliver the result as soon as we are connected again.",
+        zh => "⚠ 这条命令会重启远程服务，本轮的回复可能送不到手机上。我先说一句：重启完成后我会在重新连上时把结果补给你。",
+    },
     turn_failed          => {
         ja => "うまく処理できませんでした(続けられます)。",
         en => "Something went wrong (you can keep going).",
@@ -4078,6 +4083,18 @@ sub is_fs_mutation {
     return '';
 }
 
+# 这条命令会不会把「我自己」的服务重启/杀掉？只做保守识别：
+# 有 kill/restart 类动词，且目标是我们的服务进程（wecom-ws / gateway / launchctl / 本程序）。
+sub looks_like_self_restart {
+    my ($cmd) = @_;
+    return 0 unless defined $cmd && length $cmd;
+    my $c = lc $cmd;
+    return 0 unless $c =~ /\b(?:kill|pkill|killall|restart|kickstart|bootout|unload|stop|reload)\b/;
+    return 1 if $c =~ /(?:wecom[-_]?ws|gateway\.pl|claude[-_]agent|advisor[-_]remote)\b/;
+    return 1 if $c =~ /launchctl/;
+    return 0;
+}
+
 sub is_dangerous {
     my ($cmd) = @_;
     return '' unless defined $cmd && $cmd ne '';
@@ -4748,6 +4765,13 @@ sub run_tool {
     elsif ($name eq 'run_shell') {
         my $command = $input->{command};
         my $danger  = is_dangerous($command);
+        # ★ 会把自己这条远程链路砍断的命令：先说一句再执行。
+        #   否则重启完这一轮就没有接收方了，用户只能等下次提问才看到结果
+        #   （发送侧还有出站队列兜底：发不出去的回复下次一起带出去）。
+        if (looks_like_self_restart($command)) {
+            emit_text(L('self_restart_warn'));
+            approvals_log('run_shell', $command, 'self_restart');
+        }
         # 经命令的写入也纳入可写范围管制（堵住只有 write_file 才
         # 受管的洞）。只处理能识别出来的，保守实现。
         my ($vkind, $vpath) = shell_scope_violation($command);

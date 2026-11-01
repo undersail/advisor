@@ -386,6 +386,11 @@ def main():
         proc.kill()
     err = (proc.stderr.read() or b'').decode('utf-8', 'replace')
 
+    # ★ 出站队列：发送成功后必须清空（否则下次会重复补发）
+    ob_dir = os.path.join(home, '.claude-agent', 'outbox')
+    left = sorted(os.listdir(ob_dir)) if os.path.isdir(ob_dir) else []
+    check('回复发成功后 outbox 已清空', left == [], left)
+
     sub = got['subscribe'] or {}
     check('建连后第一帧就是订阅帧', bool(sub), sub)
     check('订阅 cmd = aibot_subscribe', sub.get('cmd') == 'aibot_subscribe', sub.get('cmd'))
@@ -718,6 +723,42 @@ def main():
     a8 = open(a8p, encoding='utf-8').read() if os.path.exists(a8p) else ''
     check('连通过再断线：退避回到 1 秒（不是卡在 30 秒）',
           'delay=1s' in a8, [l for l in a8.splitlines() if 'ws_reconnect' in l][-2:])
+
+    # ---------------- 场景 10：重启前没送达的回复，下次消息一起带出去 ----------------
+    home10 = os.path.join(tmp, 'home10')
+    ob10 = os.path.join(home10, '.claude-agent', 'outbox')
+    os.makedirs(ob10, exist_ok=True)
+    with open(os.path.join(ob10, 'allowed.txt'), 'w', encoding='utf-8') as f:
+        f.write('1750000000\t重启前那条结果：任务已完成\n')
+    got10 = {'replies': []}
+
+    def on_client10(srv, conn, idx):
+        buf = [srv.rest]
+        op, payload = srv.read_frame(conn, buf)
+        j = json.loads(payload)
+        srv.send_json(conn, {'cmd': 'aibot_subscribe', 'headers': j['headers'],
+                             'errcode': 0, 'errmsg': 'ok'})
+        srv.send_json(conn, msg_frame('m10', 'allowed', 'text', '你好'))
+        srv.pump(conn, buf, got10, 8)
+
+    srv10 = WSServer(on_client10)
+    srv10.one_shot = True
+    srv10.start()
+    write_conf(home10, BOT_ID='bot-10', BOT_SECRET='sec-10',
+               WS_URL='ws://127.0.0.1:%d' % srv10.port, HEARTBEAT=30)
+    env10 = dict(os.environ, HOME=home10, GATEWAY_CMD=gw_cmd)
+    p10 = subprocess.Popen(['perl', WS_PL, '--serve'], env=env10,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           stdin=subprocess.DEVNULL)
+    wait_for(lambda: got10['replies'], seconds=40)
+    p10.terminate()
+    try:
+        p10.wait(10)
+    except subprocess.TimeoutExpired:
+        p10.kill()
+    body10 = ' '.join(reply_text(r) for r in got10['replies'])
+    check('上次没送达的回复被一起带出来', '没能送达' in body10, body10[:200])
+    check('补发后 outbox 已清空', not os.listdir(ob10), os.listdir(ob10))
 
     # ---------------- 场景 9：凭据错 → 重试 5 次后停（对齐官方 SDK 默认） ----------------
     home9 = os.path.join(tmp, 'home9')
