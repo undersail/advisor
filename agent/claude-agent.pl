@@ -1328,6 +1328,7 @@ my @WRITE_ROOTS_DENY;     # 明确加进来也不许写的位置
 my $CONFIRM_REASON = '';  # 上一次 confirm() 拒绝的理由
 my $CONFIRM_SEQ = 0;      # 每次确认一个 id（cid），迟到的答复一律不认
 my $TURN_TEXTS = 0;       # 这一轮发出去多少条 text（网关只把 text/error 当回复）
+my %SELF_RESTART_WARNED;  # 同一轮里同一条重启命令只提示一次（真机出现过连发两句）
 my $TURN_TOOLS = 0;       # 这一轮跑了多少次工具
 my $PENDING_MODE = '';    # /mode bypass 的「等 yes」状态
                           #        （由 Python/tkinter 的 GUI 在后台驱动）
@@ -4786,7 +4787,11 @@ sub run_tool {
         #   否则重启完这一轮就没有接收方了，用户只能等下次提问才看到结果
         #   （发送侧还有出站队列兜底：发不出去的回复下次一起带出去）。
         if (looks_like_self_restart($command)) {
-            emit_text(L('self_restart_warn'));
+            # 同一轮里同一条命令只提示一次：真机上连发过两句一样的 ⚠
+            if (!$SELF_RESTART_WARNED{$command}) {
+                $SELF_RESTART_WARNED{$command} = 1;
+                emit_text(L('self_restart_warn'));
+            }
             approvals_log('run_shell', $command, 'self_restart');
         }
         # 经命令的写入也纳入可写范围管制（堵住只有 write_file 才
@@ -5116,6 +5121,7 @@ print L('greeting');
 # 这里 die 了，调用方的 eval 会接住，程序不会崩。
 sub handle_turn {
     my ($input) = @_;
+    %SELF_RESTART_WARNED = ();   # 每一轮重新计：上一轮提示过不影响这一轮
     dbg("turn start: msgs=" . scalar(@messages) . " input=" . substr($input, 0, 80));
 
     return 'quit' if $input eq 'exit';

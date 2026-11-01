@@ -213,9 +213,13 @@ sub inflight_recover {
                 $what = _outbox_unesc($t || '');
             }
         }
-        my $note = "（上一轮在重启/崩溃前被打断了，没有产生结果"
-                 . ($what ne '' ? "，当时你让我做的是：「$what」" : '') . "。"
-                 . "需要的话我重跑一次。）";
+        # 队列里已经有这个人的内容 → 结果其实产生了、只是没送达，别再说「没有产生结果」
+        my @has = outbox_read($to);
+        my $note = @has
+            ? "（上一轮在重启/崩溃前被中断了，回复在下面一起带出）"
+            : "（上一轮在重启/崩溃前被打断了，没有产生结果"
+              . ($what ne '' ? "，当时你让我做的是：「$what」" : '') . "。"
+              . "需要的话我重跑一次。）";
         outbox_push($to, $note);
         inflight_clear($to);
         audit('inflight_recovered', "to=$to");
@@ -248,12 +252,24 @@ sub outbox_startup_push {
         $text = substr($text, 0, 1500) . '…' if length($text) > 1500;
         my $np = "$SCRIPT_DIR/notify.pl";
         if (!-f $np) { audit('outbox_undelivered', "to=$to reason=no_notify"); next }
+        # ★ 没有 notify.conf 就根本不要 fork：notify.pl 必然失败，而 fork 出来的
+        #   子进程会继承父进程的 WS 套接字；一旦 exec 没替换掉映像，就变成一个
+        #   「没有连接却在跑」的幽灵进程（真机踩到过：卡了一个多小时）。
+        my $conf_path = (defined $ENV{CLAUDE_REMOTE_CONF} && $ENV{CLAUDE_REMOTE_CONF} ne '')
+            ? $ENV{CLAUDE_REMOTE_CONF} : ($ENV{HOME} || '.') . "/.claude-agent/notify.conf";
+        if (!-f $conf_path) {
+            audit('outbox_undelivered', "to=$to reason=no_notify_conf path=$conf_path");
+            next;
+        }
+        # ★ open '|-' 的经典陷阱：子进程里返回值是 0，而 !0 也为真。
+        #   旧写法 `if (!$pid) { …; next }` 会把子进程当成「父进程失败」直接 next，
+        #   于是 exec 永远没执行，子进程接着跑父进程的代码 —— 幽灵进程的根因。
         my $pid = open(my $ph, '|-');
-        if (!$pid) { audit('outbox_undelivered', "to=$to reason=spawn"); next }
-        if ($pid < 0) { audit('outbox_undelivered', "to=$to reason=spawn"); next }
+        if (!defined $pid) { audit('outbox_undelivered', "to=$to reason=spawn_err"); next }
         if ($pid == 0) {
-            # 子进程：把正文喂给 notify.pl -
+            # 子进程：只留 stdin 给 notify.pl，其余交 exec
             exec('perl', $np, '-') or POSIX::_exit(127);
+            POSIX::_exit(127);
         }
         print $ph $text;
         close $ph;

@@ -764,9 +764,49 @@ def main():
     body10 = ' '.join(reply_text(r) for r in got10['replies'])
     check('上次没送达的回复被一起带出来', '没能送达' in body10, body10[:200])
     check('补发后 outbox 已清空', not os.listdir(ob10), os.listdir(ob10))
-    check('被打断的那一轮也有说明', '被打断' in body10, body10[:300])
-    check('并说清当时让它做的是什么', '重启一下远程服务' in body10, body10[:300])
+    # 队列里已经有内容 → 说明收窄成「被中断了，回复在下面」，不再说「没有产生结果」
+    check('队列里已有内容时说「被中断了」', '被中断了' in body10, body10[:400])
+    check('不再谎称「没有产生结果」', '没有产生结果' not in body10, body10[:400])
     check('恢复后标记已删除', not os.listdir(if10), os.listdir(if10))
+
+    # ---------------- 场景 11：队列空 + 只留下「被打断」标记（宿主任被杀） ----------------
+    home11 = os.path.join(tmp, 'home11')
+    if11 = os.path.join(home11, '.claude-agent', 'inflight')
+    os.makedirs(if11, exist_ok=True)
+    with open(os.path.join(if11, 'allowed'), 'w', encoding='utf-8') as f:
+        f.write('1750000002\t把服务重启一下\n')
+    got11 = {'replies': []}
+
+    def on_client11(srv, conn, idx):
+        buf = [srv.rest]
+        op, payload = srv.read_frame(conn, buf)
+        j = json.loads(payload)
+        srv.send_json(conn, {'cmd': 'aibot_subscribe', 'headers': j['headers'],
+                             'errcode': 0, 'errmsg': 'ok'})
+        srv.send_json(conn, msg_frame('m11', 'allowed', 'text', '你好'))
+        srv.pump(conn, buf, got11, 8)
+
+    srv11 = WSServer(on_client11)
+    srv11.one_shot = True
+    srv11.start()
+    write_conf(home11, BOT_ID='bot-11', BOT_SECRET='sec-11',
+               WS_URL='ws://127.0.0.1:%d' % srv11.port, HEARTBEAT=30)
+    env11 = dict(os.environ, HOME=home11, GATEWAY_CMD=gw_cmd)
+    p11 = subprocess.Popen(['perl', WS_PL, '--serve'], env=env11,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           stdin=subprocess.DEVNULL)
+    wait_for(lambda: got11['replies'], seconds=40)
+    p11.terminate()
+    try:
+        p11.wait(10)
+    except subprocess.TimeoutExpired:
+        p11.kill()
+    body11 = ' '.join(reply_text(r) for r in got11['replies'])
+    check('没配 notify.conf 时不 fork（不产生幽灵进程）',
+          'reason=no_notify_conf' in open(os.path.join(home11, '.claude-agent', 'audit.log'),
+                                          encoding='utf-8').read(), '')
+    check('队列空时说「被打断」并交代原话',
+          ('被打断' in body11) and ('把服务重启一下' in body11), body11[:300])
 
     # ---------------- 场景 9：凭据错 → 重试 5 次后停（对齐官方 SDK 默认） ----------------
     home9 = os.path.join(tmp, 'home9')

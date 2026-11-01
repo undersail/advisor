@@ -1019,3 +1019,32 @@ OpenAI 容忍，**DeepSeek（serde）直接 422** —— 与上一版 422 是同
 
 **卡口**：`test-wecom-ws` 66 项里「发成功后 outbox 已清空」这条同时覆盖过程话清理
 （场景 1 含 SLOW 分支，确实产生过过程话）。
+
+## 37. 补发那一步 fork 出的「幽灵进程」（v0.2.7）
+
+**真机由用户定位**：`3983` 主服务（唯一 WS 连接）→ `3985` openssl；另有一个 `3987`
+是 `3983` 的子进程，**没有任何网络连接**、卡住一个多小时、命令行仍显示 `wecom-ws.pl`。
+
+**根因（`open '|-'` 的经典陷阱）**：
+
+```perl
+my $pid = open(my $ph, '|-');
+if (!$pid) { audit(...); next }      # ← 子进程里 $pid 是 0，!0 也为真
+if ($pid == 0) { exec('perl', $np, '-') or POSIX::_exit(127) }
+```
+
+子进程被第一行当成「父进程 fork 失败」直接 `next`，**exec 永远没执行**，于是它继续跑父进程
+的代码、还继承了 WS 套接字 —— 一个没有连接的幽灵进程。
+
+**修法**：
+1. 判断改成 `if (!defined $pid)`（只认真正的失败），子进程分支先 `exec` 再兜底
+   `POSIX::_exit(127)`（`POSIX::_exit` 不在 import 列表里但全名可用，已实测）
+2. **没有 `notify.conf` 就根本不 fork**：notify.pl 必然失败，fork 出来只会留幽灵；
+   现在直接记 `outbox_undelivered reason=no_notify_conf path=…`
+3. 顺带收窄「被打断」的措辞：**队列里已经有这个人的内容**时，说明改成
+   「上一轮在重启/崩溃前被中断了，回复在下面一起带出」，不再谎称「没有产生结果」
+4. ⚠ 回执去重：同一轮里同一条命令只提示一次（真机连发过两句），清零放在 `handle_turn` 开头
+
+**卡口**：`test-wecom-ws` 66 → **68**（未配 notify.conf 必须记 `reason=no_notify_conf`
+且不 fork；队列有内容时说「被中断了」、不许出现「没有产生结果」；队列空时说「被打断」
+并交代用户原话）；`test-modes` 91/91 仍绿
