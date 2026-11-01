@@ -341,6 +341,55 @@ def case_content_never_null(tmp, base):
         a.stop()
 
 
+def case_system_prompt_has_today(tmp, base):
+    """系统提示里必须有「现在几点」，并说明旧时间戳只是历史。
+
+    真实故障：常驻会话（远程 / --continue）带着昨晚 23:19 的工具输出，早上 8 点它
+    仍以为现在是 23:19，按安静时段把用户的请求拒了。
+    """
+    import datetime
+    print('[提示] 系统提示每轮带当前时间')
+    print('::notice::[提示] 系统提示要有今天的日期')
+    a = Agent(tmp, 'accept-edits', base)
+    try:
+        SCRIPT.push_text('好')
+        a.turn('现在几点')
+        body = SCRIPT.requests[-1] if SCRIPT.requests else ''
+        today = datetime.date.today().strftime('%Y-%m-%d')
+        check('系统提示里有今天的日期', today in body, body[:200])
+        check('并写明旧时间戳只是历史',
+              ('Current time' in body) and ('HISTORY' in body), body[:200])
+    finally:
+        a.stop()
+
+
+def case_numeric_text_stays_string(tmp, base):
+    """用户只回一个数字（"1"）时，content 必须编成字符串 "1"，不能编成 JSON 数字 1。
+
+    真实故障：用户在选项提示里回 1，DeepSeek 回 HTTP 422
+    「messages[641]: content should be a string or a list」——旧 encode 按「看起来像数字」
+    判断，把字符串 "1" 编成了数字 1。
+    """
+    print('[请求体] 数字样子的文本仍是字符串')
+    print('::notice::[请求体] "1" 不能编成 1')
+    a = Agent(tmp, 'accept-edits', base)
+    try:
+        SCRIPT.push_text('好的')
+        a.turn('1')
+        body = SCRIPT.requests[-1] if SCRIPT.requests else ''
+        flat = body.replace(' ', '')
+        check('用户回的 "1" 编成字符串', '"content":"1"' in flat, flat[-300:])
+        try:
+            req = json.loads(body)
+        except ValueError:
+            req = {}
+        bad = [m.get('content') for m in (req.get('messages') or [])
+               if not isinstance(m.get('content'), (str, list))]
+        check('所有消息 content 都是字符串或数组', not bad, str(bad)[:200])
+    finally:
+        a.stop()
+
+
 def case_default_asks(tmp, base):
     print('[default] 写文件与命令都要确认')
     print('::notice::[default] 写文件与命令都要确认')
@@ -768,6 +817,8 @@ def main():
         case_accept_edits(tmp, base)
         case_bypass(tmp, base)
         case_bypass_timeout(tmp, base)
+        case_system_prompt_has_today(tmp, base)
+        case_numeric_text_stays_string(tmp, base)
         case_content_never_null(tmp, base)
         case_connect_error(tmp, base)
         case_422_not_labeled_connect(tmp, base)

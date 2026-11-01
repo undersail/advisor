@@ -921,3 +921,31 @@ macOS 的 `cp` 默认连**扩展属性**一起拷，普通用户经常 EPERM。�
 
 **卡口自验**：把 `gateway.pl` 换回修复前的版本，同一场景（扁平布局）确实复现用户的报错；
 换回修复版后通过。`test-gateway-write` 77→78。
+
+## 33. 用户回一句 "1"，DeepSeek 又 422（JSON 数字 vs 字符串，v0.2.7）
+
+**现象**：`HTTP 422 … messages[641]: content should be a string or a list`（第 641 条 =
+刚发出去的那句）。用户在选项提示里回了个 `1`，报错就来了。上一版修的是 `content:null`，
+这次不是 null。
+
+**根因**：`MiniJSON::encode` 按「看起来像数字」判断：
+
+```perl
+} elsif ($v =~ /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/) {   # ← 字符串 "1" 也匹配
+    return $v;                                        # 没加引号，成了 JSON 数字
+}
+```
+
+于是用户输入的文本 `"1"`、纯数字的工具结果（时间戳、退出码）都被编成 `content:1`。
+OpenAI 容忍，**DeepSeek（serde）直接 422** —— 与上一版 422 是同一句话、不同成因。
+
+**修法（根治 + 兜底）**：
+1. **按 Perl 标志位判类型**：只有「本来就是数字」的标量（有 `SVp_IOK`/`SVp_NOK` 且没有
+   `SVp_POK`）才编成 JSON 数字；`"1"`、`"007"` 这类**字符串**仍是字符串（JSON 语义才对）
+2. 出口兜底扩到数字：`content` 若是数字一律转字符串；`tool` 消息的 content 同样处理
+3. 诊断并入错误正文（原来单独发一条 note，用户会漏看）：写清「第 N 条：role=? content=?
+   带几个工具调用」，数字会标成 `number(1)` 而不是 `string(1)`
+
+**卡口**（会红）：`scripts/test-modes.py` 新增 `case_numeric_text_stays_string` ——
+用户只回 `1`，断言请求体里是 `"content":"1"`、且所有消息 content 都是字符串或数组。
+修复前实测编出 `content:1`（用旧版 encode 单独验过），修复后通过；`test-modes` **85/85**。

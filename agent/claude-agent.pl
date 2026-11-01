@@ -19,6 +19,7 @@ use utf8;  # 本文件里的中日文字面量按 UTF-8 解释
 use Encode qw(decode FB_DEFAULT);
 use File::Basename qw(dirname);
 use Cwd ();
+use B ();   # 判断标量原来是不是「数字」（见 MiniJSON::encode 的说明）
 
 # 屏幕输出显式按 UTF-8 处理。
 binmode STDOUT, ':encoding(UTF-8)';
@@ -2133,6 +2134,18 @@ sub system_prompt {
                 . "(read: " . $sk->{path} . ")\n";
         }
     }
+
+    # ★ 现在几点：每轮重算。常驻会话（远程 / --continue）里历史与工具输出带着旧时间戳，
+    #   模型会把它当成「现在」（真发生过：早上 8 点却以为还在昨晚 23:19，按安静时段
+    #   拒了用户的请求）。这里给一条权威时间，并明确「旧的只是历史」。
+    my @nw = localtime;
+    my @wd = ('日', '一', '二', '三', '四', '五', '六');
+    my $clock = sprintf('%04d-%02d-%02d（周%s）%02d:%02d',
+        $nw[5] + 1900, $nw[4] + 1, $nw[3], $wd[$nw[6]], $nw[2], $nw[1]);
+    $p .= "\n# Current time\nIt is now $clock, local time, computed for THIS turn.\n"
+        . "Any timestamp earlier in this conversation, in tool output, or in memory is HISTORY.\n"
+        . "Never treat an older timestamp as the current time; if you need the time, use this line.\n";
+
     return $p;
 }
 
@@ -2155,11 +2168,26 @@ sub encode {
         return 'null';
     } elsif ($r eq 'SCALAR') {
         return $$v ? 'true' : 'false';
-    } elsif ($v =~ /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/) {
+    } elsif (_is_number_sv($v)) {
+        # ★ 只有「本来就是数字」的标量才编成 JSON 数字。
+        #   旧实现按「看起来像数字」判断：用户回一句 "1"、工具结果是纯数字的时间戳，
+        #   都会被编成 content:1 —— DeepSeek 等厂商直接 422
+        #   invalid_request_error「content should be a string or a list」（真发生过）。
         return $v;
     } else {
         return encode_string($v);
     }
+}
+
+# 标量原来是数字吗？只看 Perl 的内部标志位：
+#   SVp_IOK / SVp_NOK（整数/浮点）且没有 SVp_POK（字符串）才算数字。
+# 这样 "1" 这类数字样子的**字符串**仍是字符串，JSON 语义才对。
+sub _is_number_sv {
+    my ($v) = @_;
+    my $flags = B::svref_2object(\$v)->FLAGS;
+    return 0 if $flags & B::SVp_POK();
+    return 1 if $flags & (B::SVp_IOK() | B::SVp_NOK());
+    return 0;
 }
 
 sub encode_string {
@@ -2629,7 +2657,7 @@ sub build_request_openai {
                 push @results, {
                     role         => 'tool',
                     tool_call_id => $block->{tool_use_id},
-                    content      => defined $c ? $c : '',
+                    content      => defined $c ? "" . $c : '',
                 };
             }
         }
@@ -2658,6 +2686,11 @@ sub build_request_openai {
         if (!defined $c) {
             $out[$i]{content} = '';
             push @bad_idx, $i; $bad_kind = 'null';
+        }
+        elsif (!ref $c && MiniJSON::_is_number_sv($c)) {
+            # 数字（历史里存成了 JSON number）也要变字符串：厂商只收 string/array。
+            $out[$i]{content} = "" . $c;
+            push @bad_idx, $i; $bad_kind = 'number';
         }
         elsif (ref $c eq 'HASH') {
             # 单个块（{type=>'text',text=>…}）漏转成数组时会出现：
@@ -5343,12 +5376,14 @@ sub handle_turn {
                     my $c = $m->{content};
                     my $kind = !defined $c ? 'null'
                              : ref $c   ? ref($c)
+                             : MiniJSON::_is_number_sv($c) ? 'number(' . $c . ')'
                              : 'string(' . length($c) . ')';
-                    emit_note("（厂商指认的第 $idx 条消息：role="
+                    # ★ 直接拼进错误正文：单独一条 note 会被用户漏看（真发生过）。
+                    $err .= "\n（厂商指认的第 $idx 条消息：role="
                         . (defined $m->{role} ? $m->{role} : '?')
                         . " content=$kind"
                         . (ref $m->{tool_calls} eq 'ARRAY' ? ' 带 ' . scalar(@{ $m->{tool_calls} }) . ' 个工具调用' : '')
-                        . "）");
+                        . "）";
                 }
             }
             # 通信错误等。是纯用户发言的那一轮就撤销并返回
