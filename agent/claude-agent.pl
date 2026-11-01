@@ -4089,9 +4089,26 @@ sub looks_like_self_restart {
     my ($cmd) = @_;
     return 0 unless defined $cmd && length $cmd;
     my $c = lc $cmd;
-    return 0 unless $c =~ /\b(?:kill|pkill|killall|restart|kickstart|bootout|unload|stop|reload)\b/;
-    return 1 if $c =~ /(?:wecom[-_]?ws|gateway\.pl|claude[-_]agent|advisor[-_]remote)\b/;
+    # ★ 词首判定不要写成 \b…\b：下划线算单词字符，restart_remote.sh / restart(2).sh
+    #   这类常见命名会漏（实测：nohup bash /tmp/restart_remote.sh 一次都没触发过）。
+    #   这里只看「前面不是字母数字」，后面不设边界。
+    return 0 unless $c =~ /(?<![a-z0-9])(?:kill|pkill|killall|restart|kickstart|bootout|unload|stop|reload)/;
+    # 目标是我们自己的服务（名字或 pid 文件）
+    return 1 if $c =~ /(?:wecom[-_]?ws|gateway\.pl|claude[-_]agent|advisor[-_]?remote|wecom[-_]ws\.pid|gateway\.pid)/;
     return 1 if $c =~ /launchctl/;
+    # kill 后面跟的是我们自己的 pid（含父进程：网关/长连接服务）也算
+    if ($c =~ /(?<![a-z0-9])(?:kill|pkill|killall)\b(.*)$/s) {
+        my $tail = $1;
+        my %mine = map { $_ => 1 } grep { defined && /^\d+$/ } ($$, getppid());
+        for my $pf ("$ENV{HOME}/.claude-agent/wecom-ws.pid", "$ENV{HOME}/.claude-agent/gateway.pid") {
+            if (open my $fh, '<', $pf) {
+                my $pid = <$fh>; close $fh;
+                chomp $pid if defined $pid;
+                $mine{$pid} = 1 if defined $pid && $pid =~ /^\d+$/;
+            }
+        }
+        for my $n ($tail =~ /(\d+)/g) { return 1 if $mine{$n} }
+    }
     return 0;
 }
 

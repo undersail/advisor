@@ -357,6 +357,17 @@ def case_self_restart_warns(tmp, base):
         texts = ' '.join((m.get('text') or '') for m in ev if isinstance(m, dict))
         check('执行前有「会重启远程服务」的提示', '重启远程服务' in texts, texts[:200])
         check('并承诺重新连上后补结果', ('补给你' in texts) or ('重新连上' in texts), texts[:200])
+        # ★ 回归：restart_remote.sh 这类「动词_后缀」命名曾被 \b…\b 漏掉（真机踩到）
+        SCRIPT.push_tool('run_shell', {'command': 'nohup bash /tmp/restart_remote.sh &'})
+        SCRIPT.push_text('好')
+        ev2 = a.turn('再重启一次')
+        t2 = ' '.join((m.get('text') or '') for m in ev2 if isinstance(m, dict))
+        check('restart_remote.sh 这种命名也能识别', '重启远程服务' in t2, t2[:200])
+        SCRIPT.push_tool('run_shell', {'command': 'ls /tmp'})
+        SCRIPT.push_text('好')
+        ev3 = a.turn('看看 /tmp')
+        t3 = ' '.join((m.get('text') or '') for m in ev3 if isinstance(m, dict))
+        check('普通命令不会误报', '重启远程服务' not in t3, t3[:200])
     finally:
         a.stop()
 

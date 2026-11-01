@@ -979,3 +979,28 @@ OpenAI 容忍，**DeepSeek（serde）直接 422** —— 与上一版 422 是同
 - `test-modes` 87 → **89**：bypass 下让假模型调 `run_shell` 执行 `kill $(cat …/wecom-ws.pid)`，
   断言执行前有「会重启远程服务」的提示与「补给你」的承诺
 - 新增 `%S` 词条 `self_restart_warn`（三语），`%S` 206 → **207**
+
+## 35. 回执没触发：`\brestart\b` 漏掉 `restart_remote.sh`；以及「被打断的那一轮」（v0.2.7）
+
+**真机复盘**（用户实测，结论准确）：
+- `nohup bash /tmp/restart_remote.sh` 不触发回执。原因：**下划线也算单词字符**，
+  `\brestart\b` 在 `restart_remote.sh` 里右边不成立；`kill <pid>`（只有数字）也不触发。
+- `approvals.log` 里从来没有 `self_restart`，证实一次都没命中。
+- 启动主动补发也没走通：只有 `BOT_ID`/`BOT_SECRET`（智能机器人），没有 webhook。
+
+**修法**：
+1. 词首判定改成 `(?<![a-z0-9])(?:kill|pkill|…|reload)` —— 只要求前面不是字母数字，
+   后面不设边界，`restart_remote.sh` / `restart(2).sh` 都能命中（实测：旧正则漏、新正则中）
+2. 服务识别加 pid 文件（`wecom-ws.pid` / `gateway.pid`）与 `advisor-remote`；
+   `kill <数字>` 的每个数字与「本进程 pid / 父进程 pid / pid 文件里的 pid」比对，命中即算
+3. **补上「被打断的那一轮」**：出站队列只能补「有回复但发不出去」；命令把宿主杀了时这一轮
+   **压根没产生回复**，队列里没东西可补（真机上就是这样，所以审计里连 `outbox_undelivered`
+   都没有 —— 空队列不记日志）。现在进消息时落 `~/.claude-agent/inflight/<发送者>` 标记，
+   回复发成功才删；重启后看到残留标记就补一条「上一轮在重启/崩溃前被打断了，没有产生结果，
+   当时你让我做的是：「…」」，再走补发（webhook 或下次消息）
+
+**卡口**：
+- `test-modes` 89 → **91**：`nohup bash /tmp/restart_remote.sh &` 必须触发回执；
+  `ls /tmp` 不许误报
+- `test-wecom-ws` 63 → **66**：预置 outbox 条目 + inflight 标记 → 下一条消息的回复里
+  同时有「没能送达」和「被打断」（并写清当时让它做什么），且两处标记都被清掉

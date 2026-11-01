@@ -154,6 +154,74 @@ sub outbox_read {
 
 sub outbox_clear { my ($to) = @_; my $f = _outbox_file($to); unlink $f if -f $f }
 
+# ---- 未完成的一轮（inflight）---------------------------------------------
+# 出站队列兜的是「有回复但发不出去」；还有一种更糟的情况：命令把宿主杀了，
+# 这一轮根本没产生任何回复 —— 队列里没东西可补，用户就只看到一片空白。
+# 所以进消息时先落一个标记，回复发成功再删；重启后看到残留标记就知道
+# 「上一轮被打断了」，补一条说明给这个人。
+my $INFLIGHT_DIR = $ENV{INFLIGHT_DIR} || "$AGENT_DIR/inflight";
+
+sub _inflight_file {
+    my ($to) = @_;
+    my $safe = defined $to ? $to : '';
+    $safe =~ s/[^A-Za-z0-9_.@-]/_/g;
+    $safe = 'unknown' if $safe eq '';
+    return "$INFLIGHT_DIR/$safe";
+}
+
+sub inflight_set {
+    my ($to, $text) = @_;
+    return unless defined $to && length $to;
+    eval {
+        make_path($INFLIGHT_DIR) unless -d $INFLIGHT_DIR;
+        chmod 0700, $INFLIGHT_DIR;
+        my $f = _inflight_file($to);
+        my $old = umask(077);
+        my $ok = open(my $fh, '>:encoding(UTF-8)', $f);
+        umask($old);
+        die "open $f: $!\n" unless $ok;
+        chmod 0600, $f;
+        my $t = defined $text ? $text : '';
+        $t = substr($t, 0, 200);
+        print {$fh} time . "\t" . _outbox_esc($t) . "\n";
+        close $fh;
+        1;
+    } or audit('inflight_set_err', "to=$to err=$@");
+}
+
+sub inflight_clear {
+    my ($to) = @_;
+    return unless defined $to && length $to;
+    my $f = _inflight_file($to);
+    unlink $f if -f $f;
+}
+
+# 启动时：残留标记 = 上一轮被重启/崩溃打断，且很可能什么都没发出
+sub inflight_recover {
+    return unless -d $INFLIGHT_DIR;
+    opendir(my $dh, $INFLIGHT_DIR) or return;
+    my @files = grep { !/^\./ } readdir $dh;
+    closedir $dh;
+    for my $f (sort @files) {
+        my $to = $f;
+        my $what = '';
+        if (open my $fh, '<:encoding(UTF-8)', _inflight_file($to)) {
+            my $line = <$fh>; close $fh;
+            if (defined $line) {
+                chomp $line;
+                my ($ts, $t) = split(/\t/, $line, 2);
+                $what = _outbox_unesc($t || '');
+            }
+        }
+        my $note = "（上一轮在重启/崩溃前被打断了，没有产生结果"
+                 . ($what ne '' ? "，当时你让我做的是：「$what」" : '') . "。"
+                 . "需要的话我重跑一次。）";
+        outbox_push($to, $note);
+        inflight_clear($to);
+        audit('inflight_recovered', "to=$to");
+    }
+}
+
 # 把待发条目拼成一段前缀（发送成功后再清空）
 sub outbox_prefix {
     my ($to) = @_;
@@ -949,6 +1017,7 @@ sub handle_msg {
                            . ($final ? '' : ' progress=1'));
         }
         outbox_clear($sender) if $final && length $sender;   # 发成功了才删
+        inflight_clear($sender) if $final && length $sender;
     };
 
     if ($msgtype ne 'text') {
@@ -958,6 +1027,7 @@ sub handle_msg {
     }
     if (!length $text) { return }
 
+    inflight_set($sender, $text);
     my $on_slow = sub { $reply_to->('正在处理，请稍等…', 0) };
     # 网关的临时提示：原样发给手机（例如「确认超时，这次操作没有执行」）
     my $on_note = sub { my $t = shift; $reply_to->($t) if defined $t && length $t };
@@ -1045,7 +1115,7 @@ sub run_session {
     logmsg('已订阅，等待消息（Ctrl-C 结束）');
     # ★ 上次没送达的回复：配了自建应用通知就主动推一条；没配就留着，
     #   等这个人下次发消息时一起带出去（不假装成功，审计写清原因）。
-    eval { outbox_startup_push() };
+    eval { inflight_recover(); outbox_startup_push() };
     audit('outbox_startup_err', "err=$@") if $@;
 
     my $hb = $c->{HEARTBEAT} || 30;

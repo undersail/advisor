@@ -730,6 +730,11 @@ def main():
     os.makedirs(ob10, exist_ok=True)
     with open(os.path.join(ob10, 'allowed.txt'), 'w', encoding='utf-8') as f:
         f.write('1750000000\t重启前那条结果：任务已完成\n')
+    # 再预置一个「上一轮被打断」的标记（宿主被重启杀掉、根本没产生回复的情形）
+    if10 = os.path.join(home10, '.claude-agent', 'inflight')
+    os.makedirs(if10, exist_ok=True)
+    with open(os.path.join(if10, 'allowed'), 'w', encoding='utf-8') as f:
+        f.write('1750000001\t帮我重启一下远程服务\n')
     got10 = {'replies': []}
 
     def on_client10(srv, conn, idx):
@@ -759,6 +764,9 @@ def main():
     body10 = ' '.join(reply_text(r) for r in got10['replies'])
     check('上次没送达的回复被一起带出来', '没能送达' in body10, body10[:200])
     check('补发后 outbox 已清空', not os.listdir(ob10), os.listdir(ob10))
+    check('被打断的那一轮也有说明', '被打断' in body10, body10[:300])
+    check('并说清当时让它做的是什么', '重启一下远程服务' in body10, body10[:300])
+    check('恢复后标记已删除', not os.listdir(if10), os.listdir(if10))
 
     # ---------------- 场景 9：凭据错 → 重试 5 次后停（对齐官方 SDK 默认） ----------------
     home9 = os.path.join(tmp, 'home9')
