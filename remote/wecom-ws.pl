@@ -255,10 +255,23 @@ sub outbox_startup_push {
         # ★ 没有 notify.conf 就根本不要 fork：notify.pl 必然失败，而 fork 出来的
         #   子进程会继承父进程的 WS 套接字；一旦 exec 没替换掉映像，就变成一个
         #   「没有连接却在跑」的幽灵进程（真机踩到过：卡了一个多小时）。
+        # ★ 主动补发走的是 notify.pl，它读的是 remote.conf 里的
+        #   WECOM_WEBHOOK / FEISHU_WEBHOOK（或 CLAUDE_* 环境变量），不是单独的 notify.conf。
+        #   没有目标就别 fork（notify 必然失败，fork 只会留幽灵进程）。
         my $conf_path = (defined $ENV{CLAUDE_REMOTE_CONF} && $ENV{CLAUDE_REMOTE_CONF} ne '')
-            ? $ENV{CLAUDE_REMOTE_CONF} : ($ENV{HOME} || '.') . "/.claude-agent/notify.conf";
-        if (!-f $conf_path) {
-            audit('outbox_undelivered', "to=$to reason=no_notify_conf path=$conf_path");
+            ? $ENV{CLAUDE_REMOTE_CONF} : ($ENV{HOME} || '.') . "/.claude-agent/remote.conf";
+        my $has_hook = ($ENV{CLAUDE_WECOM_WEBHOOK} || $ENV{CLAUDE_FEISHU_WEBHOOK}) ? 1 : 0;
+        if (!$has_hook && -f $conf_path) {
+            if (open my $cf, '<:encoding(UTF-8)', $conf_path) {
+                while (my $ln = <$cf>) {
+                    next if $ln =~ /^\s*#/;
+                    $has_hook = 1 if $ln =~ /^\s*(?:WECOM_WEBHOOK|FEISHU_WEBHOOK)\s*=\s*\S/;
+                }
+                close $cf;
+            }
+        }
+        if (!$has_hook) {
+            audit('outbox_undelivered', "to=$to reason=no_webhook conf=$conf_path");
             next;
         }
         # ★ open '|-' 的经典陷阱：子进程里返回值是 0，而 !0 也为真。

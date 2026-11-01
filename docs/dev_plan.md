@@ -1040,11 +1040,28 @@ if ($pid == 0) { exec('perl', $np, '-') or POSIX::_exit(127) }
 1. 判断改成 `if (!defined $pid)`（只认真正的失败），子进程分支先 `exec` 再兜底
    `POSIX::_exit(127)`（`POSIX::_exit` 不在 import 列表里但全名可用，已实测）
 2. **没有 `notify.conf` 就根本不 fork**：notify.pl 必然失败，fork 出来只会留幽灵；
-   现在直接记 `outbox_undelivered reason=no_notify_conf path=…`
+   现在直接记 `outbox_undelivered reason=no_webhook conf=…`
 3. 顺带收窄「被打断」的措辞：**队列里已经有这个人的内容**时，说明改成
    「上一轮在重启/崩溃前被中断了，回复在下面一起带出」，不再谎称「没有产生结果」
 4. ⚠ 回执去重：同一轮里同一条命令只提示一次（真机连发过两句），清零放在 `handle_turn` 开头
 
-**卡口**：`test-wecom-ws` 66 → **68**（未配 notify.conf 必须记 `reason=no_notify_conf`
-且不 fork；队列有内容时说「被中断了」、不许出现「没有产生结果」；队列空时说「被打断」
+**卡口**：`test-wecom-ws` 66 → **68**（未配 webhook 必须记 `reason=no_webhook` 且不 fork；队列有内容时说「被中断了」、不许出现「没有产生结果」；队列空时说「被打断」
 并交代用户原话）；`test-modes` 91/91 仍绿
+
+## 38. 主动补发判错了文件：该看 `remote.conf` 的 webhook，不是 notify.conf（v0.2.7）
+
+**发现的经过**：用户真机复盘说「缺少 notify.conf，代码直接跳过」。核对 `remote/notify.pl:32-33`
+与 `targets()` 后确认：**notify.pl 读的是 `~/.claude-agent/remote.conf`**
+（或 `CLAUDE_REMOTE_CONF`），目标是 `WECOM_WEBHOOK` / `FEISHU_WEBHOOK`
+（也可用 `CLAUDE_WECOM_WEBHOOK` 等环境变量）；根本没有 `notify.conf` 这个文件。
+我上一版按 `-f notify.conf` 判存在性 → 永远为假 → 主动补发这条路**在真机上永远不可能走通**。
+
+**修法**：改成「remote.conf 里真的有 webhook 键（或环境变量给了）」才 fork notify.pl；
+否则记 `outbox_undelivered reason=no_webhook conf=<路径>` 并保留队列。仍不 fork，
+所以不会再有幽灵进程。
+
+**卡口（这条以前根本没被测过）**：`test-wecom-ws` 68 → **70**，新增场景 12 —— 起一个本地
+假 webhook（127.0.0.1，notify.pl 允许本地 http），`remote.conf` 写 `WECOM_WEBHOOK`，
+预置一条未送达回复，启动服务后断言：
+① webhook **真的收到**「补发正文」② 收成功后 outbox 被清空。
+这是「重启后主动推一条」第一次有端到端证据（此前只有「下次消息带出」被测过）。

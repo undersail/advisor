@@ -802,11 +802,73 @@ def main():
     except subprocess.TimeoutExpired:
         p11.kill()
     body11 = ' '.join(reply_text(r) for r in got11['replies'])
-    check('没配 notify.conf 时不 fork（不产生幽灵进程）',
-          'reason=no_notify_conf' in open(os.path.join(home11, '.claude-agent', 'audit.log'),
+    check('没配 webhook 时不 fork（不产生幽灵进程）',
+          'reason=no_webhook' in open(os.path.join(home11, '.claude-agent', 'audit.log'),
                                           encoding='utf-8').read(), '')
     check('队列空时说「被打断」并交代原话',
           ('被打断' in body11) and ('把服务重启一下' in body11), body11[:300])
+
+    # ---------------- 场景 12：配了 webhook → 启动时主动补发（真正「主动推」） ----------------
+    import threading
+    import http.server
+    hooks = {'bodies': []}
+
+    class _Hook(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            n = int(self.headers.get('content-length') or 0)
+            hooks['bodies'].append(self.rfile.read(n).decode('utf-8', 'replace'))
+            body = b'{"errcode":0,"errmsg":"ok"}'
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    hsr = http.server.HTTPServer(('127.0.0.1', 0), _Hook)
+    threading.Thread(target=hsr.serve_forever, daemon=True).start()
+    home12 = os.path.join(tmp, 'home12')
+    ob12 = os.path.join(home12, '.claude-agent', 'outbox')
+    os.makedirs(ob12, exist_ok=True)
+    with open(os.path.join(ob12, 'allowed.txt'), 'w', encoding='utf-8') as f:
+        f.write('1750000003\t补发正文：重启前那条结果\n')
+    # notify.pl 读的是 remote.conf 的 WECOM_WEBHOOK（不是 wecom-ws.conf）
+    rconf = os.path.join(home12, '.claude-agent', 'remote.conf')
+    with open(rconf, 'w', encoding='utf-8') as f:
+        f.write('ALLOW=*\nWECOM_WEBHOOK=http://127.0.0.1:%d/hook\n' % hsr.server_address[1])
+    os.chmod(rconf, 0o600)
+    got12 = {'replies': []}
+
+    def on_client12(srv, conn, idx):
+        buf = [srv.rest]
+        op, payload = srv.read_frame(conn, buf)
+        j = json.loads(payload)
+        srv.send_json(conn, {'cmd': 'aibot_subscribe', 'headers': j['headers'],
+                             'errcode': 0, 'errmsg': 'ok'})
+        srv.pump(conn, buf, got12, 12)
+
+    srv12 = WSServer(on_client12)
+    srv12.one_shot = True
+    srv12.start()
+    write_conf(home12, BOT_ID='bot-12', BOT_SECRET='sec-12',
+               WS_URL='ws://127.0.0.1:%d' % srv12.port, HEARTBEAT=30)
+    env12 = dict(os.environ, HOME=home12, GATEWAY_CMD=gw_cmd)
+    p12 = subprocess.Popen(['perl', WS_PL, '--serve'], env=env12,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           stdin=subprocess.DEVNULL)
+    wait_for(lambda: hooks['bodies'], seconds=45)
+    time.sleep(1)
+    p12.terminate()
+    try:
+        p12.wait(10)
+    except subprocess.TimeoutExpired:
+        p12.kill()
+    hsr.shutdown()
+    check('配了 webhook：启动就主动补发（不用等下次消息）',
+          any('补发正文' in b for b in hooks['bodies']), (hooks['bodies'] or [''])[0][:200])
+    check('webhook 补发成功后 outbox 清空', not os.listdir(ob12), os.listdir(ob12))
 
     # ---------------- 场景 9：凭据错 → 重试 5 次后停（对齐官方 SDK 默认） ----------------
     home9 = os.path.join(tmp, 'home9')

@@ -461,3 +461,24 @@ grep -E "confirm_asked|confirm_drain|gateway_asked|gateway_answer|confirm_answer
 确认时限（5 分钟）的完整验收：让它做一次需要确认的操作 → ①回 `y` 应执行 ②回 `n` 应拒绝
 ③不回，5 分钟后应收到「确认超时，这次操作没有执行」，审计里 `confirm_answered … timeout=1`
 （网关侧 `wait=295`）。想调短便于测试：`remote.conf` 里写 `CONFIRM_SECS=30`。
+
+## v0.2.7 真机必测（四条）
+
+1. **重启前有回执**：对它说「重启远程服务」。预期先收到「⚠ 这条命令会重启远程服务…」，
+   审计里 `approvals.log` 有 `self_restart`。`restart_remote.sh` 这种命名也要命中。
+2. **没配 webhook 时（默认）**：重启后主动推送**做不到**（长连接无 `req_id`）。
+   下一条消息的最前面应带出「（下面是重启前没能送达的回复）…」，且
+   ①如果那一轮产生了结果 → 抬头是「被中断了，回复在下面一起带出」
+   ②如果那一轮根本没产生回复 → 抬头是「被打断…当时你让我做的是：「原话」…」
+3. **配了 webhook 时**（`remote.conf` 加 `WECOM_WEBHOOK=…`）：重启完成后应**主动收到**
+   一条补发消息，不需要你再发话。审计有 `outbox_delivered`；没收到就看
+   `outbox_undelivered reason=…`。
+4. **没有幽灵进程**：`pgrep -fl 'wecom-ws\.pl'` 只应看到「主服务 + 它的 gateway 子进程
+   + openssl」，且**非主服务的进程不该有网络连接**。发现多出来的 wecom-ws 进程直接 kill。
+
+常用判据：
+
+```bash
+grep -E "self_restart|outbox_|inflight_" ~/.claude-agent/audit.log | tail -20
+ls -l ~/.claude-agent/outbox ~/.claude-agent/inflight 2>/dev/null   # 正常应为空或不存在
+```

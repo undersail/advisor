@@ -1272,7 +1272,7 @@ OpenAI 容忍，DeepSeek（Rust serde）直接 422。**不是厂商抽风，是�
 - 补发（两条路，都不假装成功）：
   1. **下一条消息一起带出去**（永远可用）：回复里先加「（下面是重启前没能送达的回复）」
   2. **启动时主动推**（需要自建应用 webhook）：订阅成功后用 `notify.pl` 推一条；
-     没配就留着，审计写 `outbox_undelivered reason=no_notify`
+     没配就留着，审计写 `outbox_undelivered reason=no_webhook`
 - 审计：`outbox_delivered` / `outbox_undelivered` / `outbox_push_err`
 
 **配套**：`run_shell` 命中「会重启自己的服务」的命令（`looks_like_self_restart()`）时，

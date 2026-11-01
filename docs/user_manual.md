@@ -380,6 +380,11 @@ perl remote/platform.pl --serve    # 监听 127.0.0.1:8099（默认只听本机�
 WECOM_WEBHOOK = https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...
 ```
 
+**这条通道还负责「重启后主动补发」**：智能机器人长连接是纯应答式（回复必须带那条入站
+消息的 `req_id`），进程一重启就没有可用的 `req_id`，所以「重启完成主动告诉你」只能靠
+webhook 主动发。配了它，重启后会把没送达的回复**主动推**给你；没配就等你下次发消息时
+一起带出（不会丢内容，只是晚一点）。
+
 ```bash
 perl remote/notify.pl --test              # 发一条连通性测试
 echo "构建完成" | perl remote/notify.pl -  # 发任意文本
